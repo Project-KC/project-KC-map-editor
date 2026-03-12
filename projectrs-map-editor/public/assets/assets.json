@@ -1,0 +1,17 @@
+{
+  "assets": [
+    { "id": "chair", "name": "Chair", "path": "/assets/models/chair.glb" },
+    { "id": "chest", "name": "Chest", "path": "/assets/models/chest.glb" },
+    { "id": "coalrock", "name": "Coal Rock", "path": "/assets/models/CoalRock.glb" },
+    { "id": "cookingrange", "name": "Cooking Range", "path": "/assets/models/cookingrange.glb" },
+    { "id": "copperrock", "name": "Copper Rock", "path": "/assets/models/CopperRock.glb" },
+    { "id": "fence", "name": "Fence", "path": "/assets/models/Fence.glb" },
+    { "id": "forge", "name": "Forge", "path": "/assets/models/forge.glb" },
+    { "id": "mithrilrock", "name": "Mithril Rock", "path": "/assets/models/MithrilRock.glb" },
+    { "id": "silverrock", "name": "Silver Rock", "path": "/assets/models/SilverRock.glb" },
+    { "id": "tinrock", "name": "Tin Rock", "path": "/assets/models/TinRock.glb" },
+    { "id": "tree", "name": "Tree", "path": "/assets/models/tree.glb" },
+    { "id": "tree2", "name": "Tree 2", "path": "/assets/models/tree2.glb" },
+    { "id": "well", "name": "Well", "path": "/assets/models/well.glb" }
+  ]
+}
