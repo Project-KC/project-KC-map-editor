@@ -135,6 +135,9 @@ function tuneModelLighting(model, assetPath = '') {
   let selectionHelper = null
   let saveFileHandle = null
 
+  let isDragSelecting = false
+  let dragSelectStart = null
+
   let transformMode = null
   let transformAxis = 'all'
   let transformStart = null
@@ -293,6 +296,20 @@ let brushRadius = 3.2
         Shift+A stack upward<br>
         Delete / Backspace remove selected
       </div>
+      <div id="tileSizeRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:8px;">
+        <div style="font-size:11px;opacity:0.6;margin-bottom:5px;">Scale to tiles (longest axis)</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="tile-size-btn" data-tiles="1">1</button>
+          <button class="tile-size-btn" data-tiles="2">2</button>
+          <button class="tile-size-btn" data-tiles="3">3</button>
+          <button class="tile-size-btn" data-tiles="4">4</button>
+          <button class="tile-size-btn" data-tiles="5">5</button>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:5px;align-items:center;">
+          <input id="customTileSize" type="number" min="0.25" max="20" step="0.25" value="1" style="width:60px;" />
+          <button id="applyCustomTileSize">Apply</button>
+        </div>
+      </div>
     </div>
 
     <div class="ctx-panel" id="ctx-texture" style="display:none">
@@ -376,6 +393,29 @@ let brushRadius = 3.2
   const useTexturePlaneBtn = sidebar.querySelector('#useTexturePlaneBtn')
   const textureScaleSlider = sidebar.querySelector('#textureScale')
   const rotateTextureBtn = sidebar.querySelector('#rotateTextureBtn')
+
+  // Tile-size preset buttons in select panel
+  for (const btn of sidebar.querySelectorAll('.tile-size-btn')) {
+    btn.addEventListener('click', () => {
+      if (!selectedPlacedObject) return
+      const tiles = parseFloat(btn.dataset.tiles)
+      pushUndoState()
+      scaleObjectToTiles(selectedPlacedObject, tiles)
+      updateSelectionHelper()
+      rebuildTerrain()
+    })
+  }
+  const customTileSizeInput = sidebar.querySelector('#customTileSize')
+  const applyCustomTileSizeBtn = sidebar.querySelector('#applyCustomTileSize')
+  applyCustomTileSizeBtn?.addEventListener('click', () => {
+    if (!selectedPlacedObject) return
+    const tiles = parseFloat(customTileSizeInput.value)
+    if (!isFinite(tiles) || tiles <= 0) return
+    pushUndoState()
+    scaleObjectToTiles(selectedPlacedObject, tiles)
+    updateSelectionHelper()
+    rebuildTerrain()
+  })
 
   mapWidthInput.value = map.width
   mapHeightInput.value = map.height
@@ -477,6 +517,11 @@ let brushRadius = 3.2
     }
     if (selectedTexturePlane) status += ` · Plane: ${selectedTexturePlane.textureId}`
     if (selectedPlacedObject) status += ' · Object selected'
+
+    const tileSizeRow = sidebar.querySelector('#tileSizeRow')
+    if (tileSizeRow) {
+      tileSizeRow.style.display = (state.tool === ToolMode.SELECT && selectedPlacedObject) ? 'block' : 'none'
+    }
     if (transformMode) {
       let axisLabel = 'ALL'
       if (transformAxis === 'x') axisLabel = 'X'
@@ -1003,6 +1048,24 @@ let brushRadius = 3.2
     }
   }
 
+  function scaleObjectToTiles(obj, tiles) {
+    // Preserve Y (height) scale — only change horizontal (X/Z)
+    const prevYScale = obj.scale.y
+    obj.scale.set(1, 1, 1)
+    obj.updateWorldMatrix(true, true)
+    const box = new THREE.Box3().setFromObject(obj)
+    const size = new THREE.Vector3()
+    box.getSize(size)
+    const naturalLength = Math.max(size.x, size.z)
+    if (naturalLength < 0.001) {
+      obj.scale.set(1, prevYScale, 1)
+      return
+    }
+    const s = tiles / naturalLength
+    obj.scale.set(s, prevYScale, s)
+    obj.updateWorldMatrix(true, true)
+  }
+
   function snapValue(value, step = 0.5) {
     return Math.round(value / step) * step
   }
@@ -1328,6 +1391,10 @@ function applyToolAtTile(tile, eventLike = null) {
 
     const model = await loadAssetModel(asset.path)
     tuneModelLighting(model, asset.path)
+
+    if (asset.name?.toLowerCase().includes('wall')) {
+      scaleObjectToTiles(model, 2)
+    }
 
     pushUndoState()
 
@@ -2110,6 +2177,11 @@ function applyToolAtTile(tile, eventLike = null) {
       return
     }
 
+    if (isDragSelecting && dragSelectStart) {
+      updateDragSelectBox(dragSelectStart.x, dragSelectStart.y, event.clientX, event.clientY)
+      return
+    }
+
 if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode.SELECT) {
   const key = `${tile.x},${tile.z}`
 
@@ -2136,8 +2208,70 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
 }
   })
 
+  const dragSelectBox = document.createElement('div')
+  dragSelectBox.style.cssText = 'position:fixed;border:1px solid rgba(102,204,255,0.9);background:rgba(102,204,255,0.07);pointer-events:none;display:none;z-index:9999;'
+  document.body.appendChild(dragSelectBox)
+
+  function updateDragSelectBox(x1, y1, x2, y2) {
+    dragSelectBox.style.left = Math.min(x1, x2) + 'px'
+    dragSelectBox.style.top = Math.min(y1, y2) + 'px'
+    dragSelectBox.style.width = Math.abs(x2 - x1) + 'px'
+    dragSelectBox.style.height = Math.abs(y2 - y1) + 'px'
+  }
+
+  function worldToScreen(worldPos) {
+    const v = worldPos.clone().project(camera)
+    const rect = renderer.domElement.getBoundingClientRect()
+    return {
+      x: (v.x * 0.5 + 0.5) * rect.width + rect.left,
+      y: (-v.y * 0.5 + 0.5) * rect.height + rect.top
+    }
+  }
+
   renderer.domElement.addEventListener('mousedown', async (event) => {
     if (event.button !== 0) return
+
+    // SELECT tool drag-select starts before tile check so it works anywhere on canvas
+    if (state.tool === ToolMode.SELECT && !transformMode) {
+      const pickedPlane = pickTexturePlane(event)
+      if (pickedPlane?.userData?.texturePlane) {
+        selectedTexturePlane = pickedPlane.userData.texturePlane
+        selectedPlacedObject = null
+        selectedPlacedObjects = []
+        updateSelectionHelper()
+        updateToolUI()
+        return
+      }
+
+      const pickedObject = pickPlacedObject(event)
+      if (pickedObject) {
+        if (event.shiftKey) {
+          const idx = selectedPlacedObjects.indexOf(pickedObject)
+          if (idx >= 0) {
+            selectedPlacedObjects.splice(idx, 1)
+            selectedPlacedObject = selectedPlacedObjects[selectedPlacedObjects.length - 1] ?? null
+          } else {
+            selectedPlacedObjects.push(pickedObject)
+            selectedPlacedObject = pickedObject
+          }
+        } else {
+          selectedPlacedObjects = [pickedObject]
+          selectedPlacedObject = pickedObject
+        }
+        selectedTexturePlane = null
+        updateSelectionHelper()
+        updateToolUI()
+        return
+      }
+
+      // No object hit — start drag select
+      isDragSelecting = true
+      dragSelectStart = { x: event.clientX, y: event.clientY }
+      dragSelectBox.style.display = 'block'
+      updateDragSelectBox(event.clientX, event.clientY, event.clientX, event.clientY)
+      if (!event.shiftKey) clearSelection()
+      return
+    }
 
     const tile = pickTile(event)
     if (!tile) return
@@ -2175,40 +2309,6 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
       return
     }
 
-    if (state.tool === ToolMode.SELECT) {
-      const pickedPlane = pickTexturePlane(event)
-      if (pickedPlane?.userData?.texturePlane) {
-        selectedTexturePlane = pickedPlane.userData.texturePlane
-        selectedPlacedObject = null
-        updateSelectionHelper()
-        updateToolUI()
-        return
-      }
-
-      const pickedObject = pickPlacedObject(event)
-      if (pickedObject) {
-        if (event.shiftKey) {
-          const idx = selectedPlacedObjects.indexOf(pickedObject)
-          if (idx >= 0) {
-            selectedPlacedObjects.splice(idx, 1)
-            selectedPlacedObject = selectedPlacedObjects[selectedPlacedObjects.length - 1] ?? null
-          } else {
-            selectedPlacedObjects.push(pickedObject)
-            selectedPlacedObject = pickedObject
-          }
-        } else {
-          selectedPlacedObjects = [pickedObject]
-          selectedPlacedObject = pickedObject
-        }
-        selectedTexturePlane = null
-        updateSelectionHelper()
-        updateToolUI()
-        return
-      }
-
-      if (!event.shiftKey) clearSelection()
-      return
-    }
 
     if (state.tool === ToolMode.PLACE) {
       await placeSelectedAsset(tile, event)
@@ -2232,6 +2332,40 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
       state.isPainting = false
       state.draggedTiles.clear()
       state.historyCapturedThisStroke = false
+
+      if (isDragSelecting && dragSelectStart) {
+        isDragSelecting = false
+        dragSelectBox.style.display = 'none'
+
+        const dx = event.clientX - dragSelectStart.x
+        const dy = event.clientY - dragSelectStart.y
+
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+          const left = Math.min(dragSelectStart.x, event.clientX)
+          const right = Math.max(dragSelectStart.x, event.clientX)
+          const top = Math.min(dragSelectStart.y, event.clientY)
+          const bottom = Math.max(dragSelectStart.y, event.clientY)
+
+          if (!event.shiftKey) {
+            selectedPlacedObjects = []
+            selectedPlacedObject = null
+          }
+
+          for (const obj of placedGroup.children) {
+            const s = worldToScreen(obj.position)
+            if (s.x >= left && s.x <= right && s.y >= top && s.y <= bottom) {
+              if (!selectedPlacedObjects.includes(obj)) selectedPlacedObjects.push(obj)
+            }
+          }
+
+          selectedPlacedObject = selectedPlacedObjects[selectedPlacedObjects.length - 1] ?? null
+          selectedTexturePlane = null
+          updateSelectionHelper()
+          updateToolUI()
+        }
+
+        dragSelectStart = null
+      }
     }
   })
 
