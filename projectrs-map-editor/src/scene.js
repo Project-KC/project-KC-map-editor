@@ -1766,31 +1766,69 @@ function applyToolAtTile(tile, eventLike = null) {
     levelHeightInput.value = ''
   })
 
-  saveMapBtn.addEventListener('click', async () => {
-    const data = JSON.stringify(buildSaveData(), null, 2)
-    if (window.showSaveFilePicker) {
-      try {
-        if (!saveFileHandle) {
-          saveFileHandle = await window.showSaveFilePicker({
-            suggestedName: 'main.json',
-            startIn: 'documents',
-            types: [{ description: 'JSON Map', accept: { 'application/json': ['.json'] } }]
-          })
-        }
-        const writable = await saveFileHandle.createWritable()
-        await writable.write(data)
-        await writable.close()
-        const prev = statusText.textContent
-        statusText.textContent = 'Saved'
-        setTimeout(() => { statusText.textContent = prev }, 1500)
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          console.warn('Save failed:', e)
-          downloadJSON('main.json', buildSaveData())
-        }
+  async function getSaveHandle() {
+    if (saveFileHandle) return saveFileHandle
+    // Try to restore handle from IndexedDB
+    try {
+      const stored = await idbGet('saveFileHandle')
+      if (stored) {
+        const perm = await stored.queryPermission({ mode: 'readwrite' })
+        if (perm === 'granted') { saveFileHandle = stored; return saveFileHandle }
+        const req = await stored.requestPermission({ mode: 'readwrite' })
+        if (req === 'granted') { saveFileHandle = stored; return saveFileHandle }
       }
-    } else {
-      downloadJSON('main.json', buildSaveData())
+    } catch {}
+    return null
+  }
+
+  async function idbGet(key) {
+    return new Promise((resolve) => {
+      const req = indexedDB.open('projectrs', 1)
+      req.onupgradeneeded = () => req.result.createObjectStore('kv')
+      req.onsuccess = () => {
+        const tx = req.result.transaction('kv', 'readonly')
+        const r = tx.objectStore('kv').get(key)
+        r.onsuccess = () => resolve(r.result)
+        r.onerror = () => resolve(null)
+      }
+      req.onerror = () => resolve(null)
+    })
+  }
+
+  async function idbSet(key, value) {
+    return new Promise((resolve) => {
+      const req = indexedDB.open('projectrs', 1)
+      req.onupgradeneeded = () => req.result.createObjectStore('kv')
+      req.onsuccess = () => {
+        const tx = req.result.transaction('kv', 'readwrite')
+        tx.objectStore('kv').put(value, key)
+        tx.oncomplete = resolve
+        tx.onerror = resolve
+      }
+      req.onerror = resolve
+    })
+  }
+
+  saveMapBtn.addEventListener('click', async () => {
+    if (!window.showSaveFilePicker) { downloadJSON('main.json', buildSaveData()); return }
+    try {
+      let handle = await getSaveHandle()
+      if (!handle) {
+        handle = await window.showSaveFilePicker({
+          suggestedName: 'main.json',
+          types: [{ description: 'JSON Map', accept: { 'application/json': ['.json'] } }]
+        })
+        saveFileHandle = handle
+        await idbSet('saveFileHandle', handle)
+      }
+      const writable = await handle.createWritable()
+      await writable.write(JSON.stringify(buildSaveData(), null, 2))
+      await writable.close()
+      const prev = statusText.textContent
+      statusText.textContent = 'Saved'
+      setTimeout(() => { statusText.textContent = prev }, 1500)
+    } catch (e) {
+      if (e.name !== 'AbortError') { console.warn('Save failed:', e); downloadJSON('main.json', buildSaveData()) }
     }
   })
 
@@ -2356,6 +2394,11 @@ if (key === 'e') {
         if (key === 'x') transformAxis = 'x'
         else if (key === 'y') transformAxis = 'ground-z'
         else if (key === 'z') transformAxis = 'height'
+      } else if (transformMode === 'scale') {
+        // Z = up (world Y), Y = depth (world Z), X = X — matches move convention
+        if (key === 'x') transformAxis = 'x'
+        else if (key === 'y') transformAxis = 'z'
+        else if (key === 'z') transformAxis = 'y'
       } else {
         transformAxis = key
       }
