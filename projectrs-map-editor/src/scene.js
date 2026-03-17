@@ -84,7 +84,7 @@ function tuneModelLighting(model) {
   waterTexture.wrapS = THREE.RepeatWrapping
   waterTexture.wrapT = THREE.RepeatWrapping
 
-  let map = new MapData(24, 24)
+  let map = new MapData(64, 64)
   const placedGroup = new THREE.Group()
   scene.add(placedGroup)
 
@@ -145,12 +145,6 @@ const state = {
 
 let brushRadius = 3.2
 
-  for (let z = 8; z < 16; z++) {
-    for (let x = 8; x < 16; x++) {
-      map.raiseTile(x, z, 1)
-    }
-  }
-
   const raycaster = new THREE.Raycaster()
   const mouse = new THREE.Vector2()
 
@@ -183,14 +177,31 @@ let brushRadius = 3.2
     <button id="restoreAutoSaveBtn">Restore Auto-Save</button>
     <span class="top-sep"></span>
     <span class="top-label">W</span>
-    <input id="mapWidthInput" type="number" min="4" value="24" />
+    <input id="mapWidthInput" type="number" min="4" value="64" />
     <span class="top-label">H</span>
-    <input id="mapHeightInput" type="number" min="4" value="24" />
+    <input id="mapHeightInput" type="number" min="4" value="64" />
     <button id="resizeMapBtn">Resize</button>
     <span class="top-sep"></span>
     <button id="helpBtn" title="Keyboard shortcuts">?</button>
   `
   uiRoot.appendChild(topBar)
+
+  // Compass
+  const compass = document.createElement('div')
+  compass.id = 'compass'
+  compass.innerHTML = `
+    <div id="compass-needle">
+      <div id="compass-north">N</div>
+      <div id="compass-arrow-n"></div>
+      <div id="compass-arrow-s"></div>
+    </div>
+  `
+  uiRoot.appendChild(compass)
+
+  function updateCompass() {
+    const angleDeg = (Math.PI / 2 - yaw) * (180 / Math.PI)
+    document.getElementById('compass-needle').style.transform = `rotate(${angleDeg}deg)`
+  }
 
   // Sidebar
   const sidebar = document.createElement('div')
@@ -229,10 +240,13 @@ let brushRadius = 3.2
     </div>
 
     <div class="ctx-panel" id="ctx-place" style="display:none">
-      <select id="assetSectionSelect"></select>
-      <select id="assetGroupSelect"></select>
+      <div class="asset-tabs">
+        <button class="asset-tab active" id="tabProps">Props</button>
+        <button class="asset-tab" id="tabModular">Modular</button>
+      </div>
+      <select id="assetGroupSelect" style="display:none"></select>
       <input id="assetSearch" type="text" placeholder="Search assets..." />
-      <select id="assetSelect" size="9" style="width:100%;margin-top:5px;font-size:12px;background:rgba(0,0,0,0.35);color:#fff;border:1px solid rgba(255,255,255,0.14);border-radius:4px;"></select>
+      <div id="assetGrid" class="asset-grid"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px;">
         <button id="switchPlaceBtn">Use in Place</button>
         <button id="refreshPreviewBtn">Refresh</button>
@@ -316,10 +330,11 @@ let brushRadius = 3.2
   const statusText = statusBar.querySelector('#statusText')
   const hoverText = statusBar.querySelector('#hoverText')
 
-  const assetSectionSelect = sidebar.querySelector('#assetSectionSelect')
+  const tabProps = sidebar.querySelector('#tabProps')
+  const tabModular = sidebar.querySelector('#tabModular')
   const assetGroupSelect = sidebar.querySelector('#assetGroupSelect')
   const assetSearch = sidebar.querySelector('#assetSearch')
-  const assetSelect = sidebar.querySelector('#assetSelect')
+  const assetGrid = sidebar.querySelector('#assetGrid')
   const switchPlaceBtn = sidebar.querySelector('#switchPlaceBtn')
   const refreshPreviewBtn = sidebar.querySelector('#refreshPreviewBtn')
 
@@ -1291,14 +1306,6 @@ function applyToolAtTile(tile, eventLike = null) {
     updateToolUI()
   }
 
-  function countAssetsBySection() {
-    const counts = new Map()
-    for (const asset of assetRegistry) {
-      counts.set(asset.section, (counts.get(asset.section) || 0) + 1)
-    }
-    return counts
-  }
-
   function countAssetsByGroup(section) {
     const counts = new Map()
     for (const asset of assetRegistry) {
@@ -1306,25 +1313,6 @@ function applyToolAtTile(tile, eventLike = null) {
       counts.set(asset.group, (counts.get(asset.group) || 0) + 1)
     }
     return counts
-  }
-
-  function refreshAssetSectionOptions() {
-    const counts = countAssetsBySection()
-    const sections = ['all', ...Array.from(counts.keys()).sort((a, b) => a.localeCompare(b))]
-
-    assetSectionSelect.innerHTML = ''
-    for (const section of sections) {
-      const option = document.createElement('option')
-      option.value = section
-      option.textContent =
-        section === 'all'
-          ? `All Sections (${assetRegistry.length})`
-          : `${section} (${counts.get(section) || 0})`
-      assetSectionSelect.appendChild(option)
-    }
-
-    if (!sections.includes(assetSectionFilter)) assetSectionFilter = 'all'
-    assetSectionSelect.value = assetSectionFilter
   }
 
   function refreshAssetGroupOptions() {
@@ -1337,13 +1325,70 @@ function applyToolAtTile(tile, eventLike = null) {
       option.value = group
       option.textContent =
         group === 'all'
-          ? `All Groups (${Array.from(counts.values()).reduce((a, b) => a + b, 0)})`
+          ? `All (${Array.from(counts.values()).reduce((a, b) => a + b, 0)})`
           : `${group} (${counts.get(group) || 0})`
       assetGroupSelect.appendChild(option)
     }
 
     if (!assetGroupsForCurrentSection.includes(assetGroupFilter)) assetGroupFilter = 'all'
     assetGroupSelect.value = assetGroupFilter
+  }
+
+  // --- Thumbnail system ---
+  const thumbnailCache = new Map()
+  let thumbRenderer = null
+  let thumbScene = null
+  let thumbCamera = null
+
+  function initThumbRenderer() {
+    if (thumbRenderer) return
+    thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+    thumbRenderer.setSize(80, 80)
+    thumbRenderer.outputColorSpace = THREE.SRGBColorSpace
+
+    thumbScene = new THREE.Scene()
+    thumbScene.background = new THREE.Color(0x1e2230)
+    thumbScene.add(new THREE.AmbientLight(0xffffff, 0.75))
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.3)
+    dirLight.position.set(4, 7, 5)
+    thumbScene.add(dirLight)
+
+    thumbCamera = new THREE.PerspectiveCamera(40, 1, 0.001, 10000)
+  }
+
+  async function generateThumbnail(asset) {
+    if (thumbnailCache.has(asset.id)) return thumbnailCache.get(asset.id)
+
+    initThumbRenderer()
+
+    let model
+    try {
+      model = await loadAssetModel(asset.path)
+    } catch {
+      return null
+    }
+
+    const bounds = model.userData.bounds || { width: 1, height: 1, depth: 1 }
+    const maxDim = Math.max(bounds.width, bounds.height, bounds.depth, 0.01)
+
+    // model is bottom-center pivoted — shift down so it's truly centered
+    model.position.set(0, -bounds.height / 2, 0)
+    thumbScene.add(model)
+
+    const fovRad = (40 * Math.PI) / 180
+    const dist = (maxDim / 2) / Math.tan(fovRad / 2) * 1.6
+    thumbCamera.position.set(dist * 0.75, dist * 0.55, dist * 0.75)
+    thumbCamera.lookAt(0, 0, 0)
+    thumbCamera.near = dist * 0.01
+    thumbCamera.far = dist * 10
+    thumbCamera.updateProjectionMatrix()
+
+    thumbRenderer.render(thumbScene, thumbCamera)
+    const dataUrl = thumbRenderer.domElement.toDataURL()
+
+    thumbScene.remove(model)
+    thumbnailCache.set(asset.id, dataUrl)
+    return dataUrl
   }
 
   function refreshAssetList() {
@@ -1368,20 +1413,48 @@ function applyToolAtTile(tile, eventLike = null) {
       return haystack.includes(q)
     })
 
-    assetSelect.innerHTML = ''
-
-    for (const asset of filteredAssets) {
-      const option = document.createElement('option')
-      option.value = asset.id
-      option.textContent = `${asset.name} — ${asset.group}`
-      assetSelect.appendChild(option)
-    }
-
     if (filteredAssets.length && !filteredAssets.find((a) => a.id === selectedAssetId)) {
       selectedAssetId = filteredAssets[0].id
     }
 
-    assetSelect.value = selectedAssetId || ''
+    assetGrid.innerHTML = ''
+
+    if (!filteredAssets.length) {
+      assetGrid.innerHTML = '<div class="asset-grid-empty">No assets found</div>'
+      updateToolUI()
+      return
+    }
+
+    for (const asset of filteredAssets) {
+      const card = document.createElement('div')
+      card.className = 'asset-card' + (asset.id === selectedAssetId ? ' selected' : '')
+      card.dataset.assetId = asset.id
+
+      const img = document.createElement('img')
+      img.className = 'asset-thumb'
+      img.alt = asset.name
+
+      const label = document.createElement('div')
+      label.className = 'asset-label'
+      label.textContent = asset.name
+
+      card.appendChild(img)
+      card.appendChild(label)
+      assetGrid.appendChild(card)
+
+      card.addEventListener('click', async () => {
+        selectedAssetId = asset.id
+        assetGrid.querySelectorAll('.asset-card').forEach((c) => c.classList.remove('selected'))
+        card.classList.add('selected')
+        updateToolUI()
+        await updatePreviewObject()
+      })
+
+      generateThumbnail(asset).then((url) => {
+        if (url) img.src = url
+      })
+    }
+
     updateToolUI()
   }
 
@@ -1460,8 +1533,22 @@ function applyToolAtTile(tile, eventLike = null) {
     }
   }
 
-  assetSectionSelect.addEventListener('change', async (e) => {
-    assetSectionFilter = e.target.value
+  tabProps.addEventListener('click', async () => {
+    assetSectionFilter = 'Models'
+    assetGroupFilter = 'all'
+    tabProps.classList.add('active')
+    tabModular.classList.remove('active')
+    assetGroupSelect.style.display = 'none'
+    refreshAssetList()
+    await updatePreviewObject()
+  })
+
+  tabModular.addEventListener('click', async () => {
+    assetSectionFilter = 'Modular Assets'
+    assetGroupFilter = 'all'
+    tabModular.classList.add('active')
+    tabProps.classList.remove('active')
+    assetGroupSelect.style.display = ''
     refreshAssetGroupOptions()
     refreshAssetList()
     await updatePreviewObject()
@@ -1474,12 +1561,6 @@ function applyToolAtTile(tile, eventLike = null) {
   })
 
   assetSearch.addEventListener('input', refreshAssetList)
-
-  assetSelect.addEventListener('change', async (e) => {
-    selectedAssetId = e.target.value
-    updateToolUI()
-    await updatePreviewObject()
-  })
 
   switchPlaceBtn.addEventListener('click', async () => {
     setTool(ToolMode.PLACE)
@@ -1810,6 +1891,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
     camera.position.y = target.y + Math.cos(pitch) * distance
     camera.position.z = target.z + Math.sin(yaw) * Math.sin(pitch) * distance
     camera.lookAt(target)
+    updateCompass()
   }
 
   function panCamera(deltaX, deltaY) {
@@ -2136,16 +2218,22 @@ if (key === 'e') {
   async function initAssets() {
     try {
       assetRegistry = await loadAssetRegistry()
-      filteredAssets = [...assetRegistry]
-      selectedAssetId = filteredAssets[0]?.id || ''
 
-      refreshAssetSectionOptions()
-      refreshAssetGroupOptions()
+      // Default to Props tab
+      assetSectionFilter = 'Models'
+      assetGroupFilter = 'all'
+      tabProps.classList.add('active')
+      tabModular.classList.remove('active')
+      assetGroupSelect.style.display = 'none'
+
+      filteredAssets = [...assetRegistry]
+      selectedAssetId = filteredAssets.find((a) => a.section === 'Models')?.id || filteredAssets[0]?.id || ''
+
       refreshAssetList()
 
       await updatePreviewObject()
     } catch (err) {
-      assetSelect.innerHTML = '<option value="">Failed to load assets</option>'
+      assetGrid.innerHTML = '<div class="asset-grid-empty">Failed to load assets</div>'
       console.error(err)
     }
   }

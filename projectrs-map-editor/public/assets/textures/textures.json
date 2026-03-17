@@ -55,7 +55,26 @@
   { "id": "tex54", "name": "Texture 54", "path": "/assets/textures/54.png" },
   { "id": "tex55", "name": "Texture 55", "path": "/assets/textures/55.png" },
   { "id": "tex56", "name": "Texture 56", "path": "/assets/textures/56.png" },
-  { "id": "tex57", "name": "Texture 57", "path": "/assets/textures/57.png" }
-
-
+  { "id": "tex57", "name": "Texture 57", "path": "/assets/textures/57.png" },
+  { "id": "tex58", "name": "Texture 58", "path": "/assets/textures/58.png" },
+  { "id": "tex59", "name": "Texture 59", "path": "/assets/textures/59.png" },
+  { "id": "tex60", "name": "Texture 60", "path": "/assets/textures/60.png" },
+  { "id": "tex61", "name": "Texture 61", "path": "/assets/textures/61.png" },
+  { "id": "tex62", "name": "Texture 62", "path": "/assets/textures/62.png" },
+  { "id": "tex63", "name": "Texture 63", "path": "/assets/textures/63.png" },
+  { "id": "tex64", "name": "Texture 64", "path": "/assets/textures/64.png" },
+  { "id": "tex65", "name": "Texture 65", "path": "/assets/textures/65.png" },
+  { "id": "tex66", "name": "Texture 66", "path": "/assets/textures/66.png" },
+  { "id": "tex67", "name": "Texture 67", "path": "/assets/textures/67.png" },
+  { "id": "tex68", "name": "Texture 68", "path": "/assets/textures/68.png" },
+  { "id": "tex69", "name": "Texture 69", "path": "/assets/textures/69.png" },
+  { "id": "tex70", "name": "Texture 70", "path": "/assets/textures/70.png" },
+  { "id": "tex71", "name": "Texture 71", "path": "/assets/textures/71.png" },
+  { "id": "tex72", "name": "Texture 72", "path": "/assets/textures/72.png" },
+  { "id": "tex73", "name": "Texture 73", "path": "/assets/textures/73.png" },
+  { "id": "tex74", "name": "Texture 74", "path": "/assets/textures/74.png" },
+  { "id": "tex75", "name": "Texture 75", "path": "/assets/textures/75.png" },
+  { "id": "tex0", "name": "Texture 0", "path": "/assets/textures/0.png" },
+  { "id": "tex-tree-leaves", "name": "Tree Leaves", "path": "/assets/textures/tree leaves.png" },
+  { "id": "tex-7f0972d5", "name": "Texture 7f0972d5", "path": "/assets/textures/7f0972d5-71be-48f5-ab41-c14c33b43671.png" }
 ]

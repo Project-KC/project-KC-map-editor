@@ -25,12 +25,7 @@
       "name": "CopperRock",
       "path": "/assets/models/CopperRock.glb"
     },
-    {
-      "id": "Fence",
-      "name": "Fence",
-      "path": "/assets/models/Fence.glb"
-    },
-    {
+{
       "id": "forge",
       "name": "Forge",
       "path": "/assets/models/forge.glb"
@@ -424,6 +419,51 @@
       "id": "stone wall",
       "name": "Stone Wall",
       "path": "/assets/Modular assets/Stone modular/stone wall.glb"
+    },
+    {
+      "id": "white corner",
+      "name": "White Corner",
+      "path": "/assets/Modular assets/white modular/white corner.glb"
+    },
+    {
+      "id": "white doorway",
+      "name": "White Doorway",
+      "path": "/assets/Modular assets/white modular/white doorway.glb"
+    },
+    {
+      "id": "white halfwall",
+      "name": "White Halfwall",
+      "path": "/assets/Modular assets/white modular/white halfwall.glb"
+    },
+    {
+      "id": "white small wall",
+      "name": "White Small Wall",
+      "path": "/assets/Modular assets/white modular/white small wallglb.glb"
+    },
+    {
+      "id": "white wall",
+      "name": "White Wall",
+      "path": "/assets/Modular assets/white modular/white wall.glb"
+    },
+    {
+      "id": "white window",
+      "name": "White Window",
+      "path": "/assets/Modular assets/white modular/white window.glb"
+    },
+    {
+      "id": "wood pole",
+      "name": "Wood Pole",
+      "path": "/assets/Modular assets/white modular/wood pole.glb"
+    },
+    {
+      "id": "anvil",
+      "name": "Anvil",
+      "path": "/assets/models/anvil.glb"
+    },
+    {
+      "id": "willow tree",
+      "name": "Willow Tree",
+      "path": "/assets/models/willow tree.glb"
     }
   ]
 }
