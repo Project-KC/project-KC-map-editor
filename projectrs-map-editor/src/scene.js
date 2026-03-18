@@ -116,6 +116,7 @@ function tuneModelLighting(model, assetPath = '') {
   let selectedAssetId = ''
   let previewObject = null
   let previewRotation = 0
+  let hoverEdgeHelper = null
 
   let assetSectionFilter = 'all'
   let assetGroupFilter = 'all'
@@ -363,7 +364,7 @@ let brushRadius = 3.2
       <b>Tools:</b> 1 Terrain · 2 Paint · 3 Place · 4 Select · 5 Texture · 6 Texture Plane<br>
       <b>History:</b> Ctrl+Z undo · Ctrl+Shift+Z / Ctrl+Y redo<br>
       <b>Transform:</b> G move · R rotate · S scale · X/Y/Z axis · click confirm · Esc cancel<br>
-      <b>While moving:</b> Q raise · E lower · Shift snap to grid<br>
+      <b>While moving:</b> Q raise · E lower · Shift snap to grid · Alt disable edge snap<br>
       <b>Terrain:</b> Q/E raise/lower hovered · L level mode · F flip tile split<br>
       <b>Duplicate:</b> Shift+D right · Alt+D forward · Shift+A stack up<br>
       <b>Other:</b> K snap to grid · V toggle plane vertical/horizontal · Del remove selected
@@ -716,6 +717,7 @@ let brushRadius = 3.2
 
   function setTool(mode) {
     state.tool = mode
+    if (hoverEdgeHelper) { scene.remove(hoverEdgeHelper); hoverEdgeHelper = null }
     updateToolUI()
     updatePreviewObject().catch(console.error)
   }
@@ -1117,6 +1119,15 @@ let brushRadius = 3.2
     updateSelectionHelper()
   }
 
+  function updateTexturePlaneMeshTransform(plane) {
+    if (!texturePlaneGroup) return
+    const mesh = texturePlaneGroup.children.find((m) => m.userData.texturePlane === plane)
+    if (!mesh) return
+    mesh.position.set(plane.position.x, plane.position.y, plane.position.z)
+    mesh.rotation.set(plane.rotation?.x ?? 0, plane.rotation?.y ?? 0, plane.rotation?.z ?? 0)
+    mesh.scale.set(plane.scale?.x ?? 1, plane.scale?.y ?? 1, plane.scale?.z ?? 1)
+  }
+
   function updateMouse(event) {
     const rect = renderer.domElement.getBoundingClientRect()
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
@@ -1140,6 +1151,16 @@ let brushRadius = 3.2
     const hits = raycaster.intersectObjects(getTerrainMeshes())
     if (!hits.length) return null
     return hits[0].point.clone()
+  }
+
+  const _hPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+  const _hPlaneTarget = new THREE.Vector3()
+  function pickHorizontalPlane(event, y = 0) {
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+    _hPlane.constant = -y
+    raycaster.ray.intersectPlane(_hPlane, _hPlaneTarget)
+    return _hPlaneTarget.length() > 0.001 ? _hPlaneTarget.clone() : null
   }
 
   const _surfaceQuat = new THREE.Quaternion()
@@ -1266,14 +1287,7 @@ let brushRadius = 3.2
   }
 
   function getTexturePlaneSize(textureId) {
-    const meta = textureMeta.get(textureId)
-    if (!meta) return { width: 1, height: 1 }
-
-    const MAX_SIZE = 4
-    return {
-      width: Math.min(MAX_SIZE, Math.max(0.25, meta.width / 64)),
-      height: Math.min(MAX_SIZE, Math.max(0.25, meta.height / 64))
-    }
+    return { width: 1, height: 1 }
   }
 
   function getPlaneFootprint(plane) {
@@ -1440,6 +1454,46 @@ let brushRadius = 3.2
     sourcePlane.position.y = targetPlane.position.y + (target.height + source.height) * 0.5
   }
 
+
+  function findNearbyPlaneSnap(movingPlane, worldX, worldZ) {
+    const SNAP_DIST = 0.5
+    const movingFP = getPlaneFootprint(movingPlane)
+    const movingRotY = movingPlane.rotation?.y || 0
+
+    let best = null
+    let bestDist = SNAP_DIST
+
+    for (const plane of map.texturePlanes) {
+      if (plane === movingPlane) continue
+      if (!plane.vertical || !movingPlane.vertical) continue
+
+      const targetFP = getPlaneFootprint(plane)
+      const rotY = plane.rotation?.y || 0
+
+      const rotDiff = ((movingRotY - rotY) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
+      const aligned = rotDiff < 0.26 || rotDiff > (Math.PI * 2 - 0.26)
+      if (!aligned) continue
+
+      const right = getRightVector(rotY)
+      const halfSpan = (targetFP.width + movingFP.width) * 0.5
+
+      const candidates = [
+        { x: plane.position.x + right.x * halfSpan, z: plane.position.z + right.z * halfSpan, y: plane.position.y },
+        { x: plane.position.x - right.x * halfSpan, z: plane.position.z - right.z * halfSpan, y: plane.position.y }
+      ]
+
+      for (const c of candidates) {
+        const dist = Math.sqrt((worldX - c.x) ** 2 + (worldZ - c.z) ** 2)
+        if (dist < bestDist) {
+          bestDist = dist
+          best = c
+        }
+      }
+    }
+
+    return best
+  }
+
   function snapObjectFlushAlongPosition(basePosition, baseRotationY, targetFootprint, sourceFootprint, direction = 'right') {
     const vec = direction === 'forward' ? getForwardVector(baseRotationY) : getRightVector(baseRotationY)
 
@@ -1470,9 +1524,11 @@ let brushRadius = 3.2
     }
 
     if (selectedPlacedObject) {
-      selectedPlacedObject.rotation.x = snapAngleToQuarterIfClose(selectedPlacedObject.rotation.x)
-      selectedPlacedObject.rotation.y = snapAngleToQuarterIfClose(selectedPlacedObject.rotation.y)
-      selectedPlacedObject.rotation.z = snapAngleToQuarterIfClose(selectedPlacedObject.rotation.z)
+      for (const obj of selectedPlacedObjects) {
+        obj.rotation.x = snapAngleToQuarterIfClose(obj.rotation.x)
+        obj.rotation.y = snapAngleToQuarterIfClose(obj.rotation.y)
+        obj.rotation.z = snapAngleToQuarterIfClose(obj.rotation.z)
+      }
       updateSelectionHelper()
     }
   }
@@ -1608,6 +1664,64 @@ function applyToolAtTile(tile, eventLike = null) {
 
 }
 
+  // Returns the nearest tile-edge center {x, z} for wall placement based on cursor u/v
+  // Walls snap 0.25 tiles inward from the chosen edge so the wall body sits inside
+  // the tile with its outer face roughly flush at the tile boundary.
+  function getWallEdgeSnap(hovered) {
+    if (!hovered) return null
+    const { x, z, u = 0.5, v = 0.5 } = hovered
+    const dL = u, dR = 1 - u, dT = v, dB = 1 - v
+    const min = Math.min(dL, dR, dT, dB)
+    if (min === dL) return { x: x + 0.25, z: z + 0.5 }
+    if (min === dR) return { x: x + 0.75, z: z + 0.5 }
+    if (min === dT) return { x: x + 0.5,  z: z + 0.25 }
+    return                 { x: x + 0.5,  z: z + 0.75 }
+  }
+
+  function updateHoverEdgeHelper() {
+    if (hoverEdgeHelper) { scene.remove(hoverEdgeHelper); hoverEdgeHelper = null }
+
+    if (state.tool !== ToolMode.PLACE) return
+    const asset = assetRegistry.find((a) => a.id === selectedAssetId)
+    if (!asset?.name?.toLowerCase().includes('wall')) return
+
+    const hovered = state.hovered
+    if (hovered == null) return
+    const { x, z, u = 0.5, v = 0.5 } = hovered
+    const h = map.getTileCornerHeights(x, z)
+
+    // Marker positions match the inset snap positions
+    const edges = [
+      { px: x + 0.25, pz: z + 0.5,  ht: (h.tl * 0.75 + h.tr * 0.25 + h.bl * 0.75 + h.br * 0.25) * 0.5 },
+      { px: x + 0.75, pz: z + 0.5,  ht: (h.tl * 0.25 + h.tr * 0.75 + h.bl * 0.25 + h.br * 0.75) * 0.5 },
+      { px: x + 0.5,  pz: z + 0.25, ht: (h.tl * 0.75 + h.tr * 0.75 + h.bl * 0.25 + h.br * 0.25) * 0.5 },
+      { px: x + 0.5,  pz: z + 0.75, ht: (h.tl * 0.25 + h.tr * 0.25 + h.bl * 0.75 + h.br * 0.75) * 0.5 },
+    ]
+    const dists = [u, 1 - u, v, 1 - v]
+    const nearestIdx = dists.indexOf(Math.min(...dists))
+
+    const group = new THREE.Group()
+    const S = 0.22
+
+    for (let i = 0; i < 4; i++) {
+      const { px, pz, ht } = edges[i]
+      const y = ht + 0.06
+      const active = i === nearestIdx
+      const color = active ? 0x55aaff : 0x2255aa
+      const opacity = active ? 1.0 : 0.45
+      const pts = [
+        new THREE.Vector3(px - S, y, pz), new THREE.Vector3(px + S, y, pz),
+        new THREE.Vector3(px, y, pz - S), new THREE.Vector3(px, y, pz + S),
+      ]
+      const geo = new THREE.BufferGeometry().setFromPoints(pts)
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity })
+      group.add(new THREE.LineSegments(geo, mat))
+    }
+
+    hoverEdgeHelper = group
+    scene.add(hoverEdgeHelper)
+  }
+
   async function updatePreviewObject() {
     if (previewObject) {
       scene.remove(previewObject)
@@ -1633,6 +1747,10 @@ function applyToolAtTile(tile, eventLike = null) {
     scene.add(previewObject)
 
     const pos = tileWorldPosition(state.hovered.x, state.hovered.z)
+    if (asset.name?.toLowerCase().includes('wall')) {
+      const snap = getWallEdgeSnap(state.hovered)
+      if (snap) { pos.x = snap.x; pos.z = snap.z }
+    }
     previewObject.position.copy(pos)
   }
 
@@ -1653,6 +1771,10 @@ function applyToolAtTile(tile, eventLike = null) {
     pushUndoState()
 
     const pos = tileWorldPosition(tile.x, tile.z)
+    if (asset.name?.toLowerCase().includes('wall')) {
+      const snap = getWallEdgeSnap(tile)
+      if (snap) { pos.x = snap.x; pos.z = snap.z }
+    }
     if (event) {
       const sp = pickSurfacePoint(event)
       if (sp) pos.y = sp.y
@@ -1718,6 +1840,59 @@ function applyToolAtTile(tile, eventLike = null) {
       return
     }
 
+    if (selectedPlacedObjects.length > 1) {
+      let offsetVec = new THREE.Vector3()
+
+      if (mode !== 'stack') {
+        const primaryFootprint = getObjectFootprint(selectedPlacedObject)
+        const newPos = snapObjectFlushAlongPosition(
+          selectedPlacedObject.position,
+          selectedPlacedObject.rotation.y,
+          primaryFootprint,
+          primaryFootprint,
+          mode === 'forward' ? 'forward' : 'right'
+        )
+        offsetVec = newPos.clone().sub(selectedPlacedObject.position)
+      }
+
+      const newModels = []
+      for (const src of selectedPlacedObjects) {
+        if (!src.userData?.assetId) continue
+        const asset = assetRegistry.find((a) => a.id === src.userData.assetId)
+        if (!asset) continue
+
+        const model = await loadAssetModel(asset.path)
+        tuneModelLighting(model, asset.path)
+        model.rotation.copy(src.rotation)
+        model.scale.copy(src.scale)
+        model.userData.assetId = asset.id
+        model.userData.type = 'asset'
+        model.userData.layerId = src.userData.layerId || activeLayerId
+        placedGroup.add(model)
+
+        if (mode === 'stack') {
+          const srcFootprint = getObjectFootprint(src)
+          const cloneFootprint = getObjectFootprint(model)
+          model.position.copy(src.position)
+          model.position.y += (srcFootprint.height + cloneFootprint.height) * 0.5
+        } else {
+          model.position.copy(src.position).add(offsetVec)
+        }
+
+        newModels.push(model)
+      }
+
+      if (newModels.length > 0) {
+        selectedPlacedObject = newModels[0]
+        selectedPlacedObjects = [...newModels]
+        selectedTexturePlane = null
+        rebuildTerrain()
+        updateSelectionHelper()
+        updateToolUI()
+      }
+      return
+    }
+
     if (selectedPlacedObject?.userData?.assetId) {
       const asset = assetRegistry.find((a) => a.id === selectedPlacedObject.userData.assetId)
       if (!asset) return
@@ -1753,6 +1928,7 @@ function applyToolAtTile(tile, eventLike = null) {
       }
 
       selectedPlacedObject = model
+      selectedPlacedObjects = [model]
       selectedTexturePlane = null
       rebuildTerrain()
       updateSelectionHelper()
@@ -1789,7 +1965,11 @@ function applyToolAtTile(tile, eventLike = null) {
         scale: selectedPlacedObject.scale.clone(),
         groupStarts: selectedPlacedObjects
           .filter((o) => o !== selectedPlacedObject)
-          .map((o) => ({ obj: o, position: o.position.clone() }))
+          .map((o) => ({
+            obj: o,
+            position: o.position.clone(),
+            rotation: { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z }
+          }))
       }
     }
 
@@ -1818,8 +1998,9 @@ function applyToolAtTile(tile, eventLike = null) {
       selectedPlacedObject.scale.copy(transformStart.scale)
 
       if (transformStart.groupStarts?.length) {
-        for (const { obj, position } of transformStart.groupStarts) {
+        for (const { obj, position, rotation } of transformStart.groupStarts) {
           obj.position.copy(position)
+          if (rotation) obj.rotation.set(rotation.x, rotation.y, rotation.z)
         }
       }
 
@@ -2394,14 +2575,30 @@ function applyToolAtTile(tile, eventLike = null) {
       const sp = pickSurfacePoint(event)
       const pos = tileWorldPosition(tile.x, tile.z)
       if (sp) pos.y = sp.y
+      const _prevAsset = assetRegistry.find((a) => a.id === previewObject.userData.assetId)
+      if (_prevAsset?.name?.toLowerCase().includes('wall')) {
+        const snap = getWallEdgeSnap(tile)
+        if (snap) { pos.x = snap.x; pos.z = snap.z }
+      }
       previewObject.position.copy(pos)
     }
+    updateHoverEdgeHelper()
 
     const terrainPoint = pickTerrainPoint(event)
 
-    if (transformMode === 'move' && selectedTexturePlane && terrainPoint) {
-      const snappedX = event.shiftKey ? snapValue(terrainPoint.x, 0.5) : terrainPoint.x
-      const snappedZ = event.shiftKey ? snapValue(terrainPoint.z, 0.5) : terrainPoint.z
+    if (transformMode === 'move' && selectedTexturePlane) {
+      // For vertical planes, fall back to a virtual horizontal plane at the plane's current Y
+      // so movement isn't blocked when the cursor passes over a wall model
+      const cursorPoint = terrainPoint
+        ?? (selectedTexturePlane.vertical ? pickHorizontalPlane(event, selectedTexturePlane.position.y) : null)
+      if (!cursorPoint) {
+        updateTexturePlaneMeshTransform(selectedTexturePlane)
+        updateSelectionHelper()
+        return
+      }
+
+      const snappedX = event.shiftKey ? snapValue(cursorPoint.x, 0.5) : cursorPoint.x
+      const snappedZ = event.shiftKey ? snapValue(cursorPoint.z, 0.5) : cursorPoint.z
 
       const planeHalfHeight =
         ((selectedTexturePlane.height || 1) * (selectedTexturePlane.scale?.y ?? 1)) / 2
@@ -2421,17 +2618,26 @@ function applyToolAtTile(tile, eventLike = null) {
         const deltaY = (movePlaneStart.mouseY - event.clientY) * 0.02
         selectedTexturePlane.position.y = movePlaneStart.value + deltaY
       } else {
-        selectedTexturePlane.position.x = snappedX
-        selectedTexturePlane.position.z = snappedZ
-
         if (selectedTexturePlane.vertical) {
-          selectedTexturePlane.position.y = terrainPoint.y + planeHalfHeight + transformLift
+          const planeSnap = !event.altKey && findNearbyPlaneSnap(selectedTexturePlane, snappedX, snappedZ)
+          if (planeSnap) {
+            selectedTexturePlane.position.x = planeSnap.x
+            selectedTexturePlane.position.z = planeSnap.z
+            selectedTexturePlane.position.y = planeSnap.y + transformLift
+          } else {
+            selectedTexturePlane.position.x = snappedX
+            selectedTexturePlane.position.z = snappedZ
+            selectedTexturePlane.position.y = (transformStart?.position.y ?? (terrainPoint ? terrainPoint.y + planeHalfHeight : selectedTexturePlane.position.y)) + transformLift
+          }
         } else {
-          selectedTexturePlane.position.y = terrainPoint.y + 0.05 + transformLift
+          selectedTexturePlane.position.x = snappedX
+          selectedTexturePlane.position.z = snappedZ
+          if (terrainPoint) selectedTexturePlane.position.y = terrainPoint.y + 0.05 + transformLift
         }
       }
 
-      rebuildTerrain()
+      updateTexturePlaneMeshTransform(selectedTexturePlane)
+      updateSelectionHelper()
       return
     }
 
@@ -2762,17 +2968,21 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
           selectedTexturePlane.rotation[axis] = snapAngleToQuarterIfClose(selectedTexturePlane.rotation[axis], 0.08)
         }
 
-        rebuildTerrain()
+        updateTexturePlaneMeshTransform(selectedTexturePlane)
+        updateSelectionHelper()
         return
       }
 
       if (selectedPlacedObject) {
-        if (e.shiftKey) {
-          selectedPlacedObject.rotation[axis] += (e.deltaY > 0 ? 1 : -1) * 0.1
-        } else {
-          const step = Math.PI / 12
-          selectedPlacedObject.rotation[axis] += e.deltaY > 0 ? step : -step
-          selectedPlacedObject.rotation[axis] = snapAngleToQuarterIfClose(selectedPlacedObject.rotation[axis], 0.08)
+        const delta = e.shiftKey ? (e.deltaY > 0 ? 1 : -1) * 0.1 : (e.deltaY > 0 ? 1 : -1) * (Math.PI / 12)
+
+        selectedPlacedObject.rotation[axis] += delta
+        if (!e.shiftKey) selectedPlacedObject.rotation[axis] = snapAngleToQuarterIfClose(selectedPlacedObject.rotation[axis], 0.08)
+
+        for (const obj of selectedPlacedObjects) {
+          if (obj === selectedPlacedObject) continue
+          obj.rotation[axis] += delta
+          if (!e.shiftKey) obj.rotation[axis] = snapAngleToQuarterIfClose(obj.rotation[axis], 0.08)
         }
 
         updateSelectionHelper()
