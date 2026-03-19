@@ -138,6 +138,7 @@ function tuneModelLighting(model, assetPath = '') {
   let selectedPlacedObject = null
   let selectedPlacedObjects = []
   let selectedTexturePlane = null
+  let selectedTexturePlanes = []
   let selectionHelper = null
   let saveFileHandle = null
 
@@ -146,6 +147,7 @@ function tuneModelLighting(model, assetPath = '') {
 
   let transformMode = null
   let transformAxis = 'all'
+  let lastRotateAxis = 'all'
   let transformStart = null
   let transformLift = 0
   let movePlaneStart = null
@@ -158,6 +160,10 @@ function tuneModelLighting(model, assetPath = '') {
   let texturePlaneGroup = null
 
   let texturePlaneVertical = true
+
+  let _shadowInfluencesCache = null
+
+  function invalidateShadowCache() { _shadowInfluencesCache = null }
 
   const undoStack = []
   const redoStack = []
@@ -251,6 +257,7 @@ let brushRadius = 3.2
       <button id="toolSelect" class="tool-btn" title="Select (4)">Select</button>
       <button id="toolTexturePlane" class="tool-btn" title="Texture Plane (5)">T.Plane</button>
       <button id="layersToggleBtn" class="tool-btn" title="Toggle Layers panel">Layers</button>
+      <button id="heightCullBtn" class="tool-btn" title="Hide objects above camera height (H)">Height Cull</button>
     </div>
     <div class="ctx-divider"></div>
 
@@ -306,14 +313,25 @@ let brushRadius = 3.2
         Delete / Backspace remove selected
       </div>
       <div id="layerAssignRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:8px;">
-        <div style="font-size:11px;opacity:0.6;margin-bottom:4px;">Layer</div>
-        <select id="layerAssignSelect" style="width:100%;"></select>
+        <div style="font-size:11px;color:#aaa;margin-bottom:6px;">Layer</div>
+        <div style="display:flex;gap:5px;align-items:center;">
+          <select id="layerAssignSelect" style="flex:1;background:#2a2a2a;color:#fff;border:1px solid #555;border-radius:4px;padding:4px 6px;font-size:12px;"></select>
+          <button id="layerAssignBtn" style="background:#1a4faf;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap;">Move</button>
+        </div>
+        <div id="layerCurrentLabel" style="font-size:10px;color:#888;margin-top:4px;"></div>
       </div>
       <div id="replaceRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:8px;">
         <button id="replaceBtn" style="width:100%">Replace Selected</button>
         <div id="replacePanel" style="display:none;margin-top:6px;">
           <input id="replaceSearch" type="text" placeholder="Search assets..." style="width:100%;box-sizing:border-box;margin-bottom:5px;" />
           <div id="replaceGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-height:180px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div id="replaceTextureRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:8px;">
+        <button id="replaceTextureBtn" style="width:100%">Replace Texture</button>
+        <div id="replaceTexturePanel" style="display:none;margin-top:6px;">
+          <input id="replaceTextureSearch" type="text" placeholder="Search textures..." style="width:100%;box-sizing:border-box;margin-bottom:5px;" />
+          <div id="replaceTextureGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-height:180px;overflow-y:auto;"></div>
         </div>
       </div>
       <div id="tileSizeRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:8px;">
@@ -480,6 +498,43 @@ let brushRadius = 3.2
   })
   replaceSearchEl?.addEventListener('input', buildReplaceGrid)
 
+  const replaceTextureBtnEl = sidebar.querySelector('#replaceTextureBtn')
+  const replaceTexturePanel = sidebar.querySelector('#replaceTexturePanel')
+  const replaceTextureSearchEl = sidebar.querySelector('#replaceTextureSearch')
+  const replaceTextureGridEl = sidebar.querySelector('#replaceTextureGrid')
+
+  function buildReplaceTextureGrid() {
+    const q = replaceTextureSearchEl.value.trim().toLowerCase()
+    const textures = textureRegistry.filter((t) =>
+      !q || (t.name || t.id).toLowerCase().includes(q)
+    )
+    replaceTextureGridEl.innerHTML = ''
+    for (const tex of textures) {
+      const img = document.createElement('img')
+      img.src = tex.path
+      img.title = tex.name || tex.id
+      img.style.cssText = 'width:56px;height:56px;object-fit:cover;border:2px solid transparent;border-radius:4px;cursor:pointer;display:block;'
+      img.onerror = () => { img.style.border = '2px solid red' }
+      img.addEventListener('click', () => {
+        replaceSelectedTexturesWith(tex.id)
+        replaceTexturePanel.style.display = 'none'
+        replaceTextureBtnEl.textContent = 'Replace Texture'
+      })
+      replaceTextureGridEl.appendChild(img)
+    }
+  }
+
+  replaceTextureBtnEl?.addEventListener('click', () => {
+    const isOpen = replaceTexturePanel.style.display !== 'none'
+    replaceTexturePanel.style.display = isOpen ? 'none' : 'block'
+    replaceTextureBtnEl.textContent = isOpen ? 'Replace Texture' : 'Cancel'
+    if (!isOpen) {
+      replaceTextureSearchEl.value = ''
+      buildReplaceTextureGrid()
+    }
+  })
+  replaceTextureSearchEl?.addEventListener('input', buildReplaceTextureGrid)
+
   mapWidthInput.value = map.width
   mapHeightInput.value = map.height
 
@@ -524,9 +579,18 @@ let brushRadius = 3.2
   }
 
   function applyLayerVisibility() {
+    if (heightCullEnabled) { applyHeightCull(); return }
     for (const obj of placedGroup.children) {
       const layer = layers.find((l) => l.id === (obj.userData.layerId || 'layer_0'))
       obj.visible = layer ? layer.visible : true
+    }
+    if (texturePlaneGroup) {
+      for (const mesh of texturePlaneGroup.children) {
+        const plane = mesh.userData.texturePlane
+        if (!plane) continue
+        const layer = layers.find((l) => l.id === (plane.layerId || 'layer_0'))
+        mesh.visible = layer ? layer.visible : true
+      }
     }
   }
 
@@ -546,14 +610,29 @@ let brushRadius = 3.2
     header.appendChild(closeBtn)
     layersPanel.appendChild(header)
 
+    const selCount = selectedPlacedObjects.length
+    if (selCount > 0) {
+      const assignHint = document.createElement('div')
+      assignHint.style.cssText = 'font-size:10px;color:#ffcc66;margin-bottom:8px;padding:5px 6px;background:rgba(255,200,50,0.1);border-radius:4px;border:1px solid rgba(255,200,50,0.25);'
+      assignHint.textContent = `${selCount} object${selCount > 1 ? 's' : ''} selected — click a layer name to move them there`
+      layersPanel.appendChild(assignHint)
+    }
+
     for (const layer of layers) {
+      const objCount = placedGroup.children.filter(
+        (o) => (o.userData.layerId || 'layer_0') === layer.id
+      ).length + map.texturePlanes.filter(
+        (p) => (p.layerId || 'layer_0') === layer.id
+      ).length
+
       const row = document.createElement('div')
-      row.className = 'layer-row' + (layer.id === activeLayerId ? ' active' : '')
+      row.className = 'layer-row' + (layer.id === activeLayerId ? ' active' : '') + (!layer.visible ? ' layer-hidden' : '')
 
       const eyeBtn = document.createElement('button')
       eyeBtn.className = 'layer-eye'
-      eyeBtn.textContent = layer.visible ? '●' : '○'
+      eyeBtn.textContent = layer.visible ? '👁' : '🚫'
       eyeBtn.title = layer.visible ? 'Hide layer' : 'Show layer'
+      eyeBtn.style.cssText = `opacity:${layer.visible ? '1' : '0.4'};`
       eyeBtn.addEventListener('click', (e) => {
         e.stopPropagation()
         layer.visible = !layer.visible
@@ -561,15 +640,46 @@ let brushRadius = 3.2
         refreshLayersPanel()
       })
 
+      const soloBtn = document.createElement('button')
+      soloBtn.className = 'layer-eye'
+      soloBtn.textContent = 'S'
+      soloBtn.title = 'Solo: show only this layer'
+      soloBtn.style.cssText = 'font-size:9px;padding:0 3px;opacity:0.5;'
+      soloBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const allVisible = layers.every((l) => l.visible)
+        const onlyThis = layers.every((l) => l.id === layer.id ? l.visible : !l.visible)
+        // If already soloed, restore all; otherwise solo this one
+        for (const l of layers) l.visible = (allVisible || onlyThis) ? true : l.id === layer.id
+        if (!allVisible && !onlyThis) for (const l of layers) l.visible = l.id === layer.id
+        applyLayerVisibility()
+        refreshLayersPanel()
+      })
+
       const nameEl = document.createElement('div')
       nameEl.className = 'layer-name'
-      nameEl.textContent = layer.name
-      nameEl.title = 'Click to set active'
+      nameEl.style.cssText = `opacity:${layer.visible ? '1' : '0.4'};`
+      const hasSelection = selectedPlacedObjects.length > 0 || selectedTexturePlane
+      nameEl.title = hasSelection ? 'Click to move selected objects here & set active' : 'Click to set active'
       nameEl.addEventListener('click', () => {
+        if (selectedPlacedObjects.length > 0 || selectedTexturePlane) {
+          pushUndoState()
+          for (const obj of selectedPlacedObjects) obj.userData.layerId = layer.id
+          for (const plane of selectedTexturePlanes) plane.layerId = layer.id
+          applyLayerVisibility()
+        }
         activeLayerId = layer.id
         refreshLayersPanel()
         updateToolUI()
       })
+
+      const nameText = document.createElement('span')
+      nameText.textContent = layer.name
+      const countBadge = document.createElement('span')
+      countBadge.textContent = objCount
+      countBadge.style.cssText = 'margin-left:5px;background:#444;border-radius:8px;padding:0 5px;font-size:9px;color:#aaa;'
+      nameEl.appendChild(nameText)
+      nameEl.appendChild(countBadge)
 
       const delBtn = document.createElement('button')
       delBtn.className = 'layer-del'
@@ -590,6 +700,7 @@ let brushRadius = 3.2
       })
 
       row.appendChild(eyeBtn)
+      row.appendChild(soloBtn)
       row.appendChild(nameEl)
       row.appendChild(delBtn)
       layersPanel.appendChild(row)
@@ -613,6 +724,8 @@ let brushRadius = 3.2
     for (const [mode, button] of Object.entries(toolButtons)) {
       if (button) button.classList.toggle('active-tool', state.tool === mode)
     }
+
+    if (layersPanel.classList.contains('visible')) refreshLayersPanel()
 
     // Show only the active context panel
     const ctxMap = {
@@ -681,15 +794,32 @@ let brushRadius = 3.2
     }
     const layerAssignRow = sidebar.querySelector('#layerAssignRow')
     if (layerAssignRow) {
-      const showAssign = state.tool === ToolMode.SELECT && selectedPlacedObjects.length > 0
+      const showAssign = state.tool === ToolMode.SELECT &&
+        (selectedPlacedObjects.length > 0 || selectedTexturePlane)
       layerAssignRow.style.display = showAssign ? 'block' : 'none'
       if (showAssign) {
         const sel = sidebar.querySelector('#layerAssignSelect')
+        const lbl = sidebar.querySelector('#layerCurrentLabel')
         if (sel) {
-          const currentId = selectedPlacedObject?.userData?.layerId || 'layer_0'
+          let currentId, allSame
+          if (selectedTexturePlane) {
+            currentId = selectedTexturePlane.layerId || 'layer_0'
+            allSame = selectedTexturePlanes.every((p) => (p.layerId || 'layer_0') === currentId)
+          } else {
+            currentId = selectedPlacedObject?.userData?.layerId || 'layer_0'
+            allSame = selectedPlacedObjects.every(
+              (o) => (o.userData.layerId || 'layer_0') === currentId
+            )
+          }
+          const currentLayer = layers.find((l) => l.id === currentId)
           sel.innerHTML = layers.map((l) =>
             `<option value="${l.id}"${l.id === currentId ? ' selected' : ''}>${l.name}</option>`
           ).join('')
+          if (lbl) {
+            lbl.textContent = allSame
+              ? `Currently on: ${currentLayer?.name ?? 'Layer 1'}`
+              : 'Multiple layers selected'
+          }
         }
       }
     }
@@ -702,6 +832,17 @@ let brushRadius = 3.2
         const rb = sidebar.querySelector('#replaceBtn')
         if (rp) rp.style.display = 'none'
         if (rb) rb.textContent = 'Replace Selected'
+      }
+    }
+    const replaceTextureRowEl = sidebar.querySelector('#replaceTextureRow')
+    if (replaceTextureRowEl) {
+      const showReplaceTexture = state.tool === ToolMode.SELECT && selectedTexturePlanes.length > 0
+      replaceTextureRowEl.style.display = showReplaceTexture ? 'block' : 'none'
+      if (!showReplaceTexture) {
+        const rp = sidebar.querySelector('#replaceTexturePanel')
+        const rb = sidebar.querySelector('#replaceTextureBtn')
+        if (rp) rp.style.display = 'none'
+        if (rb) rb.textContent = 'Replace Texture'
       }
     }
     if (transformMode) {
@@ -750,13 +891,14 @@ let brushRadius = 3.2
     }
 
     if (selectedTexturePlane && texturePlaneGroup) {
-      const planeMesh = texturePlaneGroup.children.find(
-        (child) => child.userData.texturePlane?.id === selectedTexturePlane.id
-      )
-      if (planeMesh) {
-        selectionHelper = new THREE.BoxHelper(planeMesh, 0x66ccff)
-        scene.add(selectionHelper)
-      }
+      const color = selectedTexturePlanes.length > 1 ? 0xffaa44 : 0x66ccff
+      selectionHelper = selectedTexturePlanes.map((plane) => {
+        const mesh = texturePlaneGroup.children.find((c) => c.userData.texturePlane?.id === plane.id)
+        if (!mesh) return null
+        const h = new THREE.BoxHelper(mesh, color)
+        scene.add(h)
+        return h
+      }).filter(Boolean)
     }
   }
 
@@ -764,6 +906,7 @@ let brushRadius = 3.2
     selectedPlacedObject = null
     selectedPlacedObjects = []
     selectedTexturePlane = null
+    selectedTexturePlanes = []
     transformMode = null
     transformStart = null
     transformLift = 0
@@ -844,6 +987,7 @@ let brushRadius = 3.2
     selectedPlacedObject = null
     selectedPlacedObjects = []
     selectedTexturePlane = null
+      selectedTexturePlanes = []
     transformMode = null
     transformStart = null
     transformLift = 0
@@ -929,6 +1073,7 @@ let brushRadius = 3.2
     selectedPlacedObject = null
     selectedPlacedObjects = []
     selectedTexturePlane = null
+      selectedTexturePlanes = []
     transformMode = null
     transformStart = null
     transformLift = 0
@@ -1091,30 +1236,38 @@ let brushRadius = 3.2
     return inf
   }
 
-  function rebuildTerrain() {
+  function rebuildTerrain({ skipTexturePlanes = false, skipShadows = false } = {}) {
     if (terrainGroup) scene.remove(terrainGroup)
     if (cliffs) scene.remove(cliffs)
     if (splitLines) scene.remove(splitLines)
     if (tileGrid) scene.remove(tileGrid)
     if (textureOverlayGroup) scene.remove(textureOverlayGroup)
-    if (texturePlaneGroup) scene.remove(texturePlaneGroup)
+    if (!skipTexturePlanes && texturePlaneGroup) scene.remove(texturePlaneGroup)
 
     map.selectedTexturePlaneId = selectedTexturePlane ? selectedTexturePlane.id : null
 
-    const shadowInf = buildObjectShadowInfluences()
+    if (!skipShadows) _shadowInfluencesCache = null
+    const shadowInf = _shadowInfluencesCache ?? buildObjectShadowInfluences()
+    _shadowInfluencesCache = shadowInf
+
     terrainGroup = buildTerrainMeshes(map, waterTexture, shadowInf)
     cliffs = buildCliffMeshes(map)
     splitLines = buildSplitLines()
     tileGrid = buildTileGrid()
     textureOverlayGroup = buildTextureOverlays(map, textureRegistry, textureCache)
-    texturePlaneGroup = buildTexturePlanes(map, textureRegistry, textureCache)
 
     scene.add(terrainGroup)
     scene.add(cliffs)
     scene.add(splitLines)
     scene.add(tileGrid)
     scene.add(textureOverlayGroup)
-    scene.add(texturePlaneGroup)
+
+    if (!skipTexturePlanes) {
+      texturePlaneGroup = buildTexturePlanes(map, textureRegistry, textureCache)
+      scene.add(texturePlaneGroup)
+    } else if (texturePlaneGroup) {
+      scene.add(texturePlaneGroup)
+    }
 
     updateSelectionHelper()
   }
@@ -1179,7 +1332,16 @@ let brushRadius = 3.2
       return worldNormalY > 0.5  // only upward-facing surfaces (roofs, floors)
     })
 
-    const best = [...terrainHits, ...placedHits].sort((a, b) => a.distance - b.distance)[0]
+    const planeHits = texturePlaneGroup
+      ? raycaster.intersectObjects(texturePlaneGroup.children, true).filter(hit => {
+          if (!hit.face) return false
+          hit.object.getWorldQuaternion(_surfaceQuat)
+          const worldNormalY = hit.face.normal.clone().applyQuaternion(_surfaceQuat).y
+          return worldNormalY > 0.5  // only horizontal texture planes
+        })
+      : []
+
+    const best = [...terrainHits, ...placedHits, ...planeHits].sort((a, b) => a.distance - b.distance)[0]
     return best ? best.point.clone() : null
   }
 
@@ -1276,6 +1438,30 @@ let brushRadius = 3.2
     const hits = raycaster.intersectObjects(texturePlaneGroup.children, true)
     if (!hits.length) return null
     return hits[0].object
+  }
+
+  // Returns { type: 'placed'|'plane', object, distance } for whichever is closest to camera
+  function pickClosestSelectTarget(event) {
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+
+    const placedHits = raycaster.intersectObjects(placedGroup.children, true)
+    const planeHits = texturePlaneGroup
+      ? raycaster.intersectObjects(texturePlaneGroup.children, true)
+      : []
+
+    const bestPlaced = placedHits[0] ?? null
+    const bestPlane = planeHits[0] ?? null
+
+    if (!bestPlaced && !bestPlane) return null
+
+    if (bestPlaced && (!bestPlane || bestPlaced.distance <= bestPlane.distance)) {
+      let obj = bestPlaced.object
+      while (obj.parent && obj.parent !== placedGroup) obj = obj.parent
+      return { type: 'placed', object: obj, distance: bestPlaced.distance }
+    }
+
+    return { type: 'plane', object: bestPlane.object, distance: bestPlane.distance }
   }
 
   function tileWorldPosition(x, z) {
@@ -1455,6 +1641,40 @@ let brushRadius = 3.2
   }
 
 
+  function findTexturePlaneTopAt(event) {
+    if (!texturePlaneGroup) return null
+    updateMouse(event)
+    raycaster.setFromCamera(mouse, camera)
+    const hits = raycaster.intersectObjects(texturePlaneGroup.children, true)
+    for (const hit of hits) {
+      if (!hit.face) continue
+      hit.object.getWorldQuaternion(_surfaceQuat)
+      const normalY = hit.face.normal.clone().applyQuaternion(_surfaceQuat).y
+      if (normalY > 0.5) return hit.point.y
+    }
+    return null
+  }
+
+  function findObjectTopAt(worldX, worldZ, excludeObjects = []) {
+    const MARGIN = 0.4
+    let bestTop = null
+    for (const obj of placedGroup.children) {
+      if (excludeObjects.includes(obj)) continue
+      if (!obj.visible) continue
+      obj.updateWorldMatrix(true, true)
+      const box = new THREE.Box3().setFromObject(obj)
+      if (box.isEmpty()) continue
+      if (
+        worldX >= box.min.x - MARGIN && worldX <= box.max.x + MARGIN &&
+        worldZ >= box.min.z - MARGIN && worldZ <= box.max.z + MARGIN &&
+        (bestTop === null || box.max.y > bestTop)
+      ) {
+        bestTop = box.max.y
+      }
+    }
+    return bestTop
+  }
+
   function findNearbyPlaneSnap(movingPlane, worldX, worldZ) {
     const SNAP_DIST = 0.5
     const movingFP = getPlaneFootprint(movingPlane)
@@ -1615,7 +1835,7 @@ function applyToolAtTile(tile, eventLike = null) {
       }
 
       map.flattenTileToHeight(tile.x, tile.z, state.levelHeight)
-      rebuildTerrain()
+      rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
       return
     }
 
@@ -1627,7 +1847,7 @@ function applyToolAtTile(tile, eventLike = null) {
       applyGaussianBrush(tile.x + 0.5, tile.z + 0.5, 0.20)
     }
 
-    rebuildTerrain()
+    rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
     return
   }
 
@@ -1640,7 +1860,7 @@ function applyToolAtTile(tile, eventLike = null) {
       } else {
         map.paintTextureTile(tile.x, tile.z, paintTabTextureId, textureRotation, textureScale)
       }
-      rebuildTerrain()
+      rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
       return
     }
 
@@ -1658,7 +1878,7 @@ function applyToolAtTile(tile, eventLike = null) {
       map.paintTile(tile.x, tile.z, state.paintType)
     }
 
-    rebuildTerrain()
+    rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
     return
   }
 
@@ -1736,9 +1956,9 @@ function applyToolAtTile(tile, eventLike = null) {
     const model = await loadAssetModel(asset.path)
     tuneModelLighting(model, asset.path)
 
-    if (isStoneModularAsset(asset)) model.scale.y = 1
-    if (asset.name?.toLowerCase().includes('wall')) {
-      scaleObjectToTiles(model, 2)
+    if (isStoneModularAsset(asset)) {
+      model.scale.y = 1
+      if (asset.name?.toLowerCase().includes('wall')) scaleObjectToTiles(model, 2)
     }
 
     previewObject = makeGhostMaterial(model)
@@ -1763,9 +1983,9 @@ function applyToolAtTile(tile, eventLike = null) {
     const model = await loadAssetModel(asset.path)
     tuneModelLighting(model, asset.path)
 
-    if (isStoneModularAsset(asset)) model.scale.y = 1
-    if (asset.name?.toLowerCase().includes('wall')) {
-      scaleObjectToTiles(model, 2)
+    if (isStoneModularAsset(asset)) {
+      model.scale.y = 1
+      if (asset.name?.toLowerCase().includes('wall')) scaleObjectToTiles(model, 2)
     }
 
     pushUndoState()
@@ -1776,8 +1996,14 @@ function applyToolAtTile(tile, eventLike = null) {
       if (snap) { pos.x = snap.x; pos.z = snap.z }
     }
     if (event) {
-      const sp = pickSurfacePoint(event)
-      if (sp) pos.y = sp.y
+      const objTop = findObjectTopAt(pos.x, pos.z)
+      const planeTop = findTexturePlaneTopAt(event)
+      if (objTop !== null || planeTop !== null) {
+        pos.y = Math.max(objTop ?? -Infinity, planeTop ?? -Infinity)
+      } else {
+        const sp = pickSurfacePoint(event)
+        if (sp) pos.y = sp.y
+      }
     }
     model.position.copy(pos)
     model.rotation.y = previewRotation
@@ -1786,6 +2012,17 @@ function applyToolAtTile(tile, eventLike = null) {
     model.userData.layerId = activeLayerId
     placedGroup.add(model)
     rebuildTerrain()
+  }
+
+  function replaceSelectedTexturesWith(textureId) {
+    if (!selectedTexturePlanes.length) return
+    pushUndoState()
+    for (const plane of selectedTexturePlanes) {
+      plane.textureId = textureId
+    }
+    rebuildTerrain()
+    updateSelectionHelper()
+    updateToolUI()
   }
 
   async function replaceSelectedWith(assetId) {
@@ -1820,6 +2057,45 @@ function applyToolAtTile(tile, eventLike = null) {
     pushUndoState()
 
     if (selectedTexturePlane) {
+      if (selectedTexturePlanes.length > 1) {
+        // Compute offset from primary plane then apply it to all
+        let offsetX = 0, offsetZ = 0, offsetY = 0
+        if (mode !== 'stack') {
+          const primaryClone = JSON.parse(JSON.stringify(selectedTexturePlane))
+          if (mode === 'forward') {
+            snapPlaneFlushAlong(primaryClone, selectedTexturePlane, 'forward')
+          } else {
+            snapPlaneFlushAlong(primaryClone, selectedTexturePlane, 'right')
+          }
+          offsetX = primaryClone.position.x - selectedTexturePlane.position.x
+          offsetZ = primaryClone.position.z - selectedTexturePlane.position.z
+          offsetY = primaryClone.position.y - selectedTexturePlane.position.y
+        }
+
+        const newPlanes = []
+        for (const src of selectedTexturePlanes) {
+          const clone = JSON.parse(JSON.stringify(src))
+          clone.id = `plane_${Date.now()}_${Math.floor(Math.random() * 100000)}`
+          if (mode === 'stack') {
+            stackPlaneAbove(clone, src)
+          } else {
+            clone.position.x = src.position.x + offsetX
+            clone.position.z = src.position.z + offsetZ
+            clone.position.y = src.position.y + offsetY
+          }
+          map.texturePlanes.push(clone)
+          newPlanes.push(clone)
+        }
+
+        selectedTexturePlanes = newPlanes
+        selectedTexturePlane = newPlanes[newPlanes.length - 1]
+        selectedPlacedObject = null
+        rebuildTerrain()
+        updateSelectionHelper()
+        updateToolUI()
+        return
+      }
+
       const clone = JSON.parse(JSON.stringify(selectedTexturePlane))
       clone.id = `plane_${Date.now()}_${Math.floor(Math.random() * 100000)}`
 
@@ -1833,6 +2109,7 @@ function applyToolAtTile(tile, eventLike = null) {
 
       map.texturePlanes.push(clone)
       selectedTexturePlane = clone
+      selectedTexturePlanes = [clone]
       selectedPlacedObject = null
       rebuildTerrain()
       updateSelectionHelper()
@@ -1886,6 +2163,7 @@ function applyToolAtTile(tile, eventLike = null) {
         selectedPlacedObject = newModels[0]
         selectedPlacedObjects = [...newModels]
         selectedTexturePlane = null
+      selectedTexturePlanes = []
         rebuildTerrain()
         updateSelectionHelper()
         updateToolUI()
@@ -1930,6 +2208,7 @@ function applyToolAtTile(tile, eventLike = null) {
       selectedPlacedObject = model
       selectedPlacedObjects = [model]
       selectedTexturePlane = null
+      selectedTexturePlanes = []
       rebuildTerrain()
       updateSelectionHelper()
       updateToolUI()
@@ -2007,6 +2286,7 @@ function applyToolAtTile(tile, eventLike = null) {
       updateSelectionHelper()
     }
 
+    if (transformMode === 'rotate') lastRotateAxis = transformAxis
     transformMode = null
     transformStart = null
     transformLift = 0
@@ -2017,6 +2297,7 @@ function applyToolAtTile(tile, eventLike = null) {
   function confirmTransform() {
     if (transformMode === 'rotate') {
       applyRotationSnapOnConfirm()
+      lastRotateAxis = transformAxis
     }
 
     transformMode = null
@@ -2088,9 +2369,9 @@ function applyToolAtTile(tile, eventLike = null) {
       return null
     }
 
-    if (isStoneModularAsset(asset)) model.scale.y = 1
-    if (asset.name?.toLowerCase().includes('wall')) {
-      scaleObjectToTiles(model, 2)
+    if (isStoneModularAsset(asset)) {
+      model.scale.y = 1
+      if (asset.name?.toLowerCase().includes('wall')) scaleObjectToTiles(model, 2)
     }
 
     // Recompute bounds after any scaling
@@ -2501,6 +2782,7 @@ function applyToolAtTile(tile, eventLike = null) {
     selectedPlacedObject = null
     selectedPlacedObjects = []
     selectedTexturePlane = null
+      selectedTexturePlanes = []
     transformMode = null
     transformStart = null
     transformLift = 0
@@ -2543,12 +2825,31 @@ function applyToolAtTile(tile, eventLike = null) {
     if (layersPanel.classList.contains('visible')) refreshLayersPanel()
   })
 
-  sidebar.querySelector('#layerAssignSelect')?.addEventListener('change', (e) => {
-    const newLayerId = e.target.value
-    for (const obj of selectedPlacedObjects) {
-      obj.userData.layerId = newLayerId
-    }
+  function toggleHeightCull() {
+    heightCullEnabled = !heightCullEnabled
+    sidebar.querySelector('#heightCullBtn')?.classList.toggle('active-tool', heightCullEnabled)
+    if (heightCullEnabled) applyHeightCull()
+    else applyLayerVisibility()
+  }
+
+  sidebar.querySelector('#heightCullBtn')?.addEventListener('click', toggleHeightCull)
+
+  function assignSelectedToLayer(layerId) {
+    if (!selectedPlacedObjects.length && !selectedTexturePlane) return
+    pushUndoState()
+    for (const obj of selectedPlacedObjects) obj.userData.layerId = layerId
+    for (const plane of selectedTexturePlanes) plane.layerId = layerId
     applyLayerVisibility()
+    updateToolUI()
+  }
+
+  sidebar.querySelector('#layerAssignSelect')?.addEventListener('change', (e) => {
+    assignSelectedToLayer(e.target.value)
+  })
+
+  sidebar.querySelector('#layerAssignBtn')?.addEventListener('click', () => {
+    const sel = sidebar.querySelector('#layerAssignSelect')
+    if (sel) assignSelectedToLayer(sel.value)
   })
 
   rotateTextureBtn.addEventListener('click', () => {
@@ -2641,19 +2942,22 @@ function applyToolAtTile(tile, eventLike = null) {
       return
     }
 
-    if (transformMode === 'move' && selectedPlacedObject && terrainPoint) {
+    if (transformMode === 'move' && selectedPlacedObject) {
+      const movePoint = pickHorizontalPlane(event, selectedPlacedObject.position.y)
+      if (!movePoint) return
+
       const _movingAsset = assetRegistry.find((a) => a.id === selectedPlacedObject.userData.assetId)
       const movingIsWallModular = isModularAsset(selectedPlacedObject.userData.assetId)
         && _movingAsset?.name?.toLowerCase().includes('wall')
 
       let snappedX, snappedZ
       if (movingIsWallModular && !event.altKey) {
-        const snap = findModularEdgeSnap(selectedPlacedObject, terrainPoint.x, terrainPoint.z)
+        const snap = findModularEdgeSnap(selectedPlacedObject, movePoint.x, movePoint.z)
         snappedX = snap.x
         snappedZ = snap.z
       } else {
-        snappedX = event.shiftKey ? snapValue(terrainPoint.x, 0.5) : terrainPoint.x
-        snappedZ = event.shiftKey ? snapValue(terrainPoint.z, 0.5) : terrainPoint.z
+        snappedX = event.shiftKey ? snapValue(movePoint.x, 0.5) : movePoint.x
+        snappedZ = event.shiftKey ? snapValue(movePoint.z, 0.5) : movePoint.z
       }
 
       if (transformAxis === 'x') {
@@ -2674,9 +2978,13 @@ function applyToolAtTile(tile, eventLike = null) {
         let targetY
         if (transformLift !== 0) {
           targetY = selectedPlacedObject.position.y
+        } else if (!event.altKey) {
+          const objTop = findObjectTopAt(snappedX, snappedZ, selectedPlacedObjects)
+          const planeTop = findTexturePlaneTopAt(event)
+          const surfaceTop = Math.max(objTop ?? -Infinity, planeTop ?? -Infinity)
+          targetY = surfaceTop > -Infinity ? surfaceTop : (terrainPoint?.y ?? selectedPlacedObject.position.y)
         } else {
-          const surfacePoint = pickSurfacePoint(event, selectedPlacedObjects)
-          targetY = surfacePoint ? surfacePoint.y : terrainPoint.y
+          targetY = terrainPoint?.y ?? selectedPlacedObject.position.y
         }
         selectedPlacedObject.position.set(snappedX, targetY, snappedZ)
       }
@@ -2754,18 +3062,33 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
 
     // SELECT tool drag-select starts before tile check so it works anywhere on canvas
     if (state.tool === ToolMode.SELECT && !transformMode) {
-      const pickedPlane = pickTexturePlane(event)
-      if (pickedPlane?.userData?.texturePlane) {
-        selectedTexturePlane = pickedPlane.userData.texturePlane
-        selectedPlacedObject = null
-        selectedPlacedObjects = []
-        updateSelectionHelper()
-        updateToolUI()
-        return
+      const picked = pickClosestSelectTarget(event)
+      if (picked?.type === 'plane') {
+        const plane = picked.object.userData.texturePlane
+        if (plane) {
+          if (event.shiftKey) {
+            const idx = selectedTexturePlanes.indexOf(plane)
+            if (idx >= 0) {
+              selectedTexturePlanes.splice(idx, 1)
+              selectedTexturePlane = selectedTexturePlanes[selectedTexturePlanes.length - 1] ?? null
+            } else {
+              selectedTexturePlanes.push(plane)
+              selectedTexturePlane = plane
+            }
+          } else {
+            selectedTexturePlane = plane
+            selectedTexturePlanes = [plane]
+          }
+          selectedPlacedObject = null
+          selectedPlacedObjects = []
+          updateSelectionHelper()
+          updateToolUI()
+          return
+        }
       }
 
-      const pickedObject = pickPlacedObject(event)
-      if (pickedObject) {
+      if (picked?.type === 'placed') {
+        const pickedObject = picked.object
         if (event.shiftKey) {
           const idx = selectedPlacedObjects.indexOf(pickedObject)
           if (idx >= 0) {
@@ -2780,6 +3103,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
           selectedPlacedObject = pickedObject
         }
         selectedTexturePlane = null
+        selectedTexturePlanes = []
         updateSelectionHelper()
         updateToolUI()
         return
@@ -2879,6 +3203,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
 
           selectedPlacedObject = selectedPlacedObjects[selectedPlacedObjects.length - 1] ?? null
           selectedTexturePlane = null
+      selectedTexturePlanes = []
           updateSelectionHelper()
           updateToolUI()
         }
@@ -2896,6 +3221,24 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
   let pitch = 1.02
   let distance = 31
   const target = new THREE.Vector3(12, 2, 12)
+  let heightCullEnabled = false
+
+  function applyHeightCull() {
+    for (const obj of placedGroup.children) {
+      const layer = layers.find((l) => l.id === (obj.userData.layerId || 'layer_0'))
+      const layerVisible = layer ? layer.visible : true
+      obj.visible = layerVisible && (!heightCullEnabled || obj.position.y <= target.y)
+    }
+    if (texturePlaneGroup) {
+      for (const mesh of texturePlaneGroup.children) {
+        const plane = mesh.userData.texturePlane
+        if (!plane) continue
+        const layer = layers.find((l) => l.id === (plane.layerId || 'layer_0'))
+        const layerVisible = layer ? layer.visible : true
+        mesh.visible = layerVisible && (!heightCullEnabled || plane.position.y <= target.y)
+      }
+    }
+  }
 
   function updateCamera() {
     camera.position.x = target.x + Math.cos(yaw) * Math.sin(pitch) * distance
@@ -2903,6 +3246,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
     camera.position.z = target.z + Math.sin(yaw) * Math.sin(pitch) * distance
     camera.lookAt(target)
     updateCompass()
+    if (heightCullEnabled) applyHeightCull()
   }
 
   function panCamera(deltaX, deltaY) {
@@ -3065,6 +3409,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
         pushUndoState()
         map.texturePlanes = map.texturePlanes.filter((p) => p.id !== selectedTexturePlane.id)
         selectedTexturePlane = null
+      selectedTexturePlanes = []
         rebuildTerrain()
         updateSelectionHelper()
         updateToolUI()
@@ -3095,6 +3440,11 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
       return
     }
 
+    if (key === 'h') {
+      toggleHeightCull()
+      return
+    }
+
     if (transformMode === 'move') {
       if (key === 'q' || key === 'e') {
         const delta = key === 'q' ? 0.1 : -0.1
@@ -3112,14 +3462,14 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
 if (key === 'q') {
   pushUndoState()
   applyGaussianBrush(x + 0.5, z + 0.5, 0.18)
-  rebuildTerrain()
+  rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
   return
 }
 
 if (key === 'e') {
   pushUndoState()
   applyGaussianBrush(x + 0.5, z + 0.5, -0.18)
-  rebuildTerrain()
+  rebuildTerrain({ skipTexturePlanes: true, skipShadows: true })
   return
 }
 
@@ -3187,6 +3537,7 @@ if (key === 'e') {
             while (obj.parent && obj.parent !== placedGroup) obj = obj.parent
             selectedPlacedObject = obj
             selectedTexturePlane = null
+      selectedTexturePlanes = []
             setTool(ToolMode.SELECT)
             updateSelectionHelper()
           }
@@ -3200,6 +3551,7 @@ if (key === 'e') {
 
     if (key === 'r') {
       if (selectedTexturePlane || selectedPlacedObject) {
+        transformAxis = lastRotateAxis
         beginTransform('rotate')
         return
       }

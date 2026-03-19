@@ -25,7 +25,7 @@
       "name": "CopperRock",
       "path": "/assets/models/CopperRock.glb"
     },
-{
+    {
       "id": "forge",
       "name": "Forge",
       "path": "/assets/models/forge.glb"
@@ -184,6 +184,11 @@
       "id": "dark stone wall door2",
       "name": "Dark Stone Wall Door2",
       "path": "/assets/Modular assets/Dark stone modular/dark stone wall door2.glb"
+    },
+    {
+      "id": "dark stone door3",
+      "name": "Dark Stone Door3",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone door3.glb"
     },
     {
       "id": "dark stone wall window",
@@ -371,6 +376,11 @@
       "path": "/assets/Modular assets/Stone modular/stone wall door2.glb"
     },
     {
+      "id": "stone door3",
+      "name": "Stone Door3",
+      "path": "/assets/Modular assets/Stone modular/stone door3.glb"
+    },
+    {
       "id": "stone wall fireplace",
       "name": "Stone Wall Fireplace",
       "path": "/assets/Modular assets/Stone modular/stone wall fireplace.glb"
@@ -469,6 +479,31 @@
       "id": "willow tree",
       "name": "Willow Tree",
       "path": "/assets/models/willow tree.glb"
+    },
+    {
+      "id": "halfwall 30",
+      "name": "Halfwall 30",
+      "path": "/assets/models/halfwall30.glb"
+    },
+    {
+      "id": "halfwall 45",
+      "name": "Halfwall 45",
+      "path": "/assets/models/halfwall45.glb"
+    },
+    {
+      "id": "roof",
+      "name": "Roof",
+      "path": "/assets/models/roof.glb"
+    },
+    {
+      "id": "wood plank",
+      "name": "Wood Plank",
+      "path": "/assets/models/wood plank.glb"
+    },
+    {
+      "id": "wood pole",
+      "name": "Wood Pole",
+      "path": "/assets/models/wood pole.glb"
     }
   ]
 }
