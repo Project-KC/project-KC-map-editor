@@ -1,0 +1,13 @@
+{
+  "name": "@projectrs/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@projectrs/shared": "workspace:*"
+  }
+}

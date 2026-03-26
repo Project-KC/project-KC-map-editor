@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1, "name": "Tree", "category": "tree",
+    "actions": ["Chop", "Examine"],
+    "blocking": true, "width": 1.0, "height": 2.0,
+    "color": [40, 100, 30],
+    "skill": "forestry", "levelRequired": 1, "xpReward": 25,
+    "harvestItemId": 23, "harvestQuantity": 1, "harvestTime": 4,
+    "depletionChance": 0.35, "respawnTime": 15
+  },
+  {
+    "id": 2, "name": "Oak Tree", "category": "tree",
+    "actions": ["Chop", "Examine"],
+    "blocking": true, "width": 1.2, "height": 2.4,
+    "color": [30, 80, 20],
+    "skill": "forestry", "levelRequired": 15, "xpReward": 38,
+    "harvestItemId": 24, "harvestQuantity": 1, "harvestTime": 5,
+    "depletionChance": 0.25, "respawnTime": 20
+  },
+  {
+    "id": 3, "name": "Copper Rock", "category": "rock",
+    "actions": ["Mine", "Examine"],
+    "blocking": true, "width": 0.9, "height": 0.8,
+    "color": [140, 90, 50],
+    "skill": "mining", "levelRequired": 1, "xpReward": 18,
+    "harvestItemId": 25, "harvestQuantity": 1, "harvestTime": 4,
+    "depletionChance": 0.40, "respawnTime": 10
+  },
+  {
+    "id": 4, "name": "Iron Rock", "category": "rock",
+    "actions": ["Mine", "Examine"],
+    "blocking": true, "width": 0.9, "height": 0.8,
+    "color": [100, 70, 60],
+    "skill": "mining", "levelRequired": 15, "xpReward": 35,
+    "harvestItemId": 26, "harvestQuantity": 1, "harvestTime": 5,
+    "depletionChance": 0.35, "respawnTime": 18
+  },
+  {
+    "id": 5, "name": "Fishing Spot", "category": "fishingspot",
+    "actions": ["Fish", "Examine"],
+    "blocking": false, "width": 0.6, "height": 0.6,
+    "color": [50, 120, 200],
+    "skill": "fishing", "levelRequired": 1, "xpReward": 20,
+    "harvestItemId": 27, "harvestQuantity": 1, "harvestTime": 5,
+    "depletionChance": 0.0, "respawnTime": 0
+  },
+  {
+    "id": 6, "name": "Furnace", "category": "furnace",
+    "actions": ["Smelt", "Examine"],
+    "blocking": true, "width": 1.0, "height": 1.4,
+    "color": [180, 80, 30],
+    "recipes": [
+      { "inputItemId": 25, "inputQuantity": 1, "outputItemId": 29, "outputQuantity": 1, "skill": "smithing", "levelRequired": 1, "xpReward": 20 },
+      { "inputItemId": 26, "inputQuantity": 1, "outputItemId": 30, "outputQuantity": 1, "skill": "smithing", "levelRequired": 15, "xpReward": 35 }
+    ]
+  },
+  {
+    "id": 7, "name": "Cooking Range", "category": "cookingrange",
+    "actions": ["Cook", "Examine"],
+    "blocking": true, "width": 1.0, "height": 1.2,
+    "color": [160, 50, 20],
+    "recipes": [
+      { "inputItemId": 11, "inputQuantity": 1, "outputItemId": 12, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 30 },
+      { "inputItemId": 14, "inputQuantity": 1, "outputItemId": 15, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 30 },
+      { "inputItemId": 27, "inputQuantity": 1, "outputItemId": 28, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 20 }
+    ]
+  },
+  {
+    "id": 8, "name": "Altar", "category": "altar",
+    "actions": ["Pray", "Examine"],
+    "blocking": true, "width": 1.0, "height": 1.0,
+    "color": [200, 200, 220]
+  }
+]

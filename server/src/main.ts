@@ -1,0 +1,487 @@
+import { SERVER_PORT, GAME_WS_PATH, CHAT_WS_PATH } from '@projectrs/shared';
+import { resolve } from 'path';
+import { statSync, readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
+import type { KCMapFile, KCMapData, KCTile, MapMeta, WallsFile, SpawnsFile } from '@projectrs/shared';
+import { defaultKCTile } from '@projectrs/shared';
+import { World } from './World';
+import { GameDatabase } from './Database';
+import {
+  handleGameSocketOpen,
+  handleGameSocketMessage,
+  handleGameSocketClose,
+  type GameSocketData,
+} from './network/GameSocket';
+import {
+  handleChatSocketOpen,
+  handleChatSocketMessage,
+  handleChatSocketClose,
+  type ChatSocketData,
+} from './network/ChatSocket';
+
+const CLIENT_DIST = resolve(import.meta.dir, '../../client/dist');
+const MAPS_DIR = resolve(import.meta.dir, '../data/maps');
+
+// MIME type lookup
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+};
+
+function getMimeType(path: string): string {
+  const ext = path.substring(path.lastIndexOf('.'));
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+function serveStatic(pathname: string): Response | null {
+  let filePath = resolve(CLIENT_DIST, pathname.startsWith('/') ? pathname.slice(1) : pathname);
+
+  try {
+    const stat = statSync(filePath);
+    if (stat.isDirectory()) {
+      filePath = resolve(filePath, 'index.html');
+    }
+  } catch {
+    filePath = resolve(CLIENT_DIST, 'index.html');
+  }
+
+  try {
+    const content = readFileSync(filePath);
+    return new Response(content, {
+      headers: { 'Content-Type': getMimeType(filePath) },
+    });
+  } catch {
+    return null;
+  }
+}
+
+function jsonResponse(data: any, status: number = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// Create database and game world
+const db = new GameDatabase();
+const world = new World(db);
+world.start();
+
+// Clean expired sessions every 10 minutes
+setInterval(() => db.cleanExpiredSessions(), 10 * 60 * 1000);
+
+type SocketData = GameSocketData | ChatSocketData;
+
+const server = Bun.serve<SocketData>({
+  port: SERVER_PORT,
+
+  async fetch(req, server) {
+    const url = new URL(req.url);
+
+    // --- REST Auth Endpoints ---
+
+    if (url.pathname === '/api/signup' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { username?: string; password?: string };
+        const result = await db.createAccount(body.username || '', body.password || '');
+        if (result.ok) {
+          return jsonResponse({ ok: true, token: result.token, username: body.username });
+        }
+        return jsonResponse({ ok: false, error: result.error }, 400);
+      } catch {
+        return jsonResponse({ ok: false, error: 'Invalid request' }, 400);
+      }
+    }
+
+    if (url.pathname === '/api/login' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { username?: string; password?: string };
+        const result = await db.login(body.username || '', body.password || '');
+        if (result.ok) {
+          return jsonResponse({ ok: true, token: result.token, username: result.username });
+        }
+        return jsonResponse({ ok: false, error: result.error }, 400);
+      } catch {
+        return jsonResponse({ ok: false, error: 'Invalid request' }, 400);
+      }
+    }
+
+    if (url.pathname === '/api/validate' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { token?: string };
+        const session = body.token ? db.getSession(body.token) : null;
+        return jsonResponse({ ok: !!session });
+      } catch {
+        return jsonResponse({ ok: false });
+      }
+    }
+
+    if (url.pathname === '/api/logout' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { token?: string };
+        if (body.token) db.logout(body.token);
+        return jsonResponse({ ok: true });
+      } catch {
+        return jsonResponse({ ok: false, error: 'Invalid request' }, 400);
+      }
+    }
+
+    // --- WebSocket Upgrades (with token auth) ---
+
+    if (url.pathname === GAME_WS_PATH) {
+      const token = url.searchParams.get('token');
+      const session = token ? db.getSession(token) : null;
+      if (!session) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      const upgraded = server.upgrade(req, {
+        data: { type: 'game', accountId: session.accountId, username: session.username } as GameSocketData,
+      });
+      if (upgraded) return undefined as unknown as Response;
+      return new Response('WebSocket upgrade failed', { status: 400 });
+    }
+
+    if (url.pathname === CHAT_WS_PATH) {
+      const token = url.searchParams.get('token');
+      const session = token ? db.getSession(token) : null;
+      if (!session) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      const upgraded = server.upgrade(req, {
+        data: { type: 'chat', accountId: session.accountId, username: session.username } as ChatSocketData,
+      });
+      if (upgraded) return undefined as unknown as Response;
+      return new Response('WebSocket upgrade failed', { status: 400 });
+    }
+
+    // --- Data Assets ---
+
+    if (url.pathname.startsWith('/data/') && url.pathname.endsWith('.json')) {
+      const filename = url.pathname.slice(6); // remove '/data/'
+      if (filename.includes('/') || filename.includes('..')) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const filePath = resolve(import.meta.dir, '../data', filename);
+      if (!filePath.startsWith(resolve(import.meta.dir, '../data'))) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      try {
+        const content = readFileSync(filePath);
+        return new Response(content, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        });
+      } catch {
+        return new Response('Not Found', { status: 404 });
+      }
+    }
+
+    // --- Editor API ---
+
+    if (url.pathname === '/api/editor/maps' && req.method === 'GET') {
+      try {
+        const entries = readdirSync(MAPS_DIR, { withFileTypes: true });
+        const maps = entries
+          .filter(e => e.isDirectory())
+          .map(e => {
+            try {
+              const meta = JSON.parse(readFileSync(resolve(MAPS_DIR, e.name, 'meta.json'), 'utf-8'));
+              return { id: meta.id, name: meta.name, width: meta.width, height: meta.height };
+            } catch {
+              return { id: e.name, name: e.name, width: 0, height: 0 };
+            }
+          });
+        return jsonResponse({ ok: true, maps });
+      } catch {
+        return jsonResponse({ ok: false, error: 'Failed to list maps' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/editor/save-map' && req.method === 'POST') {
+      try {
+        const body = await req.json() as {
+          mapId: string;
+          meta: MapMeta;
+          spawns: SpawnsFile;
+          mapData: KCMapFile;
+          walls?: WallsFile;
+        };
+        const { mapId, meta, spawns, mapData, walls } = body;
+        if (!mapId || !meta || !mapData) {
+          return jsonResponse({ ok: false, error: 'Missing fields' }, 400);
+        }
+        const mapDir = resolve(MAPS_DIR, mapId);
+        if (!mapDir.startsWith(MAPS_DIR)) {
+          return new Response('Forbidden', { status: 403 });
+        }
+
+        // Write all files
+        writeFileSync(resolve(mapDir, 'meta.json'), JSON.stringify(meta, null, 2));
+        writeFileSync(resolve(mapDir, 'spawns.json'), JSON.stringify(spawns ?? { npcs: [], objects: [] }, null, 2));
+        writeFileSync(resolve(mapDir, 'map.json'), JSON.stringify(mapData, null, 2));
+        writeFileSync(resolve(mapDir, 'walls.json'), JSON.stringify(walls ?? { walls: {} }, null, 2));
+
+        return jsonResponse({ ok: true });
+      } catch (e: any) {
+        return jsonResponse({ ok: false, error: e.message || 'Save failed' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/editor/new-map' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { mapId: string; name: string; width: number; height: number };
+        const { mapId, name, width, height } = body;
+        if (!mapId || !name || !width || !height) {
+          return jsonResponse({ ok: false, error: 'Missing fields' }, 400);
+        }
+        if (width < 32 || width > 2048 || height < 32 || height > 2048) {
+          return jsonResponse({ ok: false, error: 'Dimensions must be 32-2048' }, 400);
+        }
+        const mapDir = resolve(MAPS_DIR, mapId);
+        if (!mapDir.startsWith(MAPS_DIR)) {
+          return new Response('Forbidden', { status: 403 });
+        }
+        try { statSync(mapDir); return jsonResponse({ ok: false, error: 'Map already exists' }, 400); } catch {}
+
+        mkdirSync(mapDir, { recursive: true });
+
+        // Default meta
+        const meta: MapMeta = {
+          id: mapId,
+          name,
+          width,
+          height,
+          waterLevel: -0.3,
+          spawnPoint: { x: Math.floor(width / 2) + 0.5, z: Math.floor(height / 2) + 0.5 },
+          fogColor: [0.4, 0.6, 0.9] as [number, number, number],
+          fogStart: 30,
+          fogEnd: 50,
+          transitions: [],
+        };
+
+        // Build default KC map data: all grass tiles, flat heights
+        const tiles: KCTile[][] = [];
+        for (let z = 0; z < height; z++) {
+          const row: KCTile[] = [];
+          for (let x = 0; x < width; x++) {
+            row.push(defaultKCTile('grass'));
+          }
+          tiles.push(row);
+        }
+
+        const heights: number[][] = [];
+        for (let z = 0; z <= height; z++) {
+          const row: number[] = [];
+          for (let x = 0; x <= width; x++) {
+            row.push(0);
+          }
+          heights.push(row);
+        }
+
+        const mapData: KCMapFile = {
+          map: {
+            width,
+            height,
+            waterLevel: -0.3,
+            chunkWaterLevels: {},
+            texturePlanes: [],
+            tiles,
+            heights,
+          },
+          placedObjects: [],
+          layers: [{ id: 'default', name: 'Default', visible: true }],
+          activeLayerId: 'default',
+        };
+
+        writeFileSync(resolve(mapDir, 'meta.json'), JSON.stringify(meta, null, 2));
+        writeFileSync(resolve(mapDir, 'spawns.json'), JSON.stringify({ npcs: [], objects: [] }, null, 2));
+        writeFileSync(resolve(mapDir, 'map.json'), JSON.stringify(mapData, null, 2));
+        writeFileSync(resolve(mapDir, 'walls.json'), JSON.stringify({ walls: {} }, null, 2));
+
+        return jsonResponse({ ok: true, meta });
+      } catch (e: any) {
+        return jsonResponse({ ok: false, error: e.message || 'Create failed' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/editor/reload-map' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { mapId: string };
+        const { mapId } = body;
+        if (!mapId) return jsonResponse({ ok: false, error: 'Missing mapId' }, 400);
+        const mapDir = resolve(MAPS_DIR, mapId);
+        if (!mapDir.startsWith(MAPS_DIR)) return new Response('Forbidden', { status: 403 });
+
+        // Reload the map in the world (re-read JSON from disk)
+        try {
+          world.reloadMap(mapId);
+          return jsonResponse({ ok: true });
+        } catch (e: any) {
+          return jsonResponse({ ok: false, error: e.message }, 500);
+        }
+      } catch {
+        return jsonResponse({ ok: false, error: 'Invalid request' }, 400);
+      }
+    }
+
+    if (url.pathname === '/api/editor/export-map' && req.method === 'GET') {
+      const mapId = url.searchParams.get('mapId');
+      if (!mapId) return jsonResponse({ ok: false, error: 'Missing mapId' }, 400);
+      const mapDir = resolve(MAPS_DIR, mapId);
+      if (!mapDir.startsWith(MAPS_DIR)) return new Response('Forbidden', { status: 403 });
+
+      try {
+        const exportFiles: Record<string, string> = {
+          'meta.json': readFileSync(resolve(mapDir, 'meta.json'), 'utf-8'),
+          'spawns.json': readFileSync(resolve(mapDir, 'spawns.json'), 'utf-8'),
+          'map.json': readFileSync(resolve(mapDir, 'map.json'), 'utf-8'),
+        };
+        const wallsPath = resolve(mapDir, 'walls.json');
+        if (existsSync(wallsPath)) {
+          exportFiles['walls.json'] = readFileSync(wallsPath, 'utf-8');
+        }
+        const exported = { mapId, files: exportFiles };
+        return new Response(JSON.stringify(exported), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Disposition': `attachment; filename="${mapId}.json"`,
+          },
+        });
+      } catch {
+        return jsonResponse({ ok: false, error: 'Export failed' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/editor/import-map' && req.method === 'POST') {
+      try {
+        const formData = await req.formData();
+        const file = formData.get('file') as File;
+        if (!file) return jsonResponse({ ok: false, error: 'No file' }, 400);
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const mapId = data.mapId;
+        if (!mapId || !data.files) return jsonResponse({ ok: false, error: 'Invalid format' }, 400);
+
+        const mapDir = resolve(MAPS_DIR, mapId);
+        if (!mapDir.startsWith(MAPS_DIR)) return new Response('Forbidden', { status: 403 });
+        mkdirSync(mapDir, { recursive: true });
+
+        writeFileSync(resolve(mapDir, 'meta.json'), data.files['meta.json']);
+        writeFileSync(resolve(mapDir, 'spawns.json'), data.files['spawns.json']);
+        writeFileSync(resolve(mapDir, 'map.json'), data.files['map.json']);
+        if (data.files['walls.json']) {
+          writeFileSync(resolve(mapDir, 'walls.json'), data.files['walls.json']);
+        }
+
+        return jsonResponse({ ok: true, mapId });
+      } catch (e: any) {
+        return jsonResponse({ ok: false, error: e.message || 'Import failed' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/editor/delete-map' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { mapId: string };
+        const mapId = body.mapId;
+        if (!mapId) return jsonResponse({ ok: false, error: 'mapId required' }, 400);
+        const mapDir = resolve(MAPS_DIR, mapId);
+        if (!mapDir.startsWith(MAPS_DIR)) return new Response('Forbidden', { status: 403 });
+        if (!existsSync(mapDir)) return jsonResponse({ ok: false, error: 'Map not found' }, 404);
+        rmSync(mapDir, { recursive: true, force: true });
+        return jsonResponse({ ok: true });
+      } catch (e: any) {
+        return jsonResponse({ ok: false, error: e.message || 'Delete failed' }, 500);
+      }
+    }
+
+    // --- Map Assets ---
+
+    if (url.pathname.startsWith('/maps/')) {
+      const mapPath = url.pathname.slice(6); // remove '/maps/'
+      const filePath = resolve(MAPS_DIR, mapPath);
+      // Prevent directory traversal
+      if (!filePath.startsWith(MAPS_DIR)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      try {
+        const content = readFileSync(filePath);
+        return new Response(content, {
+          headers: {
+            'Content-Type': getMimeType(filePath),
+            'Cache-Control': 'no-cache',
+          },
+        });
+      } catch {
+        return new Response('Not Found', { status: 404 });
+      }
+    }
+
+    // --- KC Editor Assets (GLB models, textures) ---
+
+    if (url.pathname.startsWith('/assets/')) {
+      const decodedPath = decodeURIComponent(url.pathname);
+      const publicAssetsDir = resolve(import.meta.dir, '../../client/public');
+      for (const baseDir of [CLIENT_DIST, publicAssetsDir]) {
+        const filePath = resolve(baseDir, decodedPath.slice(1));
+        if (!filePath.startsWith(baseDir)) continue;
+        try {
+          const content = readFileSync(filePath);
+          return new Response(content, {
+            headers: {
+              'Content-Type': getMimeType(filePath),
+              'Cache-Control': 'public, max-age=3600',
+            },
+          });
+        } catch { /* try next */ }
+      }
+      return new Response('Not Found', { status: 404 });
+    }
+
+    // --- Static File Serving ---
+
+    const response = serveStatic(url.pathname);
+    if (response) return response;
+
+    return new Response('Not Found', { status: 404 });
+  },
+
+  websocket: {
+    open(ws: import('bun').ServerWebSocket<SocketData>) {
+      if (ws.data.type === 'game') {
+        handleGameSocketOpen(ws as any, world);
+      } else {
+        handleChatSocketOpen(ws as any, world);
+      }
+    },
+    message(ws: import('bun').ServerWebSocket<SocketData>, message: string | Buffer) {
+      if (ws.data.type === 'game') {
+        const buf = message instanceof ArrayBuffer ? message : (message as unknown as Buffer).buffer.slice(0) as ArrayBuffer;
+        handleGameSocketMessage(ws as any, buf, world);
+      } else {
+        handleChatSocketMessage(ws as any, String(message), world);
+      }
+    },
+    close(ws: import('bun').ServerWebSocket<SocketData>) {
+      if (ws.data.type === 'game') {
+        handleGameSocketClose(ws as any, world);
+      } else {
+        handleChatSocketClose(ws as any, world);
+      }
+    },
+  },
+});
+
+console.log(`ProjectRS server running on http://localhost:${server.port}`);
+console.log(`Game WebSocket: ws://localhost:${server.port}${GAME_WS_PATH}`);
+console.log(`Chat WebSocket: ws://localhost:${server.port}${CHAT_WS_PATH}`);
+console.log(`World tick rate: ${600}ms — ${world.players.size} players online`);
+

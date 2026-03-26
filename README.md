@@ -1,0 +1,96 @@
+# ProjectRS
+
+A multiplayer browser MMORPG inspired by RuneScape Classic and HighSpell. Built with Bun, TypeScript, and Babylon.js.
+
+## Features
+
+- **3D World:** Chunk-streamed terrain with heightmap elevation, vertex-colored tiles, variable-height walls, roofs, floors, stairs, and linear fog
+- **Building System:** Edge-based thin walls, elevated floor platforms, 4-step stair ramps, flat and peaked roofs — all configurable per tile
+- **Multi-Map:** 1024x1024 overworld with distinct regions + 256x256 underground dungeon, connected by transition tiles
+- **Multiplayer:** Server-authoritative with dual WebSocket protocol (binary game + JSON chat)
+- **Combat:** OSRS-style tick-based combat with hit chance, max hit, 4 melee stances, equipment bonuses
+- **Skills:** 12 skills with OSRS XP formula — 6 combat + 6 gathering/crafting (forestry, fishing, mining, cooking, smithing, crafting)
+- **World Objects:** Harvestable trees (3D models), rocks, fishing spots + crafting stations (furnace, cooking range, altar)
+- **Items:** 30 items — weapons, armor, food, skilling resources, processed bars
+- **Persistence:** SQLite saves player position, inventory, skills, and map level
+- **Map Editor:** Full-featured visual editor with tools for tiles, heights, walls, floors, stairs, roofs, NPC/object placement, undo/redo, copy/paste, export/import
+
+## Overworld Regions
+
+| Region | Content |
+|--------|---------|
+| Central Village | Stone plaza, 7 buildings, guards, shopkeeper, farm with chickens |
+| NE Mountains | Rocky peaks, copper/iron rocks, wolves, mining camp |
+| E Forest | Dense trees, spiders, wolves, oak trees for high-level forestry |
+| SE Ruins | Stone ruins, skeletons, Dark Knight boss, dungeon entrance |
+| SW Goblin Camp | Dirt camp with tents, 10 goblin spawns |
+| NW Swamp | Water/sand mix, rats, fishing spots |
+| River & Coast | Water from NW to south coast, sand banks, fishing spots |
+
+## Tech Stack
+
+- **Server:** Bun + TypeScript
+- **Client:** Vite + Babylon.js 7 (WebGL)
+- **Editor:** Vite + TypeScript (2D canvas-based map editor)
+- **3D Style:** Low-poly terrain with 2D billboard sprites + 3D models (GLB)
+- **Protocol:** Binary WebSocket (opcode + int16 values)
+- **Maps:** PNG-based (heightmap grayscale + tilemap RGB) + walls.json for building data
+
+## Quick Start
+
+```bash
+# Install dependencies
+bun install
+
+# Generate map files
+bun tools/generate-maps.ts
+
+# Build client
+cd client && bunx vite build && cd ..
+
+# Start server
+bun server/src/main.ts
+
+# Open http://localhost:4000
+```
+
+### Development (hot reload)
+
+```bash
+# Terminal 1: Server
+bun run dev:server
+
+# Terminal 2: Client (vite dev server on :5173, proxies /ws and /api to :4000)
+bun run dev:client
+
+# Terminal 3: Editor (vite dev server on :5174)
+bun run dev:editor
+```
+
+## Building System
+
+Buildings are defined in `walls.json` per map using an edge-based wall system:
+
+- **Walls:** 4-bit bitmask per tile (N/E/S/W edges) with configurable height per tile
+- **Floors:** Elevated walkable platforms at any Y height, rendered with edge faces
+- **Stairs:** 4-step ramps connecting height levels, with configurable direction (N/E/S/W)
+- **Roofs:** Flat or peaked (N-S or E-W ridge), rendered at configurable height
+
+Player height automatically follows floors and interpolates along stairs via `getEffectiveHeight()`.
+
+## Project Structure
+
+```
+ProjectRS/
+├── shared/          # Types, opcodes, protocol, skills, constants
+├── server/          # Bun game server
+│   ├── src/         # World, GameMap, entities, combat, networking
+│   └── data/        # items.json, npcs.json, objects.json, maps/
+├── client/          # Babylon.js browser client
+│   └── src/         # Managers, rendering (ChunkManager), UI
+├── editor/          # Map editor (2D canvas)
+│   └── src/         # Tools, canvas renderers, state management
+└── tools/           # Map generation script
+```
+
+See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.

@@ -1,0 +1,737 @@
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+import { CHUNK_SIZE, TileType, BLOCKING_TILES, groundTypeToTileType, shouldTileRenderWater, WallEdge, DEFAULT_WALL_HEIGHT } from '@projectrs/shared';
+import type { MapMeta, MapTransition, WallsFile, StairData, RoofData, FloorLayerData, KCMapFile, KCMapData, KCTile, GroundType } from '@projectrs/shared';
+
+const MAPS_DIR = resolve(import.meta.dir, '../data/maps');
+
+/**
+ * Server-side map — loads terrain from KC editor JSON format (map.json).
+ */
+export class GameMap {
+  readonly id: string;
+  readonly meta: MapMeta;
+  readonly width: number;
+  readonly height: number;
+
+  /** KC map data (tiles, heights, water levels) */
+  private mapData: KCMapData;
+
+  /** Cached tile types for fast collision checks */
+  private tileTypes: Uint8Array;
+
+  /** Height values at vertices (width+1 x height+1) — flat cache from mapData.heights */
+  private heightCache: Float32Array;
+
+  /** Wall edge bitmasks per tile (width x height) */
+  private walls: Uint8Array;
+  /** Per-tile wall height overrides (sparse — only stores non-default) */
+  private wallHeights: Map<number, number> = new Map();
+  /** Elevated floor heights (sparse) */
+  private floorHeights: Map<number, number> = new Map();
+  /** Stair data (sparse) */
+  private stairs: Map<number, StairData> = new Map();
+  /** Roof data (sparse) */
+  private roofs: Map<number, RoofData> = new Map();
+
+  /** Multi-floor layer data */
+  private floorLayers: Map<number, {
+    tiles: Map<number, number>;
+    walls: Map<number, number>;
+    wallHeights: Map<number, number>;
+    floors: Map<number, number>;
+    stairs: Map<number, StairData>;
+    roofs: Map<number, RoofData>;
+  }> = new Map();
+
+  constructor(mapId: string) {
+    this.id = mapId;
+    const dir = resolve(MAPS_DIR, mapId);
+
+    // Load meta
+    this.meta = JSON.parse(readFileSync(resolve(dir, 'meta.json'), 'utf-8')) as MapMeta;
+    this.width = this.meta.width;
+    this.height = this.meta.height;
+
+    // Load KC map data
+    const mapFile: KCMapFile = JSON.parse(readFileSync(resolve(dir, 'map.json'), 'utf-8'));
+    this.mapData = mapFile.map;
+
+    // Build height cache (flat Float32Array for fast access)
+    const vw = this.width + 1;
+    const vh = this.height + 1;
+    this.heightCache = new Float32Array(vw * vh);
+    for (let z = 0; z <= this.height; z++) {
+      for (let x = 0; x <= this.width; x++) {
+        this.heightCache[z * vw + x] = this.mapData.heights[z]?.[x] ?? 0;
+      }
+    }
+
+    // Build tile type cache for collision
+    this.tileTypes = new Uint8Array(this.width * this.height);
+    for (let z = 0; z < this.height; z++) {
+      for (let x = 0; x < this.width; x++) {
+        const tile = this.mapData.tiles[z]?.[x];
+        if (!tile) {
+          this.tileTypes[z * this.width + x] = TileType.GRASS;
+          continue;
+        }
+        // Check if this tile is effectively water (painted or below water level)
+        const corners = {
+          tl: this.mapData.heights[z]?.[x] ?? 0,
+          tr: this.mapData.heights[z]?.[x + 1] ?? 0,
+          bl: this.mapData.heights[z + 1]?.[x] ?? 0,
+          br: this.mapData.heights[z + 1]?.[x + 1] ?? 0,
+        };
+        const chunkX = Math.floor(x / 64);
+        const chunkZ = Math.floor(z / 64);
+        const chunkKey = `${chunkX},${chunkZ}`;
+        const waterLevel = this.mapData.chunkWaterLevels[chunkKey] ?? this.mapData.waterLevel;
+
+        if (shouldTileRenderWater(tile, corners, waterLevel)) {
+          this.tileTypes[z * this.width + x] = TileType.WATER;
+        } else {
+          this.tileTypes[z * this.width + x] = groundTypeToTileType(tile.ground);
+        }
+      }
+    }
+
+    // Load walls and building data
+    this.walls = new Uint8Array(this.width * this.height);
+    const wallsPath = resolve(dir, 'walls.json');
+    if (existsSync(wallsPath)) {
+      const wallsData: WallsFile = JSON.parse(readFileSync(wallsPath, 'utf-8'));
+      const parseKey = (key: string): [number, number] | null => {
+        const [xStr, zStr] = key.split(',');
+        const x = parseInt(xStr);
+        const z = parseInt(zStr);
+        if (x >= 0 && x < this.width && z >= 0 && z < this.height) return [x, z];
+        return null;
+      };
+      for (const [key, mask] of Object.entries(wallsData.walls)) {
+        const coords = parseKey(key);
+        if (coords) this.walls[coords[1] * this.width + coords[0]] = mask;
+      }
+      if (wallsData.wallHeights) {
+        for (const [key, h] of Object.entries(wallsData.wallHeights)) {
+          const coords = parseKey(key);
+          if (coords) this.wallHeights.set(coords[1] * this.width + coords[0], h);
+        }
+      }
+      if (wallsData.floors) {
+        for (const [key, h] of Object.entries(wallsData.floors)) {
+          const coords = parseKey(key);
+          if (coords) this.floorHeights.set(coords[1] * this.width + coords[0], h);
+        }
+      }
+      if (wallsData.stairs) {
+        for (const [key, data] of Object.entries(wallsData.stairs)) {
+          const coords = parseKey(key);
+          if (coords) this.stairs.set(coords[1] * this.width + coords[0], data);
+        }
+      }
+      if (wallsData.roofs) {
+        for (const [key, data] of Object.entries(wallsData.roofs)) {
+          const coords = parseKey(key);
+          if (coords) this.roofs.set(coords[1] * this.width + coords[0], data);
+        }
+      }
+      // Load floor layers
+      if (wallsData.floorLayers) {
+        for (const [floorStr, ld] of Object.entries(wallsData.floorLayers)) {
+          const floorIdx = parseInt(floorStr);
+          const layer = {
+            tiles: new Map<number, number>(),
+            walls: new Map<number, number>(),
+            wallHeights: new Map<number, number>(),
+            floors: new Map<number, number>(),
+            stairs: new Map<number, StairData>(),
+            roofs: new Map<number, RoofData>(),
+          };
+          if (ld.tiles) for (const [k, v] of Object.entries(ld.tiles)) { const c = parseKey(k); if (c) layer.tiles.set(c[1] * this.width + c[0], v as number); }
+          if (ld.walls) for (const [k, v] of Object.entries(ld.walls)) { const c = parseKey(k); if (c) layer.walls.set(c[1] * this.width + c[0], v as number); }
+          if (ld.wallHeights) for (const [k, v] of Object.entries(ld.wallHeights)) { const c = parseKey(k); if (c) layer.wallHeights.set(c[1] * this.width + c[0], v as number); }
+          if (ld.floors) for (const [k, v] of Object.entries(ld.floors)) { const c = parseKey(k); if (c) layer.floors.set(c[1] * this.width + c[0], v as number); }
+          if (ld.stairs) for (const [k, v] of Object.entries(ld.stairs)) { const c = parseKey(k); if (c) layer.stairs.set(c[1] * this.width + c[0], v as StairData); }
+          if (ld.roofs) for (const [k, v] of Object.entries(ld.roofs)) { const c = parseKey(k); if (c) layer.roofs.set(c[1] * this.width + c[0], v as RoofData); }
+          this.floorLayers.set(floorIdx, layer);
+        }
+      }
+    }
+
+    // Register horizontal texture planes as walkable floors (bridges, platforms)
+    this.registerTexturePlaneFloors(mapFile);
+
+    console.log(`Loaded map '${mapId}': ${this.width}x${this.height} tiles, waterLevel=${this.mapData.waterLevel}, ${this.floorLayers.size} upper floors`);
+  }
+
+  /** Detect horizontal texture planes and register them as walkable bridges/floors.
+   *  A flat plane acts as a walkable floor when it sits significantly above the terrain
+   *  beneath it (bridges over water, valleys, or any gap). */
+  private registerTexturePlaneFloors(mapFile: KCMapFile): void {
+    const planes = this.mapData.texturePlanes || [];
+    let count = 0;
+    for (const plane of planes) {
+      // Detect physically flat planes: rotation.x ≈ -PI/2
+      const rx = plane.rotation?.x ?? 0;
+      const isFlat = Math.abs(Math.abs(rx) - Math.PI / 2) < 0.1;
+      if (!isFlat) continue;
+
+      const px = plane.position?.x ?? 0;
+      const py = plane.position?.y ?? 0;
+      const pz = plane.position?.z ?? 0;
+      const sx = plane.scale?.x ?? 1;
+      const sy = plane.scale?.y ?? 1;
+      const ry = plane.rotation?.y ?? 0;
+
+      const hw = (plane.width ?? 1) * sx / 2;
+      const hd = (plane.height ?? 1) * sy / 2;
+      const cosR = Math.cos(ry), sinR = Math.sin(ry);
+      const corners = [
+        { x: px + (-hw) * cosR - (-hd) * sinR, z: pz + (-hw) * sinR + (-hd) * cosR },
+        { x: px + (hw) * cosR - (-hd) * sinR, z: pz + (hw) * sinR + (-hd) * cosR },
+        { x: px + (hw) * cosR - (hd) * sinR, z: pz + (hw) * sinR + (hd) * cosR },
+        { x: px + (-hw) * cosR - (hd) * sinR, z: pz + (-hw) * sinR + (hd) * cosR },
+      ];
+
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const c of corners) {
+        if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
+        if (c.z < minZ) minZ = c.z; if (c.z > maxZ) maxZ = c.z;
+      }
+
+      const tx0 = Math.max(0, Math.floor(minX));
+      const tx1 = Math.min(this.width - 1, Math.floor(maxX));
+      const tz0 = Math.max(0, Math.floor(minZ));
+      const tz1 = Math.min(this.height - 1, Math.floor(maxZ));
+
+      for (let tz = tz0; tz <= tz1; tz++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          const idx = tz * this.width + tx;
+          // Only affect tiles that are currently blocked (water, wall)
+          // Non-blocked tiles keep their terrain height — no floating
+          if (!BLOCKING_TILES.has(this.tileTypes[idx] as TileType)) continue;
+
+          this.tileTypes[idx] = TileType.STONE; // make walkable
+          // Use the lowest flat plane as walking surface
+          const existing = this.floorHeights.get(idx);
+          if (existing === undefined || py < existing) {
+            this.floorHeights.set(idx, py);
+          }
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      console.log(`  Registered ${count} tiles as walkable from texture plane bridges`);
+    }
+  }
+
+  /** Get floor layer data (null = ground floor) */
+  getFloorLayer(floor: number) {
+    if (floor === 0) return null;
+    return this.floorLayers.get(floor) ?? null;
+  }
+
+  /** Get wall bitmask at position for a specific floor */
+  getWallOnFloor(x: number, z: number, floor: number): number {
+    if (floor === 0) return this.getWall(x, z);
+    const layer = this.floorLayers.get(floor);
+    if (!layer) return 0;
+    const idx = z * this.width + x;
+    return layer.walls.get(idx) ?? 0;
+  }
+
+  /** Check if a tile is walkable on a specific floor */
+  isTileBlockedOnFloor(x: number, z: number, floor: number): boolean {
+    if (floor === 0) return this.isBlocked(x, z);
+    const layer = this.floorLayers.get(floor);
+    if (!layer) return true;
+    const idx = z * this.width + x;
+    const hasTile = layer.tiles.has(idx);
+    const hasFloor = layer.floors.has(idx);
+    const hasStair = layer.stairs.has(idx);
+    return !(hasTile || hasFloor || hasStair);
+  }
+
+  /** Check wall blocking for a specific floor */
+  isWallBlockedOnFloor(fromX: number, fromZ: number, toX: number, toZ: number, floor: number): boolean {
+    if (floor === 0) return this.isWallBlocked(fromX, fromZ, toX, toZ);
+    const fx = Math.floor(fromX);
+    const fz = Math.floor(fromZ);
+    const tx = Math.floor(toX);
+    const tz = Math.floor(toZ);
+    const dx = tx - fx;
+    const dz = tz - fz;
+
+    const getW = (x: number, z: number) => this.getWallOnFloor(x, z, floor);
+
+    if (dx === 0 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0;
+    if (dx === 1 && dz === 0) return (getW(fx, fz) & WallEdge.E) !== 0;
+    if (dx === 0 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0;
+    if (dx === -1 && dz === 0) return (getW(fx, fz) & WallEdge.W) !== 0;
+
+    if (dx === 1 && dz === -1) {
+      return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(fx, fz) & WallEdge.E) !== 0
+          || (getW(tx, tz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
+    }
+    if (dx === -1 && dz === -1) {
+      return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(fx, fz) & WallEdge.W) !== 0
+          || (getW(tx, tz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.E) !== 0;
+    }
+    if (dx === 1 && dz === 1) {
+      return (getW(fx, fz) & WallEdge.S) !== 0 || (getW(fx, fz) & WallEdge.E) !== 0
+          || (getW(tx, tz) & WallEdge.N) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
+    }
+    if (dx === -1 && dz === 1) {
+      return (getW(fx, fz) & WallEdge.S) !== 0 || (getW(fx, fz) & WallEdge.W) !== 0
+          || (getW(tx, tz) & WallEdge.N) !== 0 || (getW(tx, tz) & WallEdge.E) !== 0;
+    }
+    return false;
+  }
+
+  /** Get stair on a specific floor */
+  getStairOnFloor(x: number, z: number, floor: number): StairData | null {
+    if (floor === 0) return this.getStair(x, z);
+    const layer = this.floorLayers.get(floor);
+    if (!layer) return null;
+    return layer.stairs.get(z * this.width + x) ?? null;
+  }
+
+  /** Get height at a vertex coordinate */
+  getVertexHeight(vx: number, vz: number): number {
+    const vw = this.width + 1;
+    if (vx < 0 || vx >= vw || vz < 0 || vz >= this.height + 1) return 0;
+    return this.heightCache[vz * vw + vx];
+  }
+
+  /** Bilinear interpolation of height at fractional world coordinates */
+  getInterpolatedHeight(x: number, z: number): number {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const fx = x - x0;
+    const fz = z - z0;
+
+    const h00 = this.getVertexHeight(x0, z0);
+    const h10 = this.getVertexHeight(x0 + 1, z0);
+    const h01 = this.getVertexHeight(x0, z0 + 1);
+    const h11 = this.getVertexHeight(x0 + 1, z0 + 1);
+
+    const h0 = h00 * (1 - fx) + h10 * fx;
+    const h1 = h01 * (1 - fx) + h11 * fx;
+    return h0 * (1 - fz) + h1 * fz;
+  }
+
+  getHeight(x: number, z: number): number {
+    return this.getInterpolatedHeight(x, z);
+  }
+
+  isBlocked(x: number, z: number): boolean {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return true;
+    return BLOCKING_TILES.has(this.tileTypes[tz * this.width + tx] as TileType);
+  }
+
+  getTileType(x: number, z: number): TileType {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return TileType.WALL;
+    return this.tileTypes[tz * this.width + tx] as TileType;
+  }
+
+  getWall(x: number, z: number): number {
+    if (x < 0 || x >= this.width || z < 0 || z >= this.height) return 0;
+    return this.walls[z * this.width + x];
+  }
+
+  getWallHeight(x: number, z: number): number {
+    const idx = z * this.width + x;
+    return this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
+  }
+
+  getFloorHeight(x: number, z: number): number | null {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return null;
+    return this.floorHeights.get(tz * this.width + tx) ?? null;
+  }
+
+  getStair(x: number, z: number): StairData | null {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return null;
+    return this.stairs.get(tz * this.width + tx) ?? null;
+  }
+
+  getRoof(x: number, z: number): RoofData | null {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return null;
+    return this.roofs.get(tz * this.width + tx) ?? null;
+  }
+
+  /** Get effective walking height at a position, accounting for floors and stairs */
+  getEffectiveHeight(x: number, z: number): number {
+    return this.getEffectiveHeightOnFloor(x, z, 0);
+  }
+
+  /** Get effective walking height at a position on a specific floor */
+  getEffectiveHeightOnFloor(x: number, z: number, floor: number): number {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+
+    const stair = this.getStairOnFloor(tx, tz, floor);
+    if (stair) {
+      const fx = x - tx;
+      const fz = z - tz;
+      let t: number;
+      switch (stair.direction) {
+        case 'N': t = 1 - fz; break;
+        case 'S': t = fz; break;
+        case 'E': t = fx; break;
+        case 'W': t = 1 - fx; break;
+      }
+      return stair.baseHeight + t * (stair.topHeight - stair.baseHeight);
+    }
+
+    if (floor === 0) {
+      const floorH = this.getFloorHeight(x, z);
+      if (floorH !== null) return floorH;
+      return this.getInterpolatedHeight(x, z);
+    }
+
+    const layer = this.floorLayers.get(floor);
+    if (layer) {
+      const idx = tz * this.width + tx;
+      const floorH = layer.floors.get(idx);
+      if (floorH !== undefined) return floorH;
+    }
+
+    return this.getInterpolatedHeight(x, z);
+  }
+
+  /** Check if movement from (fromX,fromZ) to (toX,toZ) is blocked by a wall edge */
+  isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number): boolean {
+    const fx = Math.floor(fromX);
+    const fz = Math.floor(fromZ);
+    const tx = Math.floor(toX);
+    const tz = Math.floor(toZ);
+
+    const dx = tx - fx;
+    const dz = tz - fz;
+
+    if (dx === 0 && dz === -1) return (this.getWall(fx, fz) & WallEdge.N) !== 0;
+    if (dx === 1 && dz === 0) return (this.getWall(fx, fz) & WallEdge.E) !== 0;
+    if (dx === 0 && dz === 1) return (this.getWall(fx, fz) & WallEdge.S) !== 0;
+    if (dx === -1 && dz === 0) return (this.getWall(fx, fz) & WallEdge.W) !== 0;
+
+    if (dx === 1 && dz === -1) {
+      return (this.getWall(fx, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz) & WallEdge.E) !== 0
+          || (this.getWall(tx, tz) & WallEdge.S) !== 0 || (this.getWall(tx, tz) & WallEdge.W) !== 0;
+    }
+    if (dx === -1 && dz === -1) {
+      return (this.getWall(fx, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz) & WallEdge.W) !== 0
+          || (this.getWall(tx, tz) & WallEdge.S) !== 0 || (this.getWall(tx, tz) & WallEdge.E) !== 0;
+    }
+    if (dx === 1 && dz === 1) {
+      return (this.getWall(fx, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz) & WallEdge.E) !== 0
+          || (this.getWall(tx, tz) & WallEdge.N) !== 0 || (this.getWall(tx, tz) & WallEdge.W) !== 0;
+    }
+    if (dx === -1 && dz === 1) {
+      return (this.getWall(fx, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz) & WallEdge.W) !== 0
+          || (this.getWall(tx, tz) & WallEdge.N) !== 0 || (this.getWall(tx, tz) & WallEdge.E) !== 0;
+    }
+
+    return false;
+  }
+
+  findSpawnPoint(): { x: number; z: number } {
+    const sp = this.meta.spawnPoint;
+    if (!this.isBlocked(sp.x, sp.z)) {
+      return { x: sp.x, z: sp.z };
+    }
+    for (let r = 0; r < 15; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          const x = sp.x + dx;
+          const z = sp.z + dz;
+          if (!this.isBlocked(x, z)) {
+            return { x: Math.floor(x) + 0.5, z: Math.floor(z) + 0.5 };
+          }
+        }
+      }
+    }
+    return { x: sp.x, z: sp.z };
+  }
+
+  getTransitions(): MapTransition[] {
+    return this.meta.transitions;
+  }
+
+  getTransitionAt(x: number, z: number): MapTransition | null {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    for (const t of this.meta.transitions) {
+      if (t.tileX === tx && t.tileZ === tz) return t;
+    }
+    return null;
+  }
+
+  findPath(startX: number, startZ: number, goalX: number, goalZ: number): { x: number; z: number }[] {
+    const sx = Math.floor(startX);
+    const sz = Math.floor(startZ);
+    const gx = Math.floor(goalX);
+    const gz = Math.floor(goalZ);
+
+    if (sx === gx && sz === gz) return [];
+    if (this.isBlocked(gx, gz)) return [];
+
+    const w = this.width;
+    const h = this.height;
+    const maxSteps = 800;
+
+    interface PNode { x: number; z: number; g: number; hv: number; f: number; parent: PNode | null; heapIdx: number }
+    const heap: PNode[] = [];
+    const openMap = new Map<number, PNode>();
+    const closed = new Set<number>();
+    const key = (x: number, z: number) => z * w + x;
+
+    const heuristic = (x: number, z: number) => {
+      const dx = Math.abs(x - gx);
+      const dz = Math.abs(z - gz);
+      return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
+    };
+
+    const bubbleUp = (i: number) => {
+      const node = heap[i];
+      while (i > 0) {
+        const pi = (i - 1) >> 1;
+        const parent = heap[pi];
+        if (node.f >= parent.f) break;
+        heap[i] = parent; parent.heapIdx = i;
+        i = pi;
+      }
+      heap[i] = node; node.heapIdx = i;
+    };
+
+    const sinkDown = (i: number) => {
+      const len = heap.length;
+      const node = heap[i];
+      while (true) {
+        let sm = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < len && heap[l].f < heap[sm].f) sm = l;
+        if (r < len && heap[r].f < heap[sm].f) sm = r;
+        if (sm === i) break;
+        heap[i] = heap[sm]; heap[i].heapIdx = i;
+        i = sm;
+      }
+      heap[i] = node; node.heapIdx = i;
+    };
+
+    const pushNode = (n: PNode) => { n.heapIdx = heap.length; heap.push(n); bubbleUp(heap.length - 1); };
+    const popNode = (): PNode => {
+      const top = heap[0];
+      const last = heap.pop()!;
+      if (heap.length > 0) { heap[0] = last; last.heapIdx = 0; sinkDown(0); }
+      return top;
+    };
+
+    const sh = heuristic(sx, sz);
+    const startNode: PNode = { x: sx, z: sz, g: 0, hv: sh, f: sh, parent: null, heapIdx: 0 };
+    pushNode(startNode);
+    openMap.set(key(sx, sz), startNode);
+
+    let steps = 0;
+    while (heap.length > 0 && steps < maxSteps) {
+      steps++;
+      const current = popNode();
+      const ck = key(current.x, current.z);
+      openMap.delete(ck);
+
+      if (current.x === gx && current.z === gz) {
+        const path: { x: number; z: number }[] = [];
+        let node: PNode | null = current;
+        while (node && !(node.x === sx && node.z === sz)) {
+          path.unshift({ x: node.x + 0.5, z: node.z + 0.5 });
+          node = node.parent;
+        }
+        return path;
+      }
+
+      closed.add(ck);
+
+      const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      const canW = !this.isBlocked(current.x - 1, current.z) && !this.isWallBlocked(current.x, current.z, current.x - 1, current.z);
+      const canE = !this.isBlocked(current.x + 1, current.z) && !this.isWallBlocked(current.x, current.z, current.x + 1, current.z);
+      const canN = !this.isBlocked(current.x, current.z - 1) && !this.isWallBlocked(current.x, current.z, current.x, current.z - 1);
+      const canS = !this.isBlocked(current.x, current.z + 1) && !this.isWallBlocked(current.x, current.z, current.x, current.z + 1);
+      if (canW && canN) dirs.push([-1, -1]);
+      if (canE && canN) dirs.push([1, -1]);
+      if (canW && canS) dirs.push([-1, 1]);
+      if (canE && canS) dirs.push([1, 1]);
+
+      for (const [dx, dz] of dirs) {
+        const nx = current.x + dx;
+        const nz = current.z + dz;
+        const nk = key(nx, nz);
+        if (closed.has(nk)) continue;
+        if (nx < 0 || nx >= w || nz < 0 || nz >= h) continue;
+        if (this.isBlocked(nx, nz)) continue;
+        if (this.isWallBlocked(current.x, current.z, nx, nz)) continue;
+
+        const isDiag = dx !== 0 && dz !== 0;
+        const g = current.g + (isDiag ? 1.414 : 1);
+
+        const existing = openMap.get(nk);
+        if (existing) {
+          if (g < existing.g) {
+            existing.g = g;
+            existing.f = g + existing.hv;
+            existing.parent = current;
+            bubbleUp(existing.heapIdx);
+          }
+          continue;
+        }
+
+        const nhv = heuristic(nx, nz);
+        const node: PNode = { x: nx, z: nz, g, hv: nhv, f: g + nhv, parent: current, heapIdx: 0 };
+        pushNode(node);
+        openMap.set(nk, node);
+      }
+    }
+    return [];
+  }
+
+  findPathOnFloor(startX: number, startZ: number, goalX: number, goalZ: number, floor: number): { x: number; z: number }[] {
+    if (floor === 0) return this.findPath(startX, startZ, goalX, goalZ);
+
+    const sx = Math.floor(startX);
+    const sz = Math.floor(startZ);
+    const gx = Math.floor(goalX);
+    const gz = Math.floor(goalZ);
+
+    if (sx === gx && sz === gz) return [];
+    if (this.isTileBlockedOnFloor(gx, gz, floor)) return [];
+
+    const w = this.width;
+    const h = this.height;
+    const maxSteps = 800;
+
+    interface PNode { x: number; z: number; g: number; hv: number; f: number; parent: PNode | null; heapIdx: number }
+    const heap: PNode[] = [];
+    const openMap = new Map<number, PNode>();
+    const closed = new Set<number>();
+    const key = (x: number, z: number) => z * w + x;
+
+    const heuristic = (x: number, z: number) => {
+      const dx = Math.abs(x - gx);
+      const dz = Math.abs(z - gz);
+      return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
+    };
+
+    const bubbleUp = (i: number) => {
+      const node = heap[i];
+      while (i > 0) {
+        const pi = (i - 1) >> 1;
+        const parent = heap[pi];
+        if (node.f >= parent.f) break;
+        heap[i] = parent; parent.heapIdx = i;
+        i = pi;
+      }
+      heap[i] = node; node.heapIdx = i;
+    };
+
+    const sinkDown = (i: number) => {
+      const len = heap.length;
+      const node = heap[i];
+      while (true) {
+        let sm = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < len && heap[l].f < heap[sm].f) sm = l;
+        if (r < len && heap[r].f < heap[sm].f) sm = r;
+        if (sm === i) break;
+        heap[i] = heap[sm]; heap[i].heapIdx = i;
+        i = sm;
+      }
+      heap[i] = node; node.heapIdx = i;
+    };
+
+    const pushNode = (n: PNode) => { n.heapIdx = heap.length; heap.push(n); bubbleUp(heap.length - 1); };
+    const popNode = (): PNode => {
+      const top = heap[0];
+      const last = heap.pop()!;
+      if (heap.length > 0) { heap[0] = last; last.heapIdx = 0; sinkDown(0); }
+      return top;
+    };
+
+    const sh = heuristic(sx, sz);
+    const startNode: PNode = { x: sx, z: sz, g: 0, hv: sh, f: sh, parent: null, heapIdx: 0 };
+    pushNode(startNode);
+    openMap.set(key(sx, sz), startNode);
+
+    let steps = 0;
+    while (heap.length > 0 && steps < maxSteps) {
+      steps++;
+      const current = popNode();
+      const ck = key(current.x, current.z);
+      openMap.delete(ck);
+
+      if (current.x === gx && current.z === gz) {
+        const path: { x: number; z: number }[] = [];
+        let node: PNode | null = current;
+        while (node && !(node.x === sx && node.z === sz)) {
+          path.unshift({ x: node.x + 0.5, z: node.z + 0.5 });
+          node = node.parent;
+        }
+        return path;
+      }
+
+      closed.add(ck);
+
+      const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      const blocked = (x: number, z: number) => this.isTileBlockedOnFloor(x, z, floor);
+      const wallBlk = (fx: number, fz: number, tx: number, tz: number) => this.isWallBlockedOnFloor(fx, fz, tx, tz, floor);
+
+      const canW = !blocked(current.x - 1, current.z) && !wallBlk(current.x, current.z, current.x - 1, current.z);
+      const canE = !blocked(current.x + 1, current.z) && !wallBlk(current.x, current.z, current.x + 1, current.z);
+      const canN = !blocked(current.x, current.z - 1) && !wallBlk(current.x, current.z, current.x, current.z - 1);
+      const canS = !blocked(current.x, current.z + 1) && !wallBlk(current.x, current.z, current.x, current.z + 1);
+      if (canW && canN) dirs.push([-1, -1]);
+      if (canE && canN) dirs.push([1, -1]);
+      if (canW && canS) dirs.push([-1, 1]);
+      if (canE && canS) dirs.push([1, 1]);
+
+      for (const [dx, dz] of dirs) {
+        const nx = current.x + dx;
+        const nz = current.z + dz;
+        const nk = key(nx, nz);
+        if (closed.has(nk)) continue;
+        if (nx < 0 || nx >= w || nz < 0 || nz >= h) continue;
+        if (blocked(nx, nz)) continue;
+        if (wallBlk(current.x, current.z, nx, nz)) continue;
+
+        const isDiag = dx !== 0 && dz !== 0;
+        const g = current.g + (isDiag ? 1.414 : 1);
+
+        const existing = openMap.get(nk);
+        if (existing) {
+          if (g < existing.g) {
+            existing.g = g;
+            existing.f = g + existing.hv;
+            existing.parent = current;
+            bubbleUp(existing.heapIdx);
+          }
+          continue;
+        }
+
+        const nhv = heuristic(nx, nz);
+        const node: PNode = { x: nx, z: nz, g, hv: nhv, f: g + nhv, parent: current, heapIdx: 0 };
+        pushNode(node);
+        openMap.set(nk, node);
+      }
+    }
+    return [];
+  }
+}

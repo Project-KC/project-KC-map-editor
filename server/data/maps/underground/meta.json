@@ -1,0 +1,27 @@
+{
+  "id": "underground",
+  "name": "Underground",
+  "width": 256,
+  "height": 256,
+  "waterLevel": -0.5,
+  "spawnPoint": {
+    "x": 130.5,
+    "z": 130.5
+  },
+  "fogColor": [
+    0.1,
+    0.08,
+    0.15
+  ],
+  "fogStart": 8,
+  "fogEnd": 20,
+  "transitions": [
+    {
+      "tileX": 128,
+      "tileZ": 128,
+      "targetMap": "overworld",
+      "targetX": 750.5,
+      "targetZ": 722.5
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+import { Entity } from './Entity';
+import {
+  InventorySlot, INVENTORY_SIZE,
+  SkillBlock, SkillId, MeleeStance, CombatBonuses,
+  initSkills, addXp, combatLevel, zeroBonuses, STANCE_XP,
+  ACC_BASE, osrsMeleeMaxHit, calculateHitChance, STANCE_BONUSES,
+} from '@projectrs/shared';
+import type { ServerWebSocket } from 'bun';
+
+export const EQUIP_SLOTS = ['weapon', 'shield', 'head', 'body', 'legs', 'neck', 'ring', 'hands', 'feet', 'cape'] as const;
+export type EquipSlot = typeof EQUIP_SLOTS[number];
+
+export interface EquippedItem {
+  itemId: number;
+  slot: EquipSlot;
+}
+
+export class Player extends Entity {
+  ws: ServerWebSocket<{ type: string; playerId?: number }>;
+  accountId: number;
+  inventory: (InventorySlot | null)[];
+  equipment: Map<EquipSlot, number> = new Map(); // slot -> itemId
+  skills: SkillBlock;
+  stance: MeleeStance = 'accurate';
+  moveQueue: { x: number; z: number }[] = [];
+  moveSpeed: number = 1;
+
+  // Chunk tracking
+  currentChunkX: number = -1;
+  currentChunkZ: number = -1;
+
+  // Combat
+  attackTarget: Entity | null = null;
+  attackCooldown: number = 0;
+
+  constructor(
+    name: string,
+    x: number,
+    z: number,
+    ws: ServerWebSocket<{ type: string; playerId?: number }>,
+    accountId: number = 0
+  ) {
+    super(name, x, z, 10); // maxHealth set from skills
+    this.ws = ws;
+    this.accountId = accountId;
+    this.inventory = new Array(INVENTORY_SIZE).fill(null);
+    this.skills = initSkills();
+    this.health = this.skills.hitpoints.currentLevel;
+    this.maxHealth = this.skills.hitpoints.level;
+  }
+
+  get combatLevel(): number {
+    return combatLevel(this.skills);
+  }
+
+  // Recompute bonuses from all equipped items
+  computeBonuses(itemDefs: Map<number, any>): CombatBonuses {
+    const b = zeroBonuses();
+    for (const [, itemId] of this.equipment) {
+      const def = itemDefs.get(itemId);
+      if (!def) continue;
+      b.stabAttack += def.stabAttack || 0;
+      b.slashAttack += def.slashAttack || 0;
+      b.crushAttack += def.crushAttack || 0;
+      b.stabDefence += def.stabDefence || 0;
+      b.slashDefence += def.slashDefence || 0;
+      b.crushDefence += def.crushDefence || 0;
+      b.meleeStrength += def.meleeStrength || 0;
+      b.rangedAccuracy += def.rangedAccuracy || 0;
+      b.rangedStrength += def.rangedStrength || 0;
+      b.rangedDefence += def.rangedDefence || 0;
+      b.magicAccuracy += def.magicAccuracy || 0;
+      b.magicDefence += def.magicDefence || 0;
+    }
+    return b;
+  }
+
+  getAttackSpeed(itemDefs: Map<number, any>): number {
+    const weaponId = this.equipment.get('weapon');
+    if (weaponId) {
+      const def = itemDefs.get(weaponId);
+      if (def?.attackSpeed) return def.attackSpeed;
+    }
+    return 4; // Unarmed
+  }
+
+  getWeaponStyle(itemDefs: Map<number, any>): 'stab' | 'slash' | 'crush' {
+    const weaponId = this.equipment.get('weapon');
+    if (weaponId) {
+      const def = itemDefs.get(weaponId);
+      if (def?.weaponStyle) return def.weaponStyle;
+    }
+    return 'crush'; // Unarmed = crush (fists)
+  }
+
+  addItem(itemId: number, quantity: number = 1): boolean {
+    for (let i = 0; i < this.inventory.length; i++) {
+      const slot = this.inventory[i];
+      if (slot && slot.itemId === itemId) {
+        slot.quantity += quantity;
+        return true;
+      }
+    }
+    for (let i = 0; i < this.inventory.length; i++) {
+      if (!this.inventory[i]) {
+        this.inventory[i] = { itemId, quantity };
+        return true;
+      }
+    }
+    return false;
+  }
+
+  removeItem(slot: number, quantity: number = 1): InventorySlot | null {
+    const item = this.inventory[slot];
+    if (!item) return null;
+    if (item.quantity <= quantity) {
+      this.inventory[slot] = null;
+      return item;
+    }
+    item.quantity -= quantity;
+    return { itemId: item.itemId, quantity };
+  }
+
+  processMovement(): void {
+    // Process up to 2 waypoints per tick to match client visual speed (~3.0 tiles/sec)
+    for (let i = 0; i < 2 && this.moveQueue.length > 0; i++) {
+      const target = this.moveQueue.shift()!;
+      this.position.x = target.x;
+      this.position.y = target.z;
+    }
+  }
+
+  syncHealthFromSkills(): void {
+    this.maxHealth = this.skills.hitpoints.level;
+    this.health = this.skills.hitpoints.currentLevel;
+  }
+}

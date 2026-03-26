@@ -1,0 +1,674 @@
+{
+  "assets": [
+    {
+      "id": "chair",
+      "name": "Chair",
+      "path": "/assets/models/chair.glb"
+    },
+    {
+      "id": "chest",
+      "name": "Chest",
+      "path": "/assets/models/chest.glb"
+    },
+    {
+      "id": "CoalRock",
+      "name": "CoalRock",
+      "path": "/assets/models/CoalRock.glb"
+    },
+    {
+      "id": "cookingrange",
+      "name": "Cookingrange",
+      "path": "/assets/models/cookingrange.glb"
+    },
+    {
+      "id": "CopperRock",
+      "name": "CopperRock",
+      "path": "/assets/models/CopperRock.glb"
+    },
+    {
+      "id": "forge",
+      "name": "Forge",
+      "path": "/assets/models/forge.glb"
+    },
+    {
+      "id": "MithrilRock",
+      "name": "MithrilRock",
+      "path": "/assets/models/MithrilRock.glb"
+    },
+    {
+      "id": "SilverRock",
+      "name": "SilverRock",
+      "path": "/assets/models/SilverRock.glb"
+    },
+    {
+      "id": "TinRock",
+      "name": "TinRock",
+      "path": "/assets/models/TinRock.glb"
+    },
+    {
+      "id": "tree",
+      "name": "Tree",
+      "path": "/assets/models/tree.glb"
+    },
+    {
+      "id": "tree2",
+      "name": "Tree2",
+      "path": "/assets/models/tree2.glb"
+    },
+    {
+      "id": "well",
+      "name": "Well",
+      "path": "/assets/models/well.glb"
+    },
+    {
+      "id": "dark stone arrowslit",
+      "name": "Dark Stone Arrowslit",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone arrowslit.glb"
+    },
+    {
+      "id": "dark stone connecter",
+      "name": "Dark Stone Connecter",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone connecter.glb"
+    },
+    {
+      "id": "dark stone defense corner",
+      "name": "Dark Stone Defense Corner",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone defense corner.glb"
+    },
+    {
+      "id": "dark stone fireplace",
+      "name": "Dark Stone Fireplace",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone fireplace.glb"
+    },
+    {
+      "id": "dark stone fireplace2",
+      "name": "Dark Stone Fireplace2",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone fireplace2.glb"
+    },
+    {
+      "id": "dark stone fireplace3",
+      "name": "Dark Stone Fireplace3",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone fireplace3.glb"
+    },
+    {
+      "id": "dark stone gate",
+      "name": "Dark Stone Gate",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone gate.glb"
+    },
+    {
+      "id": "dark stone halfwall",
+      "name": "Dark Stone Halfwall",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone halfwall.glb"
+    },
+    {
+      "id": "dark stone pillar curved small",
+      "name": "Dark Stone Pillar Curved Small",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone pillar curved small.glb"
+    },
+    {
+      "id": "dark stone pillar curved",
+      "name": "Dark Stone Pillar Curved",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone pillar curved.glb"
+    },
+    {
+      "id": "dark stone pillar nice",
+      "name": "Dark Stone Pillar Nice",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone pillar nice.glb"
+    },
+    {
+      "id": "dark stone pillar tiny",
+      "name": "Dark Stone Pillar Tiny",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone pillar tiny.glb"
+    },
+    {
+      "id": "dark stone pillar",
+      "name": "Dark Stone Pillar",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone pillar.glb"
+    },
+    {
+      "id": "dark stone roof decorations",
+      "name": "Dark Stone Roof Decorations",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone roof decorations.glb"
+    },
+    {
+      "id": "dark stone roof decorations2",
+      "name": "Dark Stone Roof Decorations2",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone roof decorations2.glb"
+    },
+    {
+      "id": "dark stone roof",
+      "name": "Dark Stone Roof",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone roof.glb"
+    },
+    {
+      "id": "dark stone shelf",
+      "name": "Dark Stone Shelf",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone shelf.glb"
+    },
+    {
+      "id": "dark stone shelf2",
+      "name": "Dark Stone Shelf2",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone shelf2.glb"
+    },
+    {
+      "id": "dark stone small wall",
+      "name": "Dark Stone Small Wall",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone small wall.glb"
+    },
+    {
+      "id": "dark stone stairs door",
+      "name": "Dark Stone Stairs Door",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone stairs door.glb"
+    },
+    {
+      "id": "dark stone stairs small",
+      "name": "Dark Stone Stairs Small",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone stairs small.glb"
+    },
+    {
+      "id": "dark stone stairs",
+      "name": "Dark Stone Stairs",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone stairs.glb"
+    },
+    {
+      "id": "dark stone wall curved",
+      "name": "Dark Stone Wall Curved",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall curved.glb"
+    },
+    {
+      "id": "dark stone wall door",
+      "name": "Dark Stone Wall Door",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall door.glb"
+    },
+    {
+      "id": "dark stone wall door2",
+      "name": "Dark Stone Wall Door2",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall door2.glb"
+    },
+    {
+      "id": "dark stone door3",
+      "name": "Dark Stone Door3",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone door3.glb"
+    },
+    {
+      "id": "dark stone wall window",
+      "name": "Dark Stone Wall Window",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall window.glb"
+    },
+    {
+      "id": "dark stone wall window2",
+      "name": "Dark Stone Wall Window2",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall window2.glb"
+    },
+    {
+      "id": "dark stone wall window3",
+      "name": "Dark Stone Wall Window3",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall window3.glb"
+    },
+    {
+      "id": "dark stone wall",
+      "name": "Dark Stone Wall",
+      "path": "/assets/Modular assets/Dark stone modular/dark stone wall.glb"
+    },
+    {
+      "id": "small wall",
+      "name": "Small Wall",
+      "path": "/assets/Modular assets/Stone modular/small wall.glb"
+    },
+    {
+      "id": "stone arrowslit",
+      "name": "Stone Arrowslit",
+      "path": "/assets/Modular assets/Stone modular/stone arrowslit.glb"
+    },
+    {
+      "id": "stone arrowslit2",
+      "name": "Stone Arrowslit2",
+      "path": "/assets/Modular assets/Stone modular/stone arrowslit2.glb"
+    },
+    {
+      "id": "stone big arrowslit",
+      "name": "Stone Big Arrowslit",
+      "path": "/assets/Modular assets/Stone modular/stone big arrowslit.glb"
+    },
+    {
+      "id": "stone big",
+      "name": "Stone Big",
+      "path": "/assets/Modular assets/Stone modular/stone big.glb"
+    },
+    {
+      "id": "stone block walk way",
+      "name": "Stone Block Walk Way",
+      "path": "/assets/Modular assets/Stone modular/stone block walk way.glb"
+    },
+    {
+      "id": "stone block walk way2",
+      "name": "Stone Block Walk Way2",
+      "path": "/assets/Modular assets/Stone modular/stone block walk way2.glb"
+    },
+    {
+      "id": "stone block walk way3",
+      "name": "Stone Block Walk Way3",
+      "path": "/assets/Modular assets/Stone modular/stone block walk way3.glb"
+    },
+    {
+      "id": "stone block walk way4",
+      "name": "Stone Block Walk Way4",
+      "path": "/assets/Modular assets/Stone modular/stone block walk way4.glb"
+    },
+    {
+      "id": "stone decorations",
+      "name": "Stone Decorations",
+      "path": "/assets/Modular assets/Stone modular/stone decorations.glb"
+    },
+    {
+      "id": "stone decorations2",
+      "name": "Stone Decorations2",
+      "path": "/assets/Modular assets/Stone modular/stone decorations2.glb"
+    },
+    {
+      "id": "stone defense corner",
+      "name": "Stone Defense Corner",
+      "path": "/assets/Modular assets/Stone modular/stone defense corner.glb"
+    },
+    {
+      "id": "stone defense",
+      "name": "Stone Defense",
+      "path": "/assets/Modular assets/Stone modular/stone defense.glb"
+    },
+    {
+      "id": "stone defense2",
+      "name": "Stone Defense2",
+      "path": "/assets/Modular assets/Stone modular/stone defense2.glb"
+    },
+    {
+      "id": "stone halfwall",
+      "name": "Stone Halfwall",
+      "path": "/assets/Modular assets/Stone modular/stone halfwall.glb"
+    },
+    {
+      "id": "stone pillar bent half",
+      "name": "Stone Pillar Bent Half",
+      "path": "/assets/Modular assets/Stone modular/stone pillar bent half.glb"
+    },
+    {
+      "id": "stone pillar bent",
+      "name": "Stone Pillar Bent",
+      "path": "/assets/Modular assets/Stone modular/stone pillar bent.glb"
+    },
+    {
+      "id": "stone pillar nice",
+      "name": "Stone Pillar Nice",
+      "path": "/assets/Modular assets/Stone modular/stone pillar nice.glb"
+    },
+    {
+      "id": "stone pillar small",
+      "name": "Stone Pillar Small",
+      "path": "/assets/Modular assets/Stone modular/stone pillar small.glb"
+    },
+    {
+      "id": "stone pillar",
+      "name": "Stone Pillar",
+      "path": "/assets/Modular assets/Stone modular/stone pillar.glb"
+    },
+    {
+      "id": "stone roof",
+      "name": "Stone Roof",
+      "path": "/assets/Modular assets/Stone modular/stone roof.glb"
+    },
+    {
+      "id": "stone slab",
+      "name": "Stone Slab",
+      "path": "/assets/Modular assets/Stone modular/stone slab.glb"
+    },
+    {
+      "id": "stone slab2",
+      "name": "Stone Slab2",
+      "path": "/assets/Modular assets/Stone modular/stone slab2.glb"
+    },
+    {
+      "id": "stone slabs",
+      "name": "Stone Slabs",
+      "path": "/assets/Modular assets/Stone modular/stone slabs.glb"
+    },
+    {
+      "id": "stone slope",
+      "name": "Stone Slope",
+      "path": "/assets/Modular assets/Stone modular/stone slope.glb"
+    },
+    {
+      "id": "stone small pillar",
+      "name": "Stone Small Pillar",
+      "path": "/assets/Modular assets/Stone modular/stone small pillar.glb"
+    },
+    {
+      "id": "stone square",
+      "name": "Stone Square",
+      "path": "/assets/Modular assets/Stone modular/stone square.glb"
+    },
+    {
+      "id": "stone stairs doorway",
+      "name": "Stone Stairs Doorway",
+      "path": "/assets/Modular assets/Stone modular/stone stairs doorway.glb"
+    },
+    {
+      "id": "stone stairs small",
+      "name": "Stone Stairs Small",
+      "path": "/assets/Modular assets/Stone modular/stone stairs small.glb"
+    },
+    {
+      "id": "stone stairs",
+      "name": "Stone Stairs",
+      "path": "/assets/Modular assets/Stone modular/stone stairs.glb"
+    },
+    {
+      "id": "stone corner",
+      "name": "Stone Corner",
+      "path": "/assets/Modular assets/Stone modular/stone corner.glb"
+    },
+    {
+      "id": "stone wall door",
+      "name": "Stone Wall Door",
+      "path": "/assets/Modular assets/Stone modular/stone wall door.glb"
+    },
+    {
+      "id": "stone wall door2",
+      "name": "Stone Wall Door2",
+      "path": "/assets/Modular assets/Stone modular/stone wall door2.glb"
+    },
+    {
+      "id": "stone door3",
+      "name": "Stone Door3",
+      "path": "/assets/Modular assets/Stone modular/stone door3.glb"
+    },
+    {
+      "id": "stone wall fireplace",
+      "name": "Stone Wall Fireplace",
+      "path": "/assets/Modular assets/Stone modular/stone wall fireplace.glb"
+    },
+    {
+      "id": "stone wall fireplace2",
+      "name": "Stone Wall Fireplace2",
+      "path": "/assets/Modular assets/Stone modular/stone wall fireplace2.glb"
+    },
+    {
+      "id": "stone wall fireplace3",
+      "name": "Stone Wall Fireplace3",
+      "path": "/assets/Modular assets/Stone modular/stone wall fireplace3.glb"
+    },
+    {
+      "id": "stone wall gate",
+      "name": "Stone Wall Gate",
+      "path": "/assets/Modular assets/Stone modular/stone wall gate.glb"
+    },
+    {
+      "id": "stone wall shelf",
+      "name": "Stone Wall Shelf",
+      "path": "/assets/Modular assets/Stone modular/stone wall shelf.glb"
+    },
+    {
+      "id": "stone wall sloped",
+      "name": "Stone Wall Sloped",
+      "path": "/assets/Modular assets/Stone modular/stone wall sloped.glb"
+    },
+    {
+      "id": "stone wall window",
+      "name": "Stone Wall Window",
+      "path": "/assets/Modular assets/Stone modular/stone wall window.glb"
+    },
+    {
+      "id": "stone wall window2",
+      "name": "Stone Wall Window2",
+      "path": "/assets/Modular assets/Stone modular/stone wall window2.glb"
+    },
+    {
+      "id": "stone wall window3",
+      "name": "Stone Wall Window3",
+      "path": "/assets/Modular assets/Stone modular/stone wall window3.glb"
+    },
+    {
+      "id": "stone wall",
+      "name": "Stone Wall",
+      "path": "/assets/Modular assets/Stone modular/stone wall.glb"
+    },
+    {
+      "id": "white corner",
+      "name": "White Corner",
+      "path": "/assets/Modular assets/white modular/white corner.glb"
+    },
+    {
+      "id": "white doorway",
+      "name": "White Doorway",
+      "path": "/assets/Modular assets/white modular/white doorway.glb"
+    },
+    {
+      "id": "white halfwall",
+      "name": "White Halfwall",
+      "path": "/assets/Modular assets/white modular/white halfwall.glb"
+    },
+    {
+      "id": "white wall",
+      "name": "White Wall",
+      "path": "/assets/Modular assets/white modular/white wall.glb"
+    },
+    {
+      "id": "white doorway with wood",
+      "name": "White Doorway With Wood",
+      "path": "/assets/Modular assets/white modular/white doorway with wood.glb"
+    },
+    {
+      "id": "white pole",
+      "name": "White Pole",
+      "path": "/assets/Modular assets/white modular/white pole.glb"
+    },
+    {
+      "id": "wood plank",
+      "name": "Wood Plank",
+      "path": "/assets/Modular assets/white modular/wood plank.glb"
+    },
+    {
+      "id": "wood pole",
+      "name": "Wood Pole",
+      "path": "/assets/Modular assets/white modular/wood pole.glb"
+    },
+    {
+      "id": "anvil",
+      "name": "Anvil",
+      "path": "/assets/models/anvil.glb"
+    },
+    {
+      "id": "willow tree",
+      "name": "Willow Tree",
+      "path": "/assets/models/willow tree.glb"
+    },
+    {
+      "id": "halfwall 30",
+      "name": "Halfwall 30",
+      "path": "/assets/models/halfwall30.glb"
+    },
+    {
+      "id": "halfwall 45",
+      "name": "Halfwall 45",
+      "path": "/assets/models/halfwall45.glb"
+    },
+    {
+      "id": "wood plank",
+      "name": "Wood Plank",
+      "path": "/assets/models/wood plank.glb"
+    },
+    {
+      "id": "wood pole",
+      "name": "Wood Pole",
+      "path": "/assets/models/wood pole.glb"
+    },
+    {
+      "id": "Basic1TileDoor",
+      "name": "Basic 1 Tile Door",
+      "path": "/assets/models/Basic1TileDoor.glb"
+    },
+    {
+      "id": "DeadTreeLam",
+      "name": "Dead Tree",
+      "path": "/assets/models/DeadTreeLam.glb"
+    },
+    {
+      "id": "Fence1",
+      "name": "Fence",
+      "path": "/assets/models/Fence1.glb"
+    },
+    {
+      "id": "TrapdoorOpenFinal",
+      "name": "Trapdoor Open",
+      "path": "/assets/models/TrapdoorOpenFinal.glb"
+    },
+    {
+      "id": "WIPStair1",
+      "name": "Stair",
+      "path": "/assets/models/WIPStair1.glb"
+    },
+    {
+      "id": "flat roof",
+      "name": "Flat Roof",
+      "path": "/assets/models/flat roof.glb"
+    },
+    {
+      "id": "tile roofing",
+      "name": "Tile Roofing",
+      "path": "/assets/models/tile roofing.glb"
+    },
+    {
+      "id": "tile roofing2",
+      "name": "Tile Roofing2",
+      "path": "/assets/models/tile roofing2.glb"
+    },
+    {
+      "id": "wood arrowslit",
+      "name": "Wood Arrowslit",
+      "path": "/assets/Modular assets/Wood modular /wood arrowslit.glb"
+    },
+    {
+      "id": "wood door1",
+      "name": "Wood Door1",
+      "path": "/assets/Modular assets/Wood modular /wood door1.glb"
+    },
+    {
+      "id": "wood door2",
+      "name": "Wood Door2",
+      "path": "/assets/Modular assets/Wood modular /wood door2.glb"
+    },
+    {
+      "id": "wood door3",
+      "name": "Wood Door3",
+      "path": "/assets/Modular assets/Wood modular /wood door3.glb"
+    },
+    {
+      "id": "wood pole modular",
+      "name": "Wood Pole Modular",
+      "path": "/assets/Modular assets/Wood modular /wood pole.glb"
+    },
+    {
+      "id": "wood small wall",
+      "name": "Wood Small Wall",
+      "path": "/assets/Modular assets/Wood modular /wood small wall.glb"
+    },
+    {
+      "id": "wood wall",
+      "name": "Wood Wall",
+      "path": "/assets/Modular assets/Wood modular /wood wall.glb"
+    },
+    {
+      "id": "wood window1",
+      "name": "Wood Window1",
+      "path": "/assets/Modular assets/Wood modular /wood window1.glb"
+    },
+    {
+      "id": "wood window2",
+      "name": "Wood Window2",
+      "path": "/assets/Modular assets/Wood modular /wood window2.glb"
+    },
+    {
+      "id": "wood roofing",
+      "name": "Wood Roofing",
+      "path": "/assets/Modular assets/Wood modular /wood roofing.glb"
+    },
+    {
+      "id": "onepersonbed1",
+      "name": "One Person Bed",
+      "path": "/assets/models/OnePersonBed1.glb"
+    },
+    {
+      "id": "castle1doorrealwood",
+      "name": "Castle Door Real Wood",
+      "path": "/assets/models/Castle1DoorRealWood.glb"
+    },
+    {
+      "id": "IronRock",
+      "name": "Iron Rock",
+      "path": "/assets/models/IronRock.glb"
+    },
+    {
+      "id": "rice",
+      "name": "Rice",
+      "path": "/assets/models/rice.glb"
+    },
+    {
+      "id": "sTree 1",
+      "name": "sTree 1",
+      "path": "/assets/models/sTree 1.glb"
+    },
+    {
+      "id": "sTree 2",
+      "name": "sTree 2",
+      "path": "/assets/models/sTree 2.glb"
+    },
+    {
+      "id": "stree 3",
+      "name": "stree 3",
+      "path": "/assets/models/stree 3.glb"
+    },
+    {
+      "id": "stree autumn",
+      "name": "stree autumn",
+      "path": "/assets/models/stree autumn.glb"
+    },
+    {
+      "id": "roof",
+      "name": "Roof",
+      "path": "/assets/models/Roofs/roof.glb"
+    },
+    {
+      "id": "roof corner",
+      "name": "Roof Corner",
+      "path": "/assets/models/Roofs/roof corner.glb"
+    },
+    {
+      "id": "roof corner inverse",
+      "name": "Roof Corner Inverse",
+      "path": "/assets/models/Roofs/roof corner inverse.glb"
+    },
+    {
+      "id": "roof triangle",
+      "name": "Roof Triangle",
+      "path": "/assets/models/Roofs/roof triangle.glb"
+    },
+    {
+      "id": "stree magic",
+      "name": "stree magic",
+      "path": "/assets/models/stree magic.glb"
+    },
+    {
+      "id": "Walltorch",
+      "name": "Walltorch",
+      "path": "/assets/models/Walltorch.glb"
+    },
+    {
+      "id": "maple tree",
+      "name": "Maple Tree",
+      "path": "/assets/models/maple tree.glb"
+    },
+    {
+      "id": "Fence1Fix",
+      "name": "Fence1Fix",
+      "path": "/assets/models/Fence1Fix.glb"
+    }
+  ]
+}
