@@ -1,6 +1,6 @@
 # ProjectRS
 
-A multiplayer browser MMORPG inspired by RuneScape Classic and HighSpell. Built with Bun, TypeScript, and Babylon.js.
+A multiplayer browser MMORPG inspired by RuneScape Classic. Built with Bun, TypeScript, and Babylon.js.
 
 ## Features
 
@@ -14,18 +14,6 @@ A multiplayer browser MMORPG inspired by RuneScape Classic and HighSpell. Built 
 - **Items:** 30 items — weapons, armor, food, skilling resources, processed bars
 - **Persistence:** SQLite saves player position, inventory, skills, and map level
 - **Map Editor:** Full-featured visual editor with tools for tiles, heights, walls, floors, stairs, roofs, NPC/object placement, undo/redo, copy/paste, export/import
-
-## Overworld Regions
-
-| Region | Content |
-|--------|---------|
-| Central Village | Stone plaza, 7 buildings, guards, shopkeeper, farm with chickens |
-| NE Mountains | Rocky peaks, copper/iron rocks, wolves, mining camp |
-| E Forest | Dense trees, spiders, wolves, oak trees for high-level forestry |
-| SE Ruins | Stone ruins, skeletons, Dark Knight boss, dungeon entrance |
-| SW Goblin Camp | Dirt camp with tents, 10 goblin spawns |
-| NW Swamp | Water/sand mix, rats, fishing spots |
-| River & Coast | Water from NW to south coast, sand banks, fishing spots |
 
 ## Tech Stack
 
