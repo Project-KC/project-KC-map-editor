@@ -949,7 +949,15 @@ let brushRadius = 3.2
         <button id="collStairBtn" class="tool-btn" style="flex:1;font-size:10px;padding:4px;">Stairs</button>
       </div>
       <div id="collWallPanel">
-        <button id="autoWallsBtn" style="width:100%;margin-bottom:4px;font-size:11px;">Auto-detect walls from objects</button>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:2px;">Region (empty = entire map)</div>
+        <div style="display:flex;gap:2px;margin-bottom:4px;">
+          <input id="autoWallX1" type="number" placeholder="x1" style="width:25%;font-size:10px;padding:2px;">
+          <input id="autoWallZ1" type="number" placeholder="z1" style="width:25%;font-size:10px;padding:2px;">
+          <input id="autoWallX2" type="number" placeholder="x2" style="width:25%;font-size:10px;padding:2px;">
+          <input id="autoWallZ2" type="number" placeholder="z2" style="width:25%;font-size:10px;padding:2px;">
+        </div>
+        <button id="autoWallsBtn" style="width:100%;margin-bottom:4px;font-size:11px;">Auto-detect walls in region</button>
+        <button id="clearRegionWallsBtn" style="width:100%;margin-bottom:4px;font-size:11px;">Clear walls in region</button>
         <button id="clearAllWallsBtn" style="width:100%;margin-bottom:4px;font-size:11px;">Clear all walls (this floor)</button>
         <div style="display:flex;gap:3px;margin-bottom:6px;">
           <button id="wallDrawBtn" class="tool-btn active-tool" style="flex:1;font-size:10px;padding:4px;">Draw</button>
@@ -1178,8 +1186,18 @@ let brushRadius = 3.2
     statusText.textContent = 'Cleared all walls on floor ' + collisionFloor
   })
 
+  // Read region bounds from inputs (empty = entire map)
+  function getAutoWallRegion() {
+    const x1 = parseInt(sidebar.querySelector('#autoWallX1')?.value) || 0
+    const z1 = parseInt(sidebar.querySelector('#autoWallZ1')?.value) || 0
+    const x2 = parseInt(sidebar.querySelector('#autoWallX2')?.value) || (map.width - 1)
+    const z2 = parseInt(sidebar.querySelector('#autoWallZ2')?.value) || (map.height - 1)
+    return { x1: Math.min(x1, x2), z1: Math.min(z1, z2), x2: Math.max(x1, x2), z2: Math.max(z1, z2) }
+  }
+
   sidebar.querySelector('#autoWallsBtn')?.addEventListener('click', () => {
     pushUndoState()
+    const region = getAutoWallRegion()
     let count = 0
     for (const obj of placedGroup.getChildren()) {
       const assetId = obj.userData?.assetId
@@ -1210,6 +1228,8 @@ let brushRadius = 3.2
       for (let tx = tileX0; tx <= tileX1; tx++) {
         for (let tz = tileZ0; tz <= tileZ1; tz++) {
           if (tx < 0 || tz < 0 || tx >= map.width || tz >= map.height) continue
+          // Skip tiles outside the selected region
+          if (tx < region.x1 || tx > region.x2 || tz < region.z1 || tz > region.z2) continue
 
           // Center of the wall within this tile
           const wallCenterInTileX = ((min.x + max.x) / 2) - tx
@@ -1238,7 +1258,24 @@ let brushRadius = 3.2
       }
     }
     rebuildCollisionMeshes()
-    statusText.textContent = `Auto-detected ${count} wall edges`
+    statusText.textContent = `Auto-detected ${count} wall edges in region (${region.x1},${region.z1})→(${region.x2},${region.z2})`
+  })
+
+  // Clear walls only within the specified region
+  sidebar.querySelector('#clearRegionWallsBtn')?.addEventListener('click', () => {
+    const region = getAutoWallRegion()
+    pushUndoState()
+    let count = 0
+    for (let x = region.x1; x <= region.x2; x++) {
+      for (let z = region.z1; z <= region.z2; z++) {
+        if (getWallAt(x, z) !== 0) {
+          setWallAt(x, z, 0)
+          count++
+        }
+      }
+    }
+    rebuildCollisionMeshes()
+    statusText.textContent = `Cleared ${count} wall tiles in region (${region.x1},${region.z1})→(${region.x2},${region.z2})`
   })
 
   const smoothModeBtn = sidebar.querySelector('#toggleSmoothMode')

@@ -392,73 +392,73 @@
   {
     "id": "tex-stretched-2",
     "name": "Stretched 2",
-    "path": "/assets/stretched textures/2.png",
+    "path": "/assets/stretched-textures/2.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-23",
     "name": "Stretched 23",
-    "path": "/assets/stretched textures/23.png",
+    "path": "/assets/stretched-textures/23.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-46",
     "name": "Stretched 46",
-    "path": "/assets/stretched textures/46.png",
+    "path": "/assets/stretched-textures/46.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-50",
     "name": "Stretched 50",
-    "path": "/assets/stretched textures/50.png",
+    "path": "/assets/stretched-textures/50.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-55",
     "name": "Stretched 55",
-    "path": "/assets/stretched textures/55.png",
+    "path": "/assets/stretched-textures/55.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-61",
     "name": "Stretched 61",
-    "path": "/assets/stretched textures/61.png",
+    "path": "/assets/stretched-textures/61.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-63",
     "name": "Stretched 63",
-    "path": "/assets/stretched textures/63.png",
+    "path": "/assets/stretched-textures/63.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-64",
     "name": "Stretched 64",
-    "path": "/assets/stretched textures/64.png",
+    "path": "/assets/stretched-textures/64.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-67",
     "name": "Stretched 67",
-    "path": "/assets/stretched textures/67.png",
+    "path": "/assets/stretched-textures/67.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-69",
     "name": "Stretched 69",
-    "path": "/assets/stretched textures/69.png",
+    "path": "/assets/stretched-textures/69.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-75",
     "name": "Stretched 75",
-    "path": "/assets/stretched textures/75.png",
+    "path": "/assets/stretched-textures/75.png",
     "defaultScale": 4
   },
   {
     "id": "tex-stretched-76",
     "name": "Stretched 76",
-    "path": "/assets/stretched textures/76.png",
+    "path": "/assets/stretched-textures/76.png",
     "defaultScale": 4
   },
   {
@@ -549,46 +549,46 @@
   {
     "id": "tex-stretched-78",
     "name": "Stretched 78",
-    "path": "/assets/stretched textures/78.png"
+    "path": "/assets/stretched-textures/78.png"
   },
   {
     "id": "tex-stretched-80",
     "name": "Stretched 80",
-    "path": "/assets/stretched textures/80.jpg"
+    "path": "/assets/stretched-textures/80.jpg"
   },
   {
     "id": "tex-stretched-81",
     "name": "Stretched 81",
-    "path": "/assets/stretched textures/81.jpg"
+    "path": "/assets/stretched-textures/81.jpg"
   },
   {
     "id": "tex-stretched-82",
     "name": "Stretched 82",
-    "path": "/assets/stretched textures/82.jpg"
+    "path": "/assets/stretched-textures/82.jpg"
   },
   {
     "id": "tex-stretched-83",
     "name": "Stretched 83",
-    "path": "/assets/stretched textures/83.jpg"
+    "path": "/assets/stretched-textures/83.jpg"
   },
   {
     "id": "tex-stretched-84",
     "name": "Stretched 84",
-    "path": "/assets/stretched textures/84.jpg"
+    "path": "/assets/stretched-textures/84.jpg"
   },
   {
     "id": "tex-stretched-88",
     "name": "Stretched 88",
-    "path": "/assets/stretched textures/88.tif"
+    "path": "/assets/stretched-textures/88.tif"
   },
   {
     "id": "tex-stretched-90",
     "name": "Stretched 90",
-    "path": "/assets/stretched textures/90.jpg"
+    "path": "/assets/stretched-textures/90.jpg"
   },
   {
     "id": "tex-stretched-93",
     "name": "Stretched 93",
-    "path": "/assets/stretched textures/93.tif"
+    "path": "/assets/stretched-textures/93.tif"
   }
 ]
