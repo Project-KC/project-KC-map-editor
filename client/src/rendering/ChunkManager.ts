@@ -32,9 +32,13 @@ function groundColor(type: GroundType, shade: number): RGB {
     case 'dirt':  return { r: 0.45 * shade, g: 0.31 * shade, b: 0.14 * shade };
     case 'sand':  return { r: 0.72 * shade, g: 0.60 * shade, b: 0.24 * shade };
     case 'path':  return { r: 0.42 * shade, g: 0.30 * shade, b: 0.13 * shade };
-    case 'road':  return { r: 0.47 * shade, g: 0.46 * shade, b: 0.43 * shade };
-    case 'water': return { r: 0.40 * shade, g: 0.47 * shade, b: 0.66 * shade };
-    default:      return { r: 0.13 * shade, g: 0.43 * shade, b: 0.07 * shade }; // grass
+    case 'road':      return { r: 0.47 * shade, g: 0.46 * shade, b: 0.43 * shade };
+    case 'water':     return { r: 0.40 * shade, g: 0.47 * shade, b: 0.66 * shade };
+    case 'desert':    return { r: 0.82 * shade, g: 0.72 * shade, b: 0.50 * shade };
+    case 'sandstone': return { r: 0.68 * shade, g: 0.48 * shade, b: 0.28 * shade };
+    case 'rock':      return { r: 0.42 * shade, g: 0.40 * shade, b: 0.36 * shade };
+    case 'drysand':   return { r: 0.62 * shade, g: 0.42 * shade, b: 0.22 * shade };
+    default:          return { r: 0.13 * shade, g: 0.43 * shade, b: 0.07 * shade }; // grass
   }
 }
 
@@ -51,6 +55,22 @@ function getNoiseExtra(type: GroundType, vx: number, vz: number): number {
       + sampleNoise(vx * 3.0, vz * 3.0, 2.0, 1.5) * 0.01;
   } else if (type === 'dirt' || type === 'sand') {
     return sampleNoise(vx * 0.5, vz * 0.5, 0.8, 1.1) * 0.02;
+  } else if (type === 'desert') {
+    // Broad dune-like waves with fine grain
+    return sampleNoise(vx * 0.12, vz * 0.12, 0.7, 1.3) * 0.06
+      + sampleNoise(vx * 0.8, vz * 0.8, 1.2, 0.9) * 0.02;
+  } else if (type === 'sandstone') {
+    // Layered strata look
+    return sampleNoise(vx * 0.3, vz * 0.3, 1.0, 0.6) * 0.04
+      + sampleNoise(vx * 2.0, vz * 2.0, 1.8, 1.4) * 0.015;
+  } else if (type === 'rock') {
+    // Craggy variation
+    return sampleNoise(vx * 0.4, vz * 0.4, 1.1, 0.8) * 0.05
+      + sampleNoise(vx * 1.5, vz * 1.5, 2.0, 1.6) * 0.02;
+  } else if (type === 'drysand') {
+    // Rough desert sand
+    return sampleNoise(vx * 0.25, vz * 0.25, 0.9, 1.0) * 0.04
+      + sampleNoise(vx * 1.2, vz * 1.2, 1.4, 1.1) * 0.015;
   }
   return 0;
 }

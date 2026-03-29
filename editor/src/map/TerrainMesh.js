@@ -25,6 +25,10 @@ function groundColor(type, shade) {
   if (type === 'path')         return { r: 0.42 * shade, g: 0.30 * shade, b: 0.13 * shade }
   if (type === 'road')         return { r: 0.47 * shade, g: 0.46 * shade, b: 0.43 * shade }
   if (type === 'water')        return { r: 0.40 * shade, g: 0.47 * shade, b: 0.66 * shade }
+  if (type === 'desert')        return { r: 0.82 * shade, g: 0.72 * shade, b: 0.50 * shade }
+  if (type === 'sandstone')     return { r: 0.68 * shade, g: 0.48 * shade, b: 0.28 * shade }
+  if (type === 'rock')          return { r: 0.42 * shade, g: 0.40 * shade, b: 0.36 * shade }
+  if (type === 'drysand')       return { r: 0.62 * shade, g: 0.42 * shade, b: 0.22 * shade }
   if (type === 'dungeon-floor') return { r: 0.22 * shade, g: 0.17 * shade, b: 0.11 * shade }
   if (type === 'dungeon-rock')  return { r: 0.28 * shade, g: 0.20 * shade, b: 0.12 * shade }
   return { r: 0.13 * shade, g: 0.43 * shade, b: 0.07 * shade } // grass

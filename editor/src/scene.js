@@ -1445,6 +1445,10 @@ let brushRadius = 3.2
     { id: 'sand',  label: 'Sand',  color: '#c4a245' },
     { id: 'path',  label: 'Path',  color: '#8a7860' },
     { id: 'road',  label: 'Road',  color: '#7a7870' },
+    { id: 'desert',    label: 'Desert',    color: '#d4b880' },
+    { id: 'sandstone', label: 'Sandstone', color: '#b07a48' },
+    { id: 'rock',      label: 'Rock',      color: '#6b6860' },
+    { id: 'drysand',   label: 'Dry Sand',  color: '#9e6b38' },
     { id: 'water', label: 'Mud', color: '#5a3d1a' },
     { id: 'surface-water', label: 'Paddy Water', color: '#7ab8c8' },
   ]

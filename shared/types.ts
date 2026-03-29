@@ -227,7 +227,7 @@ export interface SpawnsFile {
 
 // --- KC Map Editor format types ---
 
-export type GroundType = 'grass' | 'dirt' | 'sand' | 'path' | 'road' | 'water';
+export type GroundType = 'grass' | 'dirt' | 'sand' | 'path' | 'road' | 'water' | 'desert' | 'sandstone' | 'rock' | 'drysand';
 export type SplitDirection = 'forward' | 'back';
 
 export interface KCTile {
@@ -319,9 +319,13 @@ export function groundTypeToTileType(ground: GroundType): TileType {
     case 'dirt':  return TileType.DIRT;
     case 'sand':  return TileType.SAND;
     case 'path':  return TileType.DIRT;
-    case 'road':  return TileType.STONE;
-    case 'water': return TileType.WATER;
-    default:      return TileType.GRASS;
+    case 'road':      return TileType.STONE;
+    case 'water':     return TileType.WATER;
+    case 'desert':    return TileType.SAND;
+    case 'sandstone': return TileType.STONE;
+    case 'rock':      return TileType.STONE;
+    case 'drysand':   return TileType.SAND;
+    default:          return TileType.GRASS;
   }
 }
 
