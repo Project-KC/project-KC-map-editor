@@ -758,7 +758,7 @@ let brushRadius = 3.2
       <button id="toolNpcSpawn" class="tool-btn" title="NPC Spawn (6)">NPCs</button>
       <button id="toolCollision" class="tool-btn" title="Collision (7)">Collision</button>
       <button id="toolItemSpawn" class="tool-btn" title="Item Spawn (8)">Items</button>
-      <button id="layersToggleBtn" class="tool-btn" title="Toggle Layers panel">Layers</button>
+      <!-- Layers panel removed -->
       <button id="heightCullBtn" class="tool-btn" title="Hide objects above camera height (H)">Height Cull</button>
     </div>
     <div class="ctx-divider"></div>
@@ -1028,9 +1028,8 @@ let brushRadius = 3.2
   `
   uiRoot.appendChild(keybindsPanel)
 
-  const layersPanel = document.createElement('div')
-  layersPanel.id = 'layersPanel'
-  uiRoot.appendChild(layersPanel)
+  // Layers panel removed — kept layers data for save compat
+  const layersPanel = { classList: { toggle() {}, contains() { return false }, remove() {} }, innerHTML: '' }
 
   const toolButtons = {
     [ToolMode.TERRAIN]: sidebar.querySelector('#toolTerrain'),
@@ -1508,131 +1507,7 @@ let brushRadius = 3.2
     }
   }
 
-  function refreshLayersPanel() {
-    layersPanel.innerHTML = ''
-
-    const header = document.createElement('div')
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;'
-    const title = document.createElement('strong')
-    title.style.cssText = 'color:#fff;font-size:12px;'
-    title.textContent = 'Layers'
-    const closeBtn = document.createElement('button')
-    closeBtn.style.cssText = 'background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:0;'
-    closeBtn.textContent = '✕'
-    closeBtn.addEventListener('click', () => layersPanel.classList.remove('visible'))
-    header.appendChild(title)
-    header.appendChild(closeBtn)
-    layersPanel.appendChild(header)
-
-    const selCount = selectedPlacedObjects.length
-    if (selCount > 0) {
-      const assignHint = document.createElement('div')
-      assignHint.style.cssText = 'font-size:10px;color:#ffcc66;margin-bottom:8px;padding:5px 6px;background:rgba(255,200,50,0.1);border-radius:4px;border:1px solid rgba(255,200,50,0.25);'
-      assignHint.textContent = `${selCount} object${selCount > 1 ? 's' : ''} selected — click a layer name to move them there`
-      layersPanel.appendChild(assignHint)
-    }
-
-    for (const layer of layers) {
-      const objCount = placedGroup.getChildren().filter(
-        (o) => (o.userData.layerId || 'layer_0') === layer.id
-      ).length + map.texturePlanes.filter(
-        (p) => (p.layerId || 'layer_0') === layer.id
-      ).length
-
-      const row = document.createElement('div')
-      row.className = 'layer-row' + (layer.id === activeLayerId ? ' active' : '') + (!layer.visible ? ' layer-hidden' : '')
-
-      const eyeBtn = document.createElement('button')
-      eyeBtn.className = 'layer-eye'
-      eyeBtn.textContent = layer.visible ? '👁' : '🚫'
-      eyeBtn.title = layer.visible ? 'Hide layer' : 'Show layer'
-      eyeBtn.style.cssText = `opacity:${layer.visible ? '1' : '0.4'};`
-      eyeBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        layer.visible = !layer.visible
-        applyLayerVisibility()
-        refreshLayersPanel()
-      })
-
-      const soloBtn = document.createElement('button')
-      soloBtn.className = 'layer-eye'
-      soloBtn.textContent = 'S'
-      soloBtn.title = 'Solo: show only this layer'
-      soloBtn.style.cssText = 'font-size:9px;padding:0 3px;opacity:0.5;'
-      soloBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        const allVisible = layers.every((l) => l.visible)
-        const onlyThis = layers.every((l) => l.id === layer.id ? l.visible : !l.visible)
-        // If already soloed, restore all; otherwise solo this one
-        for (const l of layers) l.visible = (allVisible || onlyThis) ? true : l.id === layer.id
-        if (!allVisible && !onlyThis) for (const l of layers) l.visible = l.id === layer.id
-        applyLayerVisibility()
-        refreshLayersPanel()
-      })
-
-      const nameEl = document.createElement('div')
-      nameEl.className = 'layer-name'
-      nameEl.style.cssText = `opacity:${layer.visible ? '1' : '0.4'};`
-      const hasSelection = selectedPlacedObjects.length > 0 || selectedTexturePlane
-      nameEl.title = hasSelection ? 'Click to move selected objects here & set active' : 'Click to set active'
-      nameEl.addEventListener('click', () => {
-        if (selectedPlacedObjects.length > 0 || selectedTexturePlane) {
-          pushUndoState()
-          for (const obj of selectedPlacedObjects) obj.userData.layerId = layer.id
-          for (const plane of selectedTexturePlanes) plane.layerId = layer.id
-          applyLayerVisibility()
-        }
-        activeLayerId = layer.id
-        refreshLayersPanel()
-        updateToolUI()
-      })
-
-      const nameText = document.createElement('span')
-      nameText.textContent = layer.name
-      const countBadge = document.createElement('span')
-      countBadge.textContent = objCount
-      countBadge.style.cssText = 'margin-left:5px;background:#444;border-radius:8px;padding:0 5px;font-size:9px;color:#aaa;'
-      nameEl.appendChild(nameText)
-      nameEl.appendChild(countBadge)
-
-      const delBtn = document.createElement('button')
-      delBtn.className = 'layer-del'
-      delBtn.textContent = '✕'
-      delBtn.title = 'Delete layer'
-      delBtn.style.display = layers.length <= 1 ? 'none' : ''
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        const fallbackId = layers.find((l) => l.id !== layer.id)?.id || 'layer_0'
-        for (const obj of placedGroup.getChildren()) {
-          if (obj.userData.layerId === layer.id) obj.userData.layerId = fallbackId
-        }
-        layers = layers.filter((l) => l.id !== layer.id)
-        if (activeLayerId === layer.id) activeLayerId = fallbackId
-        applyLayerVisibility()
-        refreshLayersPanel()
-        updateToolUI()
-      })
-
-      row.appendChild(eyeBtn)
-      row.appendChild(soloBtn)
-      row.appendChild(nameEl)
-      row.appendChild(delBtn)
-      layersPanel.appendChild(row)
-    }
-
-    const addBtn = document.createElement('button')
-    addBtn.className = 'layer-add-btn'
-    addBtn.textContent = '+ New Layer'
-    addBtn.addEventListener('click', () => {
-      _layerCount++
-      const id = 'layer_' + Date.now()
-      layers.push({ id, name: 'Layer ' + _layerCount, visible: true })
-      activeLayerId = id
-      refreshLayersPanel()
-      updateToolUI()
-    })
-    layersPanel.appendChild(addBtn)
-  }
+  function refreshLayersPanel() { /* removed */ }
 
   function updateToolUI() {
     for (const [mode, button] of Object.entries(toolButtons)) {
@@ -4472,10 +4347,7 @@ function applyToolAtTile(tile, eventLike = null) {
     keybindsPanel.classList.remove('visible')
   })
 
-  sidebar.querySelector('#layersToggleBtn').addEventListener('click', () => {
-    layersPanel.classList.toggle('visible')
-    if (layersPanel.classList.contains('visible')) refreshLayersPanel()
-  })
+  // Layers toggle removed
 
   function toggleHeightCull() {
     heightCullLevel = (heightCullLevel + 1) % 3
