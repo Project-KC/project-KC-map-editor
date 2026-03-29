@@ -724,6 +724,196 @@
       "id": "RiceMill",
       "name": "Rice Mill",
       "path": "/assets/models/RiceMill.glb"
+    },
+    {
+      "id": "Crate1",
+      "name": "Crate",
+      "path": "/assets/models/Crate1.glb"
+    },
+    {
+      "id": "Fence3",
+      "name": "Fence 3",
+      "path": "/assets/models/Fence3.glb"
+    },
+    {
+      "id": "IronFence1",
+      "name": "Iron Fence",
+      "path": "/assets/models/IronFence1.glb"
+    },
+    {
+      "id": "Sack1",
+      "name": "Sack 1",
+      "path": "/assets/models/Sack1.glb"
+    },
+    {
+      "id": "Sack2",
+      "name": "Sack 2",
+      "path": "/assets/models/Sack2.glb"
+    },
+    {
+      "id": "stump1",
+      "name": "stump1",
+      "path": "/assets/interactive-objects/stump1.glb"
+    },
+    {
+      "id": "maplestump",
+      "name": "maplestump",
+      "path": "/assets/interactive-objects/maplestump.glb"
+    },
+    {
+      "id": "willowstump",
+      "name": "willowstump",
+      "path": "/assets/interactive-objects/willowstump.glb"
+    },
+    {
+      "id": "depleted rock",
+      "name": "depleted rock",
+      "path": "/assets/interactive-objects/depleted rock.glb"
+    },
+    {
+      "id": "stump2",
+      "name": "stump2",
+      "path": "/assets/interactive-objects/stump2.glb"
+    },
+    {
+      "id": "RiceMill (interactive)",
+      "name": "RiceMill (Interactive)",
+      "path": "/assets/interactive-objects/RiceMill.glb"
+    },
+    {
+      "id": "oakstump",
+      "name": "oakstump",
+      "path": "/assets/interactive-objects/oakstump.glb"
+    },
+    {
+      "id": "bush2",
+      "name": "bush2",
+      "path": "/assets/models/bush2.glb"
+    },
+    {
+      "id": "TrapdoorClosed",
+      "name": "TrapdoorClosed",
+      "path": "/assets/models/TrapdoorClosed.glb"
+    },
+    {
+      "id": "bookcase2",
+      "name": "bookcase2",
+      "path": "/assets/models/bookcase2.glb"
+    },
+    {
+      "id": "bush1",
+      "name": "bush1",
+      "path": "/assets/models/bush1.glb"
+    },
+    {
+      "id": "Stairs2",
+      "name": "Stairs2",
+      "path": "/assets/models/Stairs2.glb"
+    },
+    {
+      "id": "bush3",
+      "name": "bush3",
+      "path": "/assets/models/bush3.glb"
+    },
+    {
+      "id": "Bucket2",
+      "name": "Bucket2",
+      "path": "/assets/models/Bucket2.glb"
+    },
+    {
+      "id": "Ladder",
+      "name": "Ladder",
+      "path": "/assets/models/Ladder.glb"
+    },
+    {
+      "id": "wood plank (white)",
+      "name": "wood plank (White)",
+      "path": "/assets/modular-assets/white-modular/wood plank.glb"
+    },
+    {
+      "id": "wood pole (white)",
+      "name": "wood pole (White)",
+      "path": "/assets/modular-assets/white-modular/wood pole.glb"
+    },
+    {
+      "id": "stone small wall",
+      "name": "stone small wall",
+      "path": "/assets/modular-assets/new-stone-modular/stone small wall .glb"
+    },
+    {
+      "id": "new stone wall",
+      "name": "New stone wall",
+      "path": "/assets/modular-assets/new-stone-modular/stone wall.glb"
+    },
+    {
+      "id": "stone small stairs",
+      "name": "stone small stairs",
+      "path": "/assets/modular-assets/new-stone-modular/stone small stairs.glb"
+    },
+    {
+      "id": "new stone halfwall",
+      "name": "New stone halfwall",
+      "path": "/assets/modular-assets/new-stone-modular/stone halfwall.glb"
+    },
+    {
+      "id": "stone door1",
+      "name": "stone door1",
+      "path": "/assets/modular-assets/new-stone-modular/stone door1.glb"
+    },
+    {
+      "id": "stone door2",
+      "name": "stone door2",
+      "path": "/assets/modular-assets/new-stone-modular/stone door2.glb"
+    },
+    {
+      "id": "new stone arrowslit v2",
+      "name": "New stone arrowslit v2",
+      "path": "/assets/modular-assets/new-stone-modular/stone arrowslit .glb"
+    },
+    {
+      "id": "stone window1",
+      "name": "stone window1",
+      "path": "/assets/modular-assets/new-stone-modular/stone window1.glb"
+    },
+    {
+      "id": "stone window",
+      "name": "stone window",
+      "path": "/assets/modular-assets/new-stone-modular/stone window .glb"
+    },
+    {
+      "id": "new stone door3",
+      "name": "New stone door3",
+      "path": "/assets/modular-assets/new-stone-modular/stone door3.glb"
+    },
+    {
+      "id": "new dark stone door3",
+      "name": "New dark stone door3",
+      "path": "/assets/modular-assets/new-dark-modular/dark stone door3.glb"
+    },
+    {
+      "id": "new dark stone arrowslit",
+      "name": "New dark stone arrowslit",
+      "path": "/assets/modular-assets/new-dark-modular/dark stone arrowslit.glb"
+    },
+    {
+      "id": "new dark stone small wall",
+      "name": "New dark stone small wall",
+      "path": "/assets/modular-assets/new-dark-modular/dark stone small wall.glb"
+    },
+    {
+      "id": "new dark stone wall",
+      "name": "New dark stone wall",
+      "path": "/assets/modular-assets/new-dark-modular/dark stone wall.glb"
+    },
+    {
+      "id": "halfwall 30 (stone)",
+      "name": "halfwall 30 (Stone)",
+      "path": "/assets/modular-assets/stone-modular/halfwall 30.glb"
+    },
+    {
+      "id": "halfwall 45 (stone)",
+      "name": "halfwall 45 (Stone)",
+      "path": "/assets/modular-assets/stone-modular/halfwall 45.glb"
     }
   ]
 }
