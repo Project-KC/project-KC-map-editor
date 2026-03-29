@@ -444,7 +444,7 @@ const server = Bun.serve<SocketData>({
         if (existsSync(wallsPath)) {
           exportFiles['walls.json'] = readFileSync(wallsPath, 'utf-8');
         }
-        const exported = { mapId, files: exportFiles };
+        const exported = { ok: true, mapId, files: exportFiles };
         return new Response(JSON.stringify(exported), {
           headers: {
             'Content-Type': 'application/json',
