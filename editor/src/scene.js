@@ -758,7 +758,19 @@ let brushRadius = 3.2
       <button id="toolCollision" class="tool-btn" title="Collision (7)">Collision</button>
       <button id="toolItemSpawn" class="tool-btn" title="Item Spawn (8)">Items</button>
       <!-- Layers panel removed -->
-      <button id="heightCullBtn" class="tool-btn" title="Hide objects above camera height (H)">Height Cull</button>
+      <button id="heightCullBtn" class="tool-btn" title="Toggle height cull (H)">Height Cull</button>
+      <div id="heightCullControls" style="display:none;margin-top:4px;">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input id="heightCullSlider" type="range" min="0" max="20" step="0.5" value="3.5" style="flex:1;">
+          <span id="heightCullValue" style="font-size:10px;color:#ccc;min-width:28px;">3.5</span>
+        </div>
+        <div style="display:flex;gap:2px;margin-top:3px;">
+          <button class="tool-btn" data-cull="1.8" style="flex:1;font-size:9px;padding:2px;">1F</button>
+          <button class="tool-btn" data-cull="3.5" style="flex:1;font-size:9px;padding:2px;">1F+Roof</button>
+          <button class="tool-btn" data-cull="5.5" style="flex:1;font-size:9px;padding:2px;">2F</button>
+          <button class="tool-btn" data-cull="7.5" style="flex:1;font-size:9px;padding:2px;">2F+Roof</button>
+        </div>
+      </div>
     </div>
     <div class="ctx-divider"></div>
 
@@ -1490,7 +1502,7 @@ let brushRadius = 3.2
   }
 
   function applyLayerVisibility() {
-    if (heightCullLevel > 0) { applyHeightCull(); return }
+    if (heightCullEnabled) { applyHeightCull(); return }
     for (const obj of placedGroup.getChildren()) {
       const layer = layers.find((l) => l.id === (obj.userData?.layerId || 'layer_0'))
       obj.setEnabled(layer ? layer.visible : true)
@@ -2047,7 +2059,7 @@ let brushRadius = 3.2
     // Reapply xray if collision tool is active (objects were just rebuilt)
     if (state.tool === ToolMode.COLLISION) setPlacedObjectsXray(true)
     // Reapply height cull so undo doesn't unhide culled objects
-    if (heightCullLevel > 0) applyHeightCull()
+    if (heightCullEnabled) applyHeightCull()
     updateSelectionHelper()
     updateToolUI()
   }
@@ -4338,19 +4350,35 @@ function applyToolAtTile(tile, eventLike = null) {
   // Layers toggle removed
 
   function toggleHeightCull() {
-    heightCullLevel = (heightCullLevel + 1) % 3
+    heightCullEnabled = !heightCullEnabled
     const btn = sidebar.querySelector('#heightCullBtn')
-    if (btn) {
-      btn.classList.toggle('active-tool', heightCullLevel > 0)
-      btn.title = heightCullLevel === 0 ? 'Hide objects above camera height (H)'
-        : heightCullLevel === 1 ? 'Height Cull: level 1 (H to go higher)'
-        : 'Height Cull: level 2 (H to disable)'
-    }
-    if (heightCullLevel > 0) applyHeightCull()
+    const controls = sidebar.querySelector('#heightCullControls')
+    if (btn) btn.classList.toggle('active-tool', heightCullEnabled)
+    if (controls) controls.style.display = heightCullEnabled ? 'block' : 'none'
+    if (heightCullEnabled) applyHeightCull()
     else applyLayerVisibility()
   }
 
   sidebar.querySelector('#heightCullBtn')?.addEventListener('click', toggleHeightCull)
+
+  const heightCullSlider = sidebar.querySelector('#heightCullSlider')
+  const heightCullValueLabel = sidebar.querySelector('#heightCullValue')
+  heightCullSlider?.addEventListener('input', () => {
+    heightCullThreshold = parseFloat(heightCullSlider.value)
+    if (heightCullValueLabel) heightCullValueLabel.textContent = heightCullThreshold.toFixed(1)
+    if (heightCullEnabled) applyHeightCull()
+  })
+
+  // Preset floor buttons
+  for (const btn of sidebar.querySelectorAll('[data-cull]')) {
+    btn.addEventListener('click', () => {
+      heightCullThreshold = parseFloat(btn.dataset.cull)
+      if (heightCullSlider) heightCullSlider.value = heightCullThreshold
+      if (heightCullValueLabel) heightCullValueLabel.textContent = heightCullThreshold.toFixed(1)
+      if (!heightCullEnabled) toggleHeightCull()
+      else applyHeightCull()
+    })
+  }
 
   function assignSelectedToLayer(layerId) {
     if (!selectedPlacedObjects.length && !selectedTexturePlane) return
@@ -4940,17 +4968,15 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
   let pitch = 1.02
   let distance = 31
   const target = new Vector3(12, 2, 12)
-  let heightCullLevel = 0 // 0=off, 1=at camera height, 2=one level higher
-  const HEIGHT_CULL_STEP = 3
+  let heightCullEnabled = false
+  let heightCullThreshold = 3.5 // default: hides 2nd floor and above
 
   function applyHeightCull() {
-    const cullThreshold = heightCullLevel === 0 ? Infinity
-      : heightCullLevel === 1 ? target.y
-      : target.y + HEIGHT_CULL_STEP
+    const cullY = heightCullEnabled ? heightCullThreshold : Infinity
     for (const obj of placedGroup.getChildren()) {
       const layer = layers.find((l) => l.id === (obj.userData.layerId || 'layer_0'))
       const layerVisible = layer ? layer.visible : true
-      obj.setEnabled(layerVisible && obj.position.y <= cullThreshold)
+      obj.setEnabled(layerVisible && obj.position.y <= cullY)
     }
     if (texturePlaneGroup) {
       for (const mesh of texturePlaneGroup.getChildMeshes()) {
@@ -4958,7 +4984,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
         if (!plane) continue
         const layer = layers.find((l) => l.id === (plane.layerId || 'layer_0'))
         const layerVisible = layer ? layer.visible : true
-        mesh.isVisible = layerVisible && plane.position.y <= cullThreshold
+        mesh.isVisible = layerVisible && plane.position.y <= cullY
       }
     }
   }
@@ -4974,7 +5000,7 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
     camera.radius = distance
     camera.target.copyFrom(target)
     updateCompass()
-    if (heightCullLevel > 0) applyHeightCull()
+    if (heightCullEnabled) applyHeightCull()
   }
 
   function panCamera(deltaX, deltaY) {
