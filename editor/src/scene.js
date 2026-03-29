@@ -1193,7 +1193,7 @@ let brushRadius = 3.2
   })
 
   // --- Chunk-based auto-wall system ---
-  const WALL_CHUNK_SIZE = 32
+  const WALL_CHUNK_SIZE = 64
 
   function buildWallChunkDropdown() {
     const select = sidebar.querySelector('#wallChunkSelect')
