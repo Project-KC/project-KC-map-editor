@@ -389,7 +389,10 @@ export class ChunkManager {
     } else {
       // Chunked mode: placed objects loaded per-chunk on demand, no pre-indexing
       this.placedObjectsByChunk.clear();
-      this.shadowInf = null;
+      // Pre-allocate shadow array filled with 1.0 (no shadow) — populated incrementally as objects load
+      const sw = this.mapWidth + 1, sh = this.mapHeight + 1;
+      this.shadowInf = new Float32Array(sw * sh);
+      this.shadowInf.fill(1.0);
     }
     this.loadTexturePlanes(this.mapData!.texturePlanes || []);
 
@@ -711,23 +714,29 @@ export class ChunkManager {
         }
       }
 
-      // Populate tiles
+      // Populate tiles — fill entire chunk region with defaults, then overlay sparse data
+      const endX = Math.min(startX + ECHUNK, this.mapWidth);
+      const endZ = Math.min(startZ + ECHUNK, this.mapHeight);
+      for (let gz = startZ; gz < endZ; gz++) {
+        if (!this.mapData!.tiles[gz]) this.mapData!.tiles[gz] = [];
+        for (let gx = startX; gx < endX; gx++) {
+          if (!this.mapData!.tiles[gz][gx]) {
+            this.mapData!.tiles[gz][gx] = this.expandTile({});
+          }
+        }
+      }
       if (tilesRes.ok) {
         const tData: Record<string, Partial<KCTile>> = await tilesRes.json();
         for (const [k, partial] of Object.entries(tData)) {
           const [lz, lx] = k.split(',').map(Number);
           const gx = startX + lx, gz = startZ + lz;
           if (gx < this.mapWidth && gz < this.mapHeight) {
-            const tile = this.expandTile(partial);
-            if (!this.mapData!.tiles[gz]) this.mapData!.tiles[gz] = [];
-            this.mapData!.tiles[gz][gx] = tile;
+            this.mapData!.tiles[gz][gx] = this.expandTile(partial);
           }
         }
       }
 
       // Populate tileTypes for this region
-      const endX = Math.min(startX + ECHUNK, this.mapWidth);
-      const endZ = Math.min(startZ + ECHUNK, this.mapHeight);
       for (let z = startZ; z < endZ; z++) {
         for (let x = startX; x < endX; x++) {
           if (this.activeChunks && !this.activeChunks.has(`${Math.floor(x / 64)},${Math.floor(z / 64)}`)) {
@@ -2108,7 +2117,7 @@ export class ChunkManager {
     if (this.chunkPlacedNodes.has(chunkKey) || this.loadingObjectChunks.has(chunkKey)) return;
     let objects = this.placedObjectsByChunk.get(chunkKey);
     // If no pre-indexed objects, try fetching per-chunk file from server (chunked mode)
-    if ((!objects || objects.length === 0) && this.loadedEditorChunks.size > 0) {
+    if ((!objects || objects.length === 0) && this.chunkedMode) {
       try {
         const [cx, cz] = chunkKey.split(',').map(Number);
         const res = await fetch(`/maps/${this.mapId}/objects/chunk_${cx}_${cz}.json`);
@@ -2117,6 +2126,8 @@ export class ChunkManager {
           if (fetched.length > 0) {
             this.placedObjectsByChunk.set(chunkKey, fetched);
             objects = fetched;
+            // Add shadows for newly loaded objects
+            this.addShadowsForObjects(fetched);
           }
         }
       } catch { /* no per-chunk objects file */ }
@@ -2384,6 +2395,35 @@ export class ChunkManager {
 
     this.shadowInf = inf;
     console.log(`[ChunkManager] Built shadow influences for ${count} objects`);
+  }
+
+  /** Add shadow contribution from a set of placed objects (used in chunked mode) */
+  private addShadowsForObjects(objects: PlacedObject[]): void {
+    if (!this.shadowInf || !this.mapWidth) return;
+    const w = this.mapWidth + 1;
+    for (const obj of objects) {
+      const cx = obj.position.x;
+      const cz = obj.position.z;
+      const name = obj.assetId.toLowerCase();
+      const isLarge = name.includes('tree') || name.includes('modular') || name.includes('wall') || name.includes('house') || name.includes('bush');
+      const shadowR = 1.0 + (isLarge ? 2.8 : 1.0);
+      const maxDark = isLarge ? 0.82 : 0.42;
+      const vx0 = Math.max(0, Math.floor(cx - shadowR));
+      const vx1 = Math.min(w - 1, Math.ceil(cx + shadowR));
+      const vz0 = Math.max(0, Math.floor(cz - shadowR));
+      const vz1 = Math.min(this.mapHeight, Math.ceil(cz + shadowR));
+      for (let vz = vz0; vz <= vz1; vz++) {
+        for (let vx = vx0; vx <= vx1; vx++) {
+          const dx = vx - cx, dz = vz - cz;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist >= shadowR) continue;
+          const t = 1.0 - dist / shadowR;
+          const factor = 1.0 - t * t * maxDark;
+          const idx = vz * w + vx;
+          if (factor < this.shadowInf[idx]) this.shadowInf[idx] = factor;
+        }
+      }
+    }
   }
 
   private getShadowAt(vx: number, vz: number): number {
