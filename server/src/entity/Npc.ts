@@ -128,16 +128,12 @@ export class Npc extends Entity {
       if (this.wanderCooldown <= 0) {
         this.wanderCooldown = 5 + Math.floor(Math.random() * 10); // 5-15 ticks
 
-        // Pick a random direction
-        const dirs = [
-          { x: -1, z: 0 },
-          { x: 1, z: 0 },
-          { x: 0, z: -1 },
-          { x: 0, z: 1 },
-        ];
-        const dir = dirs[Math.floor(Math.random() * dirs.length)];
-        const nx = this.position.x + dir.x;
-        const nz = this.position.y + dir.z;
+        // Pick a random cardinal direction (no allocation)
+        const r = Math.floor(Math.random() * 4);
+        const dirX = r === 0 ? -1 : r === 1 ? 1 : 0;
+        const dirZ = r === 2 ? -1 : r === 3 ? 1 : 0;
+        const nx = this.position.x + dirX;
+        const nz = this.position.y + dirZ;
 
         // Check within wander range of spawn
         const dxSpawn = nx - this.spawnX;
@@ -166,19 +162,31 @@ export class Npc extends Entity {
     const dz = tz - this.position.y;
     const sx = dx !== 0 ? Math.sign(dx) : 0;
     const sz = dz !== 0 ? Math.sign(dz) : 0;
-    const onAvoid = (px: number, pz: number) =>
-      Math.floor(px) === avoidTileX && Math.floor(pz) === avoidTileZ;
-    const wBlocked = (fx: number, fz: number, tx2: number, tz2: number) =>
-      isWallBlocked ? isWallBlocked(fx, fz, tx2, tz2) : false;
     const px = this.position.x, py = this.position.y;
 
-    if (sx !== 0 && sz !== 0 && !isBlocked(px + sx, py + sz) && !onAvoid(px + sx, py + sz) && !wBlocked(px, py, px + sx, py + sz)) {
-      this.position.x += sx;
-      this.position.y += sz;
-    } else if (sx !== 0 && !isBlocked(px + sx, py) && !onAvoid(px + sx, py) && !wBlocked(px, py, px + sx, py)) {
-      this.position.x += sx;
-    } else if (sz !== 0 && !isBlocked(px, py + sz) && !onAvoid(px, py + sz) && !wBlocked(px, py, px, py + sz)) {
-      this.position.y += sz;
+    // Try diagonal
+    if (sx !== 0 && sz !== 0) {
+      const nx = px + sx, nz = py + sz;
+      if (!isBlocked(nx, nz) && Math.floor(nx) !== avoidTileX | Math.floor(nz) !== avoidTileZ &&
+          (!isWallBlocked || !isWallBlocked(px, py, nx, nz))) {
+        this.position.x = nx; this.position.y = nz; return;
+      }
+    }
+    // Try X
+    if (sx !== 0) {
+      const nx = px + sx;
+      if (!isBlocked(nx, py) && (Math.floor(nx) !== avoidTileX || Math.floor(py) !== avoidTileZ) &&
+          (!isWallBlocked || !isWallBlocked(px, py, nx, py))) {
+        this.position.x = nx; return;
+      }
+    }
+    // Try Z
+    if (sz !== 0) {
+      const nz = py + sz;
+      if (!isBlocked(px, nz) && (Math.floor(px) !== avoidTileX || Math.floor(nz) !== avoidTileZ) &&
+          (!isWallBlocked || !isWallBlocked(px, py, px, nz))) {
+        this.position.y = nz;
+      }
     }
   }
 
@@ -188,17 +196,15 @@ export class Npc extends Entity {
     const dz = tz - this.position.y;
     const sx = dx !== 0 ? Math.sign(dx) : 0;
     const sz = dz !== 0 ? Math.sign(dz) : 0;
-    const wBlocked = (fx: number, fz: number, tx2: number, tz2: number) =>
-      isWallBlocked ? isWallBlocked(fx, fz, tx2, tz2) : false;
     const px = this.position.x, py = this.position.y;
 
     // Try diagonal
-    if (sx !== 0 && sz !== 0 && !isBlocked(px + sx, py + sz) && !wBlocked(px, py, px + sx, py + sz)) {
+    if (sx !== 0 && sz !== 0 && !isBlocked(px + sx, py + sz) && (!isWallBlocked || !isWallBlocked(px, py, px + sx, py + sz))) {
       this.position.x += sx;
       this.position.y += sz;
-    } else if (sx !== 0 && !isBlocked(px + sx, py) && !wBlocked(px, py, px + sx, py)) {
+    } else if (sx !== 0 && !isBlocked(px + sx, py) && (!isWallBlocked || !isWallBlocked(px, py, px + sx, py))) {
       this.position.x += sx;
-    } else if (sz !== 0 && !isBlocked(px, py + sz) && !wBlocked(px, py, px, py + sz)) {
+    } else if (sz !== 0 && !isBlocked(px, py + sz) && (!isWallBlocked || !isWallBlocked(px, py, px, py + sz))) {
       this.position.y += sz;
     }
   }

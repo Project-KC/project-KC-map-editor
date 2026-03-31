@@ -817,6 +817,7 @@ const server = Bun.serve<SocketData>({
   },
 
   websocket: {
+    perMessageDeflate: true,
     open(ws: import('bun').ServerWebSocket<SocketData>) {
       if (ws.data.type === 'game') {
         handleGameSocketOpen(ws as any, world);

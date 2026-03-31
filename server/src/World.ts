@@ -59,6 +59,15 @@ export class World {
   // Reverse lookup: npcId -> set of playerIds targeting it (kept in sync with playerCombatTargets)
   private npcTargetedBy: Map<number, Set<number>> = new Map();
 
+  /** Ground items with active despawn timers (avoids iterating all permanent items) */
+  private despawningItemIds: Set<number> = new Set();
+
+  /** World objects currently depleted and awaiting respawn */
+  private depletedObjectIds: Set<number> = new Set();
+
+  /** Reusable set for health regen — avoids allocation every 10 ticks */
+  private _playersUnderNpcAttack: Set<number> = new Set();
+
   // Skilling: player -> { objectId, action, ticksLeft }
   private skillingActions: Map<number, { objectId: number; action: string; ticksLeft: number; toolItemId?: number }> = new Map();
 
@@ -429,6 +438,7 @@ export class World {
       this.blockedObjectTiles.delete(blockedKey(getMapIdx(obj.mapLevel), tx, tz));
       obj.depleted = true;
       obj.respawnTimer = obj.def.respawnTime ?? 15;
+      this.depletedObjectIds.add(obj.id);
       // Update action to "Close"
       obj.def = { ...obj.def, actions: ['Close', 'Examine'] };
     }
@@ -591,6 +601,7 @@ export class World {
 
     if (player.addItem(item.itemId, item.quantity)) {
       this.groundItems.delete(groundItemId);
+      this.despawningItemIds.delete(groundItemId);
       const itemCm = this.chunkManagers.get(item.mapLevel);
       if (itemCm) itemCm.removeEntity(groundItemId);
       this.broadcastNearby(item.mapLevel, item.x, item.z, ServerOpcode.GROUND_ITEM_SYNC, groundItemId, 0, 0, 0, 0);
@@ -615,6 +626,7 @@ export class World {
       despawnTimer: 200,
     };
     this.groundItems.set(groundItem.id, groundItem);
+    this.despawningItemIds.add(groundItem.id);
     const dropCm = this.chunkManagers.get(groundItem.mapLevel);
     if (dropCm) dropCm.addEntity(groundItem.id, groundItem.x, groundItem.z);
 
@@ -881,10 +893,7 @@ export class World {
         }
       }
 
-      npc.processAI(
-        (x, z) => map.isBlocked(x, z),
-        (fx, fz, tx, tz) => map.isWallBlocked(fx, fz, tx, tz)
-      );
+      npc.processAI(map.isBlockedCb, map.isWallBlockedCb);
 
       // Update NPC chunk position
       const cm = this.chunkManagers.get(npc.currentMapLevel);
@@ -973,6 +982,7 @@ export class World {
               despawnTimer: 200,
             };
             this.groundItems.set(groundItem.id, groundItem);
+            this.despawningItemIds.add(groundItem.id);
             const lootCm = this.chunkManagers.get(groundItem.mapLevel);
             if (lootCm) lootCm.addEntity(groundItem.id, groundItem.x, groundItem.z);
             this.forEachPlayerNear(groundItem.mapLevel, groundItem.x, groundItem.z, p => this.sendGroundItemUpdate(p, groundItem));
@@ -1028,18 +1038,18 @@ export class World {
         npc.heal(1);
       }
 
-      // Player health regeneration — check if any NPC targets this player
-      // Build a quick set of players being attacked by NPCs (only active combat NPCs)
-      const playersUnderAttack = new Set<number>();
+      // Player health regeneration — only regen if not in combat (attacking or being attacked)
+      // playersUnderNpcAttack is rebuilt only every 10 ticks (same frequency as regen)
+      this._playersUnderNpcAttack.clear();
       for (const [, npc] of this.npcs) {
         if (!npc.dead && npc.combatTarget) {
-          playersUnderAttack.add((npc.combatTarget as Player).id);
+          this._playersUnderNpcAttack.add((npc.combatTarget as Player).id);
         }
       }
       for (const [playerId, player] of this.players) {
         if (!player.alive || player.health >= player.maxHealth) continue;
         if (this.playerCombatTargets.has(playerId)) continue;
-        if (playersUnderAttack.has(playerId)) continue;
+        if (this._playersUnderNpcAttack.has(playerId)) continue;
         player.heal(1);
         player.skills.hitpoints.currentLevel = player.health;
         this.sendToPlayer(player, ServerOpcode.PLAYER_STATS, player.health, player.maxHealth);
@@ -1118,6 +1128,7 @@ export class World {
           // Roll depletion
           if (obj.def.depletionChance && Math.random() < obj.def.depletionChance) {
             obj.deplete();
+            this.depletedObjectIds.add(obj.id);
             if (obj.def.blocking) {
               this.blockedObjectTiles.delete(this.blockedKeyFor(obj.mapLevel, obj.x, obj.z));
             }
@@ -1136,9 +1147,12 @@ export class World {
       }
     }
 
-    // Tick world object respawns
-    for (const [, obj] of this.worldObjects) {
+    // Tick world object respawns — only iterate depleted objects
+    for (const objId of this.depletedObjectIds) {
+      const obj = this.worldObjects.get(objId);
+      if (!obj) { this.depletedObjectIds.delete(objId); continue; }
       if (obj.tickRespawn()) {
+        this.depletedObjectIds.delete(objId);
         if (obj.def.blocking) {
           this.blockedObjectTiles.add(this.blockedKeyFor(obj.mapLevel, obj.x, obj.z));
         }
@@ -1158,11 +1172,13 @@ export class World {
       }
     }
 
-    // Despawn ground items (negative timer = permanent, never despawn)
-    for (const [id, item] of this.groundItems) {
-      if (item.despawnTimer < 0) continue;
+    // Despawn ground items — only iterate items with active timers
+    for (const id of this.despawningItemIds) {
+      const item = this.groundItems.get(id);
+      if (!item) { this.despawningItemIds.delete(id); continue; }
       item.despawnTimer--;
       if (item.despawnTimer <= 0) {
+        this.despawningItemIds.delete(id);
         this.groundItems.delete(id);
         const despawnCm = this.chunkManagers.get(item.mapLevel);
         if (despawnCm) despawnCm.removeEntity(id);

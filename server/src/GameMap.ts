@@ -40,6 +40,13 @@ export class GameMap {
   /** Roof data (sparse) */
   private roofs: Map<number, RoofData> = new Map();
 
+  /** Hashed transition lookup: tileKey -> MapTransition */
+  private transitionMap: Map<number, MapTransition> = new Map();
+
+  /** Pre-bound callbacks for NPC AI — avoids closure allocation per tick */
+  readonly isBlockedCb: (x: number, z: number) => boolean;
+  readonly isWallBlockedCb: (fx: number, fz: number, tx: number, tz: number) => boolean;
+
   /** Multi-floor layer data */
   private floorLayers: Map<number, {
     tiles: Map<number, number>;
@@ -58,6 +65,11 @@ export class GameMap {
     this.meta = JSON.parse(readFileSync(resolve(dir, 'meta.json'), 'utf-8')) as MapMeta;
     this.width = this.meta.width;
     this.height = this.meta.height;
+
+    // Hash transitions for O(1) lookup
+    for (const t of this.meta.transitions ?? []) {
+      this.transitionMap.set(t.tileZ * this.width + t.tileX, t);
+    }
 
     // Load KC map data
     const mapFile: KCMapFile = JSON.parse(readFileSync(resolve(dir, 'map.json'), 'utf-8'));
@@ -230,6 +242,10 @@ export class GameMap {
         }
       }
     }
+
+    // Pre-bind collision callbacks (avoids closure allocation in NPC AI hot loop)
+    this.isBlockedCb = (x: number, z: number) => this.isBlocked(x, z);
+    this.isWallBlockedCb = (fx: number, fz: number, tx: number, tz: number) => this.isWallBlocked(fx, fz, tx, tz);
 
     console.log(`Loaded map '${mapId}': ${this.width}x${this.height} tiles, waterLevel=${this.mapData.waterLevel}, ${this.floorLayers.size} upper floors`);
   }
@@ -560,10 +576,7 @@ export class GameMap {
   getTransitionAt(x: number, z: number): MapTransition | null {
     const tx = Math.floor(x);
     const tz = Math.floor(z);
-    for (const t of this.meta.transitions) {
-      if (t.tileX === tx && t.tileZ === tz) return t;
-    }
-    return null;
+    return this.transitionMap.get(tz * this.width + tx) ?? null;
   }
 
   findPath(startX: number, startZ: number, goalX: number, goalZ: number): { x: number; z: number }[] {
