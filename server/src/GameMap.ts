@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { CHUNK_SIZE, TileType, BLOCKING_TILES, groundTypeToTileType, shouldTileRenderWater, WallEdge, DEFAULT_WALL_HEIGHT, STAIR_ASSET_CONFIG, rotateStairDirection } from '@projectrs/shared';
+import { CHUNK_SIZE, TileType, BLOCKING_TILES, groundTypeToTileType, shouldTileRenderWater, WallEdge, DEFAULT_WALL_HEIGHT, STAIR_ASSET_CONFIG, rotateStairDirection, defaultKCTile } from '@projectrs/shared';
 import type { MapMeta, MapTransition, WallsFile, StairData, RoofData, FloorLayerData, KCMapFile, KCMapData, KCTile, GroundType } from '@projectrs/shared';
 
 const MAPS_DIR = resolve(import.meta.dir, '../data/maps');
@@ -62,6 +62,12 @@ export class GameMap {
     // Load KC map data
     const mapFile: KCMapFile = JSON.parse(readFileSync(resolve(dir, 'map.json'), 'utf-8'));
     this.mapData = mapFile.map;
+
+    // Try loading tiles/heights from per-chunk files (falls back to map.json inline data)
+    const chunkedTiles = GameMap.loadChunkedTiles(dir, this.width, this.height);
+    if (chunkedTiles) this.mapData.tiles = chunkedTiles;
+    const chunkedHeights = GameMap.loadChunkedHeights(dir, this.width, this.height);
+    if (chunkedHeights) this.mapData.heights = chunkedHeights;
 
     // Load placed objects from per-chunk files, falling back to map.json
     let rawObjects = mapFile.placedObjects ?? [];
@@ -815,5 +821,89 @@ export class GameMap {
       }
     }
     return [];
+  }
+
+  // --- Chunked tile/height loading helpers ---
+
+  private static readonly EDITOR_CHUNK_SIZE = 64;
+
+  /** Load tiles from per-chunk files under tiles/. Returns null if directory doesn't exist. */
+  private static loadChunkedTiles(mapDir: string, width: number, height: number): KCTile[][] | null {
+    const tilesDir = resolve(mapDir, 'tiles');
+    if (!existsSync(tilesDir)) return null;
+
+    const tiles: KCTile[][] = [];
+    for (let z = 0; z < height; z++) {
+      const row: KCTile[] = [];
+      for (let x = 0; x < width; x++) {
+        row.push(defaultKCTile());
+      }
+      tiles.push(row);
+    }
+
+    try {
+      for (const file of readdirSync(tilesDir)) {
+        if (!file.startsWith('chunk_') || !file.endsWith('.json')) continue;
+        const match = file.match(/^chunk_(\d+)_(\d+)\.json$/);
+        if (!match) continue;
+        const cx = parseInt(match[1]);
+        const cz = parseInt(match[2]);
+        const startX = cx * GameMap.EDITOR_CHUNK_SIZE;
+        const startZ = cz * GameMap.EDITOR_CHUNK_SIZE;
+
+        const chunkData: Record<string, Partial<KCTile>> = JSON.parse(
+          readFileSync(resolve(tilesDir, file), 'utf-8')
+        );
+
+        for (const [key, partial] of Object.entries(chunkData)) {
+          const [localZStr, localXStr] = key.split(',');
+          const z = startZ + parseInt(localZStr);
+          const x = startX + parseInt(localXStr);
+          if (z >= 0 && z < height && x >= 0 && x < width) {
+            tiles[z][x] = { ...defaultKCTile(), ...partial };
+          }
+        }
+      }
+    } catch { return null; }
+
+    return tiles;
+  }
+
+  /** Load heights from per-chunk files under heights/. Returns null if directory doesn't exist. */
+  private static loadChunkedHeights(mapDir: string, width: number, height: number): number[][] | null {
+    const heightsDir = resolve(mapDir, 'heights');
+    if (!existsSync(heightsDir)) return null;
+
+    const heights: number[][] = [];
+    for (let z = 0; z <= height; z++) {
+      heights.push(new Array(width + 1).fill(0));
+    }
+
+    try {
+      for (const file of readdirSync(heightsDir)) {
+        if (!file.startsWith('chunk_') || !file.endsWith('.json')) continue;
+        const match = file.match(/^chunk_(\d+)_(\d+)\.json$/);
+        if (!match) continue;
+        const cx = parseInt(match[1]);
+        const cz = parseInt(match[2]);
+        const startX = cx * GameMap.EDITOR_CHUNK_SIZE;
+        const startZ = cz * GameMap.EDITOR_CHUNK_SIZE;
+
+        const chunkData: Record<string, number> = JSON.parse(
+          readFileSync(resolve(heightsDir, file), 'utf-8')
+        );
+
+        for (const [key, val] of Object.entries(chunkData)) {
+          const [localZStr, localXStr] = key.split(',');
+          const z = startZ + parseInt(localZStr);
+          const x = startX + parseInt(localXStr);
+          if (z >= 0 && z <= height && x >= 0 && x <= width) {
+            heights[z][x] = val;
+          }
+        }
+      }
+    } catch { return null; }
+
+    return heights;
   }
 }

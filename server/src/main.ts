@@ -59,6 +59,235 @@ function loadChunkedObjects(mapDir: string): PlacedObject[] | null {
   } catch { return null; }
   return objects.length > 0 ? objects : null;
 }
+
+// --- Chunked tile/height storage helpers ---
+
+const EDITOR_CHUNK_SIZE = 64;
+
+/** Default tile values for stripping unchanged fields */
+const TILE_DEFAULTS: Record<string, any> = {
+  ground: 'grass',
+  groundB: null,
+  split: 'forward',
+  textureId: null,
+  textureRotation: 0,
+  textureScale: 1,
+  textureWorldUV: false,
+  textureHalfMode: false,
+  textureIdB: null,
+  textureRotationB: 0,
+  textureScaleB: 1,
+  waterPainted: false,
+  waterSurface: false,
+};
+
+/** Strip default fields from a tile, returning only non-default values */
+function stripTileDefaults(tile: KCTile): Partial<KCTile> | null {
+  const stripped: Record<string, any> = {};
+  let hasNonDefault = false;
+  for (const key of Object.keys(TILE_DEFAULTS)) {
+    const val = (tile as any)[key];
+    if (val !== TILE_DEFAULTS[key]) {
+      stripped[key] = val;
+      hasNonDefault = true;
+    }
+  }
+  return hasNonDefault ? stripped as Partial<KCTile> : null;
+}
+
+/** Expand a partial tile back to a full KCTile */
+function expandTile(partial: Partial<KCTile>): KCTile {
+  return { ...defaultKCTile(), ...partial };
+}
+
+/** Save tiles as per-chunk JSON files */
+function saveChunkedTiles(mapDir: string, tiles: KCTile[][], width: number, height: number): void {
+  const tilesDir = resolve(mapDir, 'tiles');
+  mkdirSync(tilesDir, { recursive: true });
+
+  const chunksX = Math.ceil(width / EDITOR_CHUNK_SIZE);
+  const chunksZ = Math.ceil(height / EDITOR_CHUNK_SIZE);
+  const written = new Set<string>();
+
+  for (let cz = 0; cz < chunksZ; cz++) {
+    for (let cx = 0; cx < chunksX; cx++) {
+      const chunkData: Record<string, Partial<KCTile>> = {};
+      const startZ = cz * EDITOR_CHUNK_SIZE;
+      const startX = cx * EDITOR_CHUNK_SIZE;
+      const endZ = Math.min(startZ + EDITOR_CHUNK_SIZE, height);
+      const endX = Math.min(startX + EDITOR_CHUNK_SIZE, width);
+
+      for (let z = startZ; z < endZ; z++) {
+        for (let x = startX; x < endX; x++) {
+          const tile = tiles[z]?.[x];
+          if (!tile) continue;
+          const stripped = stripTileDefaults(tile);
+          if (stripped) {
+            const localZ = z - startZ;
+            const localX = x - startX;
+            chunkData[`${localZ},${localX}`] = stripped;
+          }
+        }
+      }
+
+      if (Object.keys(chunkData).length > 0) {
+        const filename = `chunk_${cx}_${cz}.json`;
+        writeFileSync(resolve(tilesDir, filename), JSON.stringify(chunkData));
+        written.add(filename);
+      }
+    }
+  }
+
+  // Remove stale chunk files
+  try {
+    for (const file of readdirSync(tilesDir)) {
+      if (file.startsWith('chunk_') && file.endsWith('.json') && !written.has(file)) {
+        rmSync(resolve(tilesDir, file));
+      }
+    }
+  } catch { /* dir may not exist yet */ }
+}
+
+/** Save heights as per-chunk JSON files (vertex grid: 65x65 per chunk including shared boundaries) */
+function saveChunkedHeights(mapDir: string, heights: number[][], width: number, height: number): void {
+  const heightsDir = resolve(mapDir, 'heights');
+  mkdirSync(heightsDir, { recursive: true });
+
+  const chunksX = Math.ceil(width / EDITOR_CHUNK_SIZE);
+  const chunksZ = Math.ceil(height / EDITOR_CHUNK_SIZE);
+  const written = new Set<string>();
+
+  for (let cz = 0; cz < chunksZ; cz++) {
+    for (let cx = 0; cx < chunksX; cx++) {
+      const chunkData: Record<string, number> = {};
+      const startZ = cz * EDITOR_CHUNK_SIZE;
+      const startX = cx * EDITOR_CHUNK_SIZE;
+      // Vertices: +1 for shared boundary
+      const endZ = Math.min(startZ + EDITOR_CHUNK_SIZE + 1, height + 1);
+      const endX = Math.min(startX + EDITOR_CHUNK_SIZE + 1, width + 1);
+
+      for (let z = startZ; z < endZ; z++) {
+        for (let x = startX; x < endX; x++) {
+          const val = heights[z]?.[x] ?? 0;
+          if (val !== 0) {
+            const localZ = z - startZ;
+            const localX = x - startX;
+            chunkData[`${localZ},${localX}`] = val;
+          }
+        }
+      }
+
+      if (Object.keys(chunkData).length > 0) {
+        const filename = `chunk_${cx}_${cz}.json`;
+        writeFileSync(resolve(heightsDir, filename), JSON.stringify(chunkData));
+        written.add(filename);
+      }
+    }
+  }
+
+  // Remove stale chunk files
+  try {
+    for (const file of readdirSync(heightsDir)) {
+      if (file.startsWith('chunk_') && file.endsWith('.json') && !written.has(file)) {
+        rmSync(resolve(heightsDir, file));
+      }
+    }
+  } catch { /* dir may not exist yet */ }
+}
+
+/** Load tiles from per-chunk files. Returns null if tiles/ dir doesn't exist (fall back to map.json). */
+function loadChunkedTiles(mapDir: string, width: number, height: number): KCTile[][] | null {
+  const tilesDir = resolve(mapDir, 'tiles');
+  if (!existsSync(tilesDir)) return null;
+
+  // Initialize full array with defaults
+  const tiles: KCTile[][] = [];
+  for (let z = 0; z < height; z++) {
+    const row: KCTile[] = [];
+    for (let x = 0; x < width; x++) {
+      row.push(defaultKCTile());
+    }
+    tiles.push(row);
+  }
+
+  try {
+    for (const file of readdirSync(tilesDir)) {
+      if (!file.startsWith('chunk_') || !file.endsWith('.json')) continue;
+      // Parse chunk coordinates from filename: chunk_cx_cz.json
+      const match = file.match(/^chunk_(\d+)_(\d+)\.json$/);
+      if (!match) continue;
+      const cx = parseInt(match[1]);
+      const cz = parseInt(match[2]);
+      const startX = cx * EDITOR_CHUNK_SIZE;
+      const startZ = cz * EDITOR_CHUNK_SIZE;
+
+      const chunkData: Record<string, Partial<KCTile>> = JSON.parse(
+        readFileSync(resolve(tilesDir, file), 'utf-8')
+      );
+
+      for (const [key, partial] of Object.entries(chunkData)) {
+        const [localZStr, localXStr] = key.split(',');
+        const z = startZ + parseInt(localZStr);
+        const x = startX + parseInt(localXStr);
+        if (z >= 0 && z < height && x >= 0 && x < width) {
+          tiles[z][x] = expandTile(partial);
+        }
+      }
+    }
+  } catch { return null; }
+
+  return tiles;
+}
+
+/** Load heights from per-chunk files. Returns null if heights/ dir doesn't exist (fall back to map.json). */
+function loadChunkedHeights(mapDir: string, width: number, height: number): number[][] | null {
+  const heightsDir = resolve(mapDir, 'heights');
+  if (!existsSync(heightsDir)) return null;
+
+  // Initialize full array with zeros (vertex grid is width+1 x height+1)
+  const heights: number[][] = [];
+  for (let z = 0; z <= height; z++) {
+    const row: number[] = new Array(width + 1).fill(0);
+    heights.push(row);
+  }
+
+  try {
+    for (const file of readdirSync(heightsDir)) {
+      if (!file.startsWith('chunk_') || !file.endsWith('.json')) continue;
+      const match = file.match(/^chunk_(\d+)_(\d+)\.json$/);
+      if (!match) continue;
+      const cx = parseInt(match[1]);
+      const cz = parseInt(match[2]);
+      const startX = cx * EDITOR_CHUNK_SIZE;
+      const startZ = cz * EDITOR_CHUNK_SIZE;
+
+      const chunkData: Record<string, number> = JSON.parse(
+        readFileSync(resolve(heightsDir, file), 'utf-8')
+      );
+
+      for (const [key, val] of Object.entries(chunkData)) {
+        const [localZStr, localXStr] = key.split(',');
+        const z = startZ + parseInt(localZStr);
+        const x = startX + parseInt(localXStr);
+        if (z >= 0 && z <= height && x >= 0 && x <= width) {
+          heights[z][x] = val;
+        }
+      }
+    }
+  } catch { return null; }
+
+  return heights;
+}
+
+/** Reassemble tiles and heights from chunk files into a KCMapFile (mutates in place) */
+function reassembleChunkedMapData(mapDir: string, mapFile: KCMapFile): void {
+  const w = mapFile.map.width;
+  const h = mapFile.map.height;
+  const chunkedTiles = loadChunkedTiles(mapDir, w, h);
+  if (chunkedTiles) mapFile.map.tiles = chunkedTiles;
+  const chunkedHeights = loadChunkedHeights(mapDir, w, h);
+  if (chunkedHeights) mapFile.map.heights = chunkedHeights;
+}
 import { GameDatabase } from './Database';
 import {
   handleGameSocketOpen,
@@ -314,9 +543,27 @@ const server = Bun.serve<SocketData>({
         }
         saveChunkedObjects(mapDir, objectsToSave);
 
-        // Save map.json WITHOUT placedObjects (they're in chunk files now)
+        // Save tiles and heights as per-chunk files
+        const mapWidth = mapData.map?.width ?? meta.width;
+        const mapHeight = mapData.map?.height ?? meta.height;
+        if (mapData.map?.tiles?.length > 0) {
+          saveChunkedTiles(mapDir, mapData.map.tiles, mapWidth, mapHeight);
+        }
+        if (mapData.map?.heights?.length > 0) {
+          saveChunkedHeights(mapDir, mapData.map.heights, mapWidth, mapHeight);
+        }
+
+        // Save map.json WITHOUT placedObjects, tiles, or heights (they're in chunk files now)
         const { placedObjects: _, ...mapDataWithoutObjects } = mapData;
-        const mapFileToSave = { ...mapDataWithoutObjects, placedObjects: [] };
+        const mapFileToSave = {
+          ...mapDataWithoutObjects,
+          placedObjects: [],
+          map: {
+            ...mapDataWithoutObjects.map,
+            tiles: [],    // stripped — stored in tiles/ chunks
+            heights: [],  // stripped — stored in heights/ chunks
+          },
+        };
         writeFileSync(mapJsonPath, JSON.stringify(mapFileToSave, null, 2));
         writeFileSync(resolve(mapDir, 'walls.json'), JSON.stringify(walls ?? { walls: {} }, null, 2));
 
@@ -358,25 +605,7 @@ const server = Bun.serve<SocketData>({
           transitions: [],
         };
 
-        // Build default KC map data: all grass tiles, flat heights
-        const tiles: KCTile[][] = [];
-        for (let z = 0; z < height; z++) {
-          const row: KCTile[] = [];
-          for (let x = 0; x < width; x++) {
-            row.push(defaultKCTile('grass'));
-          }
-          tiles.push(row);
-        }
-
-        const heights: number[][] = [];
-        for (let z = 0; z <= height; z++) {
-          const row: number[] = [];
-          for (let x = 0; x <= width; x++) {
-            row.push(0);
-          }
-          heights.push(row);
-        }
-
+        // Build metadata-only KC map data (default tiles/heights need no chunk files)
         const mapData: KCMapFile = {
           map: {
             width,
@@ -384,8 +613,8 @@ const server = Bun.serve<SocketData>({
             waterLevel: -0.3,
             chunkWaterLevels: {},
             texturePlanes: [],
-            tiles,
-            heights,
+            tiles: [],    // metadata-only — no chunk files needed for default empty map
+            heights: [],  // metadata-only — zeros are the default
           },
           placedObjects: [],
           layers: [{ id: 'default', name: 'Default', visible: true }],
@@ -430,12 +659,13 @@ const server = Bun.serve<SocketData>({
       if (!mapDir.startsWith(MAPS_DIR)) return new Response('Forbidden', { status: 403 });
 
       try {
-        // Reassemble placedObjects from chunk files into map.json for export
+        // Reassemble all chunked data for export (objects, tiles, heights)
         const mapJson: KCMapFile = JSON.parse(readFileSync(resolve(mapDir, 'map.json'), 'utf-8'));
         const chunkedObjects = loadChunkedObjects(mapDir);
         if (chunkedObjects) {
           mapJson.placedObjects = chunkedObjects;
         }
+        reassembleChunkedMapData(mapDir, mapJson);
         const exportFiles: Record<string, string> = {
           'meta.json': readFileSync(resolve(mapDir, 'meta.json'), 'utf-8'),
           'spawns.json': readFileSync(resolve(mapDir, 'spawns.json'), 'utf-8'),
@@ -473,10 +703,31 @@ const server = Bun.serve<SocketData>({
 
         writeFileSync(resolve(mapDir, 'meta.json'), data.files['meta.json']);
         writeFileSync(resolve(mapDir, 'spawns.json'), data.files['spawns.json']);
-        writeFileSync(resolve(mapDir, 'map.json'), data.files['map.json']);
         if (data.files['walls.json']) {
           writeFileSync(resolve(mapDir, 'walls.json'), data.files['walls.json']);
         }
+
+        // Parse imported map.json, split tiles/heights into chunks, then write metadata-only map.json
+        const importedMap: KCMapFile = JSON.parse(data.files['map.json']);
+        const importedObjects = importedMap.placedObjects ?? [];
+        if (importedObjects.length > 0) {
+          saveChunkedObjects(mapDir, importedObjects);
+        }
+        const iw = importedMap.map?.width ?? 0;
+        const ih = importedMap.map?.height ?? 0;
+        if (importedMap.map?.tiles?.length > 0 && iw > 0 && ih > 0) {
+          saveChunkedTiles(mapDir, importedMap.map.tiles, iw, ih);
+        }
+        if (importedMap.map?.heights?.length > 0 && iw > 0 && ih > 0) {
+          saveChunkedHeights(mapDir, importedMap.map.heights, iw, ih);
+        }
+        // Write metadata-only map.json (tiles/heights/objects stripped)
+        const metadataOnly: KCMapFile = {
+          ...importedMap,
+          placedObjects: [],
+          map: { ...importedMap.map, tiles: [], heights: [] },
+        };
+        writeFileSync(resolve(mapDir, 'map.json'), JSON.stringify(metadataOnly, null, 2));
 
         return jsonResponse({ ok: true, mapId });
       } catch (e: any) {
@@ -515,6 +766,7 @@ const server = Bun.serve<SocketData>({
           const mapFile: KCMapFile = JSON.parse(readFileSync(filePath, 'utf-8'));
           const chunked = loadChunkedObjects(mapDir);
           if (chunked) mapFile.placedObjects = chunked;
+          reassembleChunkedMapData(mapDir, mapFile);
           return new Response(JSON.stringify(mapFile), {
             headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
           });
