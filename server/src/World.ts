@@ -154,8 +154,12 @@ export class World {
       const obj = new WorldObject(objDef, spawn.x, spawn.z, mapId);
       if (spawn.rotY != null) obj.rotationY = spawn.rotY;
       this.worldObjects.set(obj.id, obj);
-      if (objDef.blocking) {
+      if (objDef.blocking && objDef.category !== 'door') {
         this.blockedObjectTiles.add(this.blockedKeyFor(mapId, spawn.x, spawn.z));
+      }
+      // Doors: set initial wall edges (closed state)
+      if (objDef.category === 'door') {
+        this.setDoorWallEdges(obj, gameMap);
       }
       cm.addEntity(obj.id, spawn.x, spawn.z);
     }
@@ -280,8 +284,11 @@ export class World {
         const obj = new WorldObject(objDef, spawn.x, spawn.z, mapId);
         if (spawn.rotY != null) obj.rotationY = spawn.rotY;
         this.worldObjects.set(obj.id, obj);
-        if (objDef.blocking) {
+        if (objDef.blocking && objDef.category !== 'door') {
           this.blockedObjectTiles.add(this.blockedKeyFor(mapId, spawn.x, spawn.z));
+        }
+        if (objDef.category === 'door') {
+          this.setDoorWallEdges(obj, gameMap);
         }
         const cm = this.chunkManagers.get(mapId);
         if (cm) cm.addEntity(obj.id, spawn.x, spawn.z);
@@ -405,6 +412,20 @@ export class World {
 
   /** Check if a world position is within chunk load radius of a player */
   /** Find the best tool of a given type that the player can use (checks equipped weapon + inventory) */
+  /** Set wall edges for a closed door on spawn */
+  private setDoorWallEdges(obj: WorldObject, map: GameMap): void {
+    const tx = Math.floor(obj.x);
+    const tz = Math.floor(obj.z);
+    const degRaw = Math.round((obj.rotationY * 180 / Math.PI) % 360 + 360) % 360;
+    let edgeMask: number;
+    if (degRaw === 0 || degRaw === 180) {
+      edgeMask = WallEdge.N | WallEdge.S;
+    } else {
+      edgeMask = WallEdge.E | WallEdge.W;
+    }
+    map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
+  }
+
   private toggleDoor(obj: WorldObject): void {
     const map = this.maps.get(obj.mapLevel);
     if (!map) return;
@@ -423,19 +444,35 @@ export class World {
     }
 
     const isOpen = obj.depleted;
-    const currentWall = map.getWall(tx, tz);
+
+    // Toggle edges on the door tile AND on neighboring tiles (bidirectional)
+    // This ensures both sides of the edge are cleared/set
+    const edgePairs: { dx: number; dz: number; selfEdge: number; neighborEdge: number }[] = [];
+    if (edgeMask & WallEdge.N) edgePairs.push({ dx: 0, dz: -1, selfEdge: WallEdge.N, neighborEdge: WallEdge.S });
+    if (edgeMask & WallEdge.S) edgePairs.push({ dx: 0, dz: 1, selfEdge: WallEdge.S, neighborEdge: WallEdge.N });
+    if (edgeMask & WallEdge.E) edgePairs.push({ dx: 1, dz: 0, selfEdge: WallEdge.E, neighborEdge: WallEdge.W });
+    if (edgeMask & WallEdge.W) edgePairs.push({ dx: -1, dz: 0, selfEdge: WallEdge.W, neighborEdge: WallEdge.E });
 
     if (isOpen) {
-      // Close door — restore wall collision
-      map.setWall(tx, tz, currentWall | edgeMask);
-      this.blockedObjectTiles.add(blockedKey(getMapIdx(obj.mapLevel), tx, tz));
+      // Close door — restore door edges
+      map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
+      for (const ep of edgePairs) {
+        const nx = tx + ep.dx, nz = tz + ep.dz;
+        if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
+          map.setWall(nx, nz, map.getWall(nx, nz) | ep.neighborEdge);
+        }
+      }
       obj.depleted = false;
-      // Update action to "Open"
       obj.def = { ...obj.def, actions: ['Open', 'Examine'] };
     } else {
-      // Open door — remove wall collision
-      map.setWall(tx, tz, currentWall & ~edgeMask);
-      this.blockedObjectTiles.delete(blockedKey(getMapIdx(obj.mapLevel), tx, tz));
+      // Open door — clear ALL edges on door tile + neighbor edges pointing at door
+      map.setWall(tx, tz, 0);
+      for (const ep of edgePairs) {
+        const nx = tx + ep.dx, nz = tz + ep.dz;
+        if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
+          map.setWall(nx, nz, map.getWall(nx, nz) & ~ep.neighborEdge);
+        }
+      }
       obj.depleted = true;
       obj.respawnTimer = obj.def.respawnTime ?? 15;
       this.depletedObjectIds.add(obj.id);
@@ -527,7 +564,7 @@ export class World {
 
     this.clearCombatTarget(playerId);
     player.attackTarget = null;
-    player.pendingInteraction = null;
+    // Don't clear pendingInteraction — player may be walking TO an object to interact
     this.cancelSkilling(playerId);
 
     const map = this.getPlayerMap(player);
@@ -540,8 +577,10 @@ export class World {
       const tileBlocked = pFloor === 0
         ? (map.isBlocked(step.x, step.z) || this.blockedObjectTiles.has(this.blockedKeyFor(mapId, step.x, step.z)))
         : map.isTileBlockedOnFloor(Math.floor(step.x), Math.floor(step.z), pFloor);
+      // Pass player's effective height so walls below the player don't block
+      const playerEffY = map.getEffectiveHeight(prevX, prevZ, pFloor);
       const wallBlocked = pFloor === 0
-        ? map.isWallBlocked(prevX, prevZ, step.x, step.z)
+        ? map.isWallBlocked(prevX, prevZ, step.x, step.z, playerEffY)
         : map.isWallBlockedOnFloor(prevX, prevZ, step.x, step.z, pFloor);
       if (!tileBlocked && !wallBlocked) {
         validPath.push(step);
@@ -558,6 +597,8 @@ export class World {
     const player = this.players.get(playerId);
     const npc = this.npcs.get(npcId);
     if (!player || !npc || npc.dead) return;
+    // Prevent attacking shopkeepers
+    if (this.data.getShop(npc.npcId)) return;
     this.cancelSkilling(playerId);
     if (npc.currentMapLevel !== player.currentMapLevel) return;
 
@@ -578,6 +619,129 @@ export class World {
     } else {
       player.moveQueue = [];
     }
+  }
+
+  handlePlayerTalkNpc(playerId: number, npcEntityId: number): void {
+    const player = this.players.get(playerId);
+    const npc = this.npcs.get(npcEntityId);
+    if (!player || !npc || npc.dead) return;
+    if (npc.currentMapLevel !== player.currentMapLevel) return;
+
+    // Check distance
+    const dx = npc.position.x - player.position.x;
+    const dz = npc.position.y - player.position.y;
+    if (Math.sqrt(dx * dx + dz * dz) > 3) return;
+
+    const shop = this.data.getShop(npc.npcId);
+    if (!shop) return;
+
+    // Send SHOP_OPEN: [npcEntityId, itemCount, itemId1, price1, stock1, itemId2, price2, stock2, ...]
+    const values: number[] = [npcEntityId, shop.items.length];
+    for (const si of shop.items) {
+      values.push(si.itemId, si.price, si.stock);
+    }
+    this.sendToPlayer(player, ServerOpcode.SHOP_OPEN, ...values);
+  }
+
+  handlePlayerBuyItem(playerId: number, itemId: number, quantity: number): void {
+    const player = this.players.get(playerId);
+    if (!player || quantity < 1) return;
+
+    // Find the item definition and price from shop data
+    // For now, find any shop the player could be using (simplified: check all shops)
+    let price = -1;
+    for (const [, npc] of this.npcs) {
+      if (npc.currentMapLevel !== player.currentMapLevel) continue;
+      const shop = this.data.getShop(npc.npcId);
+      if (!shop) continue;
+      const shopItem = shop.items.find(si => si.itemId === itemId);
+      if (shopItem) { price = shopItem.price; break; }
+    }
+    if (price < 0) return;
+
+    const totalCost = price * quantity;
+
+    // Check player has enough coins (itemId 10)
+    let coinSlot = -1;
+    let coinCount = 0;
+    for (let i = 0; i < player.inventory.length; i++) {
+      if (player.inventory[i]?.itemId === 10) {
+        coinSlot = i;
+        coinCount = player.inventory[i]!.quantity;
+        break;
+      }
+    }
+    if (coinCount < totalCost) return;
+
+    // Check inventory space
+    const itemDef = this.data.getItem(itemId);
+    if (!itemDef) return;
+
+    let freeSlots = 0;
+    let existingSlot = -1;
+    for (let i = 0; i < player.inventory.length; i++) {
+      if (!player.inventory[i]) freeSlots++;
+      if (itemDef.stackable && player.inventory[i]?.itemId === itemId) existingSlot = i;
+    }
+    if (!itemDef.stackable && freeSlots < quantity) return;
+    if (itemDef.stackable && existingSlot < 0 && freeSlots < 1) return;
+
+    // Deduct coins
+    player.inventory[coinSlot]!.quantity -= totalCost;
+    if (player.inventory[coinSlot]!.quantity <= 0) {
+      player.inventory[coinSlot] = null;
+    }
+
+    // Add items
+    for (let q = 0; q < quantity; q++) {
+      if (itemDef.stackable && existingSlot >= 0) {
+        player.inventory[existingSlot]!.quantity++;
+      } else {
+        const slot = player.inventory.findIndex(s => s === null);
+        if (slot >= 0) {
+          player.inventory[slot] = { itemId, quantity: 1 };
+          if (itemDef.stackable) existingSlot = slot;
+        }
+      }
+    }
+
+    this.sendInventory(player);
+  }
+
+  handlePlayerSellItem(playerId: number, slot: number, quantity: number): void {
+    const player = this.players.get(playerId);
+    if (!player || quantity < 1) return;
+    if (slot < 0 || slot >= player.inventory.length) return;
+
+    const invItem = player.inventory[slot];
+    if (!invItem) return;
+
+    const itemDef = this.data.getItem(invItem.itemId);
+    if (!itemDef) return;
+
+    // Sell price = half of value (floor)
+    const sellPrice = Math.max(1, Math.floor((itemDef.value || 1) / 2));
+    const actualQty = Math.min(quantity, invItem.quantity);
+    const totalGold = sellPrice * actualQty;
+
+    // Remove sold items
+    invItem.quantity -= actualQty;
+    if (invItem.quantity <= 0) {
+      player.inventory[slot] = null;
+    }
+
+    // Add coins
+    let coinSlot = player.inventory.findIndex(s => s?.itemId === 10);
+    if (coinSlot >= 0) {
+      player.inventory[coinSlot]!.quantity += totalGold;
+    } else {
+      coinSlot = player.inventory.findIndex(s => s === null);
+      if (coinSlot >= 0) {
+        player.inventory[coinSlot] = { itemId: 10, quantity: totalGold };
+      }
+    }
+
+    this.sendInventory(player);
   }
 
   handlePlayerPickup(playerId: number, groundItemId: number): void {
@@ -639,23 +803,15 @@ export class World {
     const obj = this.worldObjects.get(objectEntityId);
     if (!player || !obj) return;
     if (obj.mapLevel !== player.currentMapLevel) return;
-    if (obj.depleted) return;
+    // Doors can be interacted with when open (to close) — other objects can't when depleted
+    if (obj.depleted && obj.def.category !== 'door') return;
 
     // Check distance — must be adjacent
     const dx = Math.abs(player.position.x - obj.x);
     const dz = Math.abs(player.position.y - obj.z);
+
     if (dx > 2.0 || dz > 2.0) {
-      // Walk toward the object first
-      const map = this.getPlayerMap(player);
-      const path = map.findPathOnFloor(player.position.x, player.position.y, obj.x, obj.z, player.currentFloor);
-      if (path.length > 1) {
-        // Remove last step if it's on the object's tile
-        const last = path[path.length - 1];
-        if (Math.floor(last.x) === Math.floor(obj.x) && Math.floor(last.z) === Math.floor(obj.z)) {
-          path.pop();
-        }
-      }
-      player.moveQueue = path;
+      // Too far — queue interaction for when player arrives (client handles pathfinding)
       player.pendingInteraction = { objectEntityId, actionIndex };
       return;
     }
@@ -856,11 +1012,28 @@ export class World {
         player.pendingPickup = -1;
         this.handlePlayerPickup(playerId, pickupId);
       }
-      // Check pending object interaction after movement
+      // Check pending object interaction after movement — execute directly (player already walked)
       if (player.pendingInteraction && player.moveQueue.length === 0) {
         const { objectEntityId, actionIndex } = player.pendingInteraction;
         player.pendingInteraction = null;
-        this.handlePlayerInteractObject(playerId, objectEntityId, actionIndex);
+        const obj = this.worldObjects.get(objectEntityId);
+        if (obj && obj.mapLevel === player.currentMapLevel) {
+          // Check range — player should be adjacent to the door
+          const pdx = Math.abs(player.position.x - obj.x);
+          const pdz = Math.abs(player.position.y - obj.z);
+          if (pdx <= 2.5 && pdz <= 2.5) {
+            // Execute the action directly
+            player.moveQueue = [];
+            player.attackTarget = null;
+            this.clearCombatTarget(playerId);
+            const action = obj.def.actions[actionIndex];
+            if (action && obj.def.category === 'door' && (action === 'Open' || action === 'Close')) {
+              this.toggleDoor(obj);
+            } else if (action) {
+              this.handlePlayerInteractObject(playerId, objectEntityId, actionIndex);
+            }
+          }
+        }
       }
     }
 

@@ -924,6 +924,36 @@
       "id": "table1",
       "name": "Table",
       "path": "/assets/models/table1.glb"
+    },
+    {
+      "id": "limestone wall",
+      "name": "Limestone Wall",
+      "path": "/assets/modular-assets/limestone-modular/limestone wall.glb"
+    },
+    {
+      "id": "limestone slab",
+      "name": "Limestone Slab",
+      "path": "/assets/modular-assets/limestone-modular/limestone slab.glb"
+    },
+    {
+      "id": "limestone pillar",
+      "name": "Limestone Pillar",
+      "path": "/assets/modular-assets/limestone-modular/limestone pillar.glb"
+    },
+    {
+      "id": "limestone halfpillar",
+      "name": "Limestone Half Pillar",
+      "path": "/assets/modular-assets/limestone-modular/limestone halfpillar.glb"
+    },
+    {
+      "id": "limestone stairs",
+      "name": "Limestone Stairs",
+      "path": "/assets/modular-assets/limestone-modular/limestone stairs.glb"
+    },
+    {
+      "id": "limestone doorframe",
+      "name": "Limestone Doorframe",
+      "path": "/assets/modular-assets/limestone-modular/limestone doorframe.glb"
     }
   ]
 }

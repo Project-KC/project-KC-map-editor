@@ -1,0 +1,158 @@
+import { ClientOpcode, encodePacket, type ItemDef } from '@projectrs/shared';
+import type { NetworkManager } from '../managers/NetworkManager';
+
+export interface ShopItem {
+  itemId: number;
+  price: number;
+  stock: number;
+}
+
+export class ShopPanel {
+  private container: HTMLDivElement;
+  private network: NetworkManager;
+  private itemDefs: Map<number, ItemDef>;
+  private items: ShopItem[] = [];
+  private visible: boolean = false;
+  private shopNpcId: number = -1;
+  private gridEl: HTMLDivElement | null = null;
+  private onCloseCallback: (() => void) | null = null;
+
+  constructor(network: NetworkManager, itemDefs: Map<number, ItemDef>) {
+    this.network = network;
+    this.itemDefs = itemDefs;
+
+    this.container = document.createElement('div');
+    this.container.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 360px; background: #1a1a1a; border: 2px solid #aa8844;
+      border-radius: 6px; z-index: 1000; display: none;
+      font-family: monospace; color: #ddd; user-select: none;
+    `;
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; background: #2a2a2a; border-bottom: 1px solid #aa8844;
+      border-radius: 4px 4px 0 0;
+    `;
+    const title = document.createElement('span');
+    title.textContent = 'Shop';
+    title.style.cssText = 'font-size: 16px; color: #ffcc44; font-weight: bold;';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'X';
+    closeBtn.style.cssText = `
+      background: #444; border: 1px solid #666; color: #ddd; cursor: pointer;
+      padding: 2px 8px; border-radius: 3px; font-family: monospace;
+    `;
+    closeBtn.onclick = () => this.hide();
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    this.container.appendChild(header);
+
+    // Items grid
+    this.gridEl = document.createElement('div');
+    this.gridEl.style.cssText = 'padding: 8px; max-height: 400px; overflow-y: auto;';
+    this.container.appendChild(this.gridEl);
+
+    // Sell instruction
+    const sellHint = document.createElement('div');
+    sellHint.style.cssText = 'padding: 6px 12px; font-size: 11px; color: #888; border-top: 1px solid #333; text-align: center;';
+    sellHint.textContent = 'Right-click inventory items to sell';
+    this.container.appendChild(sellHint);
+
+    document.body.appendChild(this.container);
+  }
+
+  private titleEl: HTMLSpanElement | null = null;
+
+  show(npcEntityId: number, items: ShopItem[], shopTitle?: string): void {
+    this.shopNpcId = npcEntityId;
+    this.items = items;
+    this.visible = true;
+    this.container.style.display = 'block';
+    // Update title
+    if (!this.titleEl) {
+      this.titleEl = this.container.querySelector('span');
+    }
+    if (this.titleEl && shopTitle) {
+      this.titleEl.textContent = shopTitle;
+    }
+    this.render();
+  }
+
+  hide(): void {
+    this.visible = false;
+    this.container.style.display = 'none';
+    this.shopNpcId = -1;
+    if (this.onCloseCallback) this.onCloseCallback();
+  }
+
+  isVisible(): boolean {
+    return this.visible;
+  }
+
+  /** Set a callback for when shop is closed */
+  setOnClose(cb: () => void): void {
+    this.onCloseCallback = cb;
+  }
+
+  private render(): void {
+    if (!this.gridEl) return;
+    this.gridEl.innerHTML = '';
+
+    for (const item of this.items) {
+      const def = this.itemDefs.get(item.itemId);
+      const name = def?.name ?? `Item #${item.itemId}`;
+
+      const row = document.createElement('div');
+      row.style.cssText = `
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 6px 8px; margin: 2px 0; background: #222; border-radius: 3px;
+        border: 1px solid #333; cursor: pointer;
+      `;
+      row.onmouseenter = () => { row.style.borderColor = '#aa8844'; };
+      row.onmouseleave = () => { row.style.borderColor = '#333'; };
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = name;
+      nameEl.style.cssText = 'color: #eee; font-size: 13px;';
+
+      const priceEl = document.createElement('span');
+      priceEl.textContent = `${item.price} gp`;
+      priceEl.style.cssText = 'color: #ffcc44; font-size: 13px; white-space: nowrap; margin-left: 8px;';
+
+      const buyBtn = document.createElement('button');
+      buyBtn.textContent = 'Buy';
+      buyBtn.style.cssText = `
+        background: #3a6633; border: 1px solid #5a8855; color: #ddd;
+        padding: 3px 10px; border-radius: 3px; cursor: pointer;
+        font-family: monospace; font-size: 12px; margin-left: 8px;
+      `;
+      buyBtn.onclick = () => {
+        this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_BUY_ITEM, item.itemId, 1));
+      };
+
+      const buy5Btn = document.createElement('button');
+      buy5Btn.textContent = 'x5';
+      buy5Btn.style.cssText = `
+        background: #335566; border: 1px solid #557788; color: #ddd;
+        padding: 3px 6px; border-radius: 3px; cursor: pointer;
+        font-family: monospace; font-size: 11px; margin-left: 4px;
+      `;
+      buy5Btn.onclick = () => {
+        this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_BUY_ITEM, item.itemId, 5));
+      };
+
+      row.appendChild(nameEl);
+      row.appendChild(priceEl);
+      row.appendChild(buyBtn);
+      row.appendChild(buy5Btn);
+      this.gridEl.appendChild(row);
+    }
+  }
+
+  dispose(): void {
+    this.container.remove();
+  }
+}

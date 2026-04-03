@@ -173,29 +173,6 @@
         }
       },
       {
-        "id": "plane_1773872574219_36336",
-        "textureId": "tex-7f0972d5",
-        "width": 1,
-        "height": 1,
-        "vertical": true,
-        "doubleSided": true,
-        "position": {
-          "x": 96.5,
-          "y": 2.7285314812295938,
-          "z": 93.5
-        },
-        "rotation": {
-          "x": -1.5707963267948966,
-          "y": 0,
-          "z": 0
-        },
-        "scale": {
-          "x": 1,
-          "y": 1,
-          "z": 1
-        }
-      },
-      {
         "id": "plane_1773872578587_46690",
         "textureId": "tex-7f0972d5",
         "width": 1,
@@ -2258,54 +2235,6 @@
           "x": -1.5707963267948966,
           "y": 0,
           "z": 0
-        },
-        "scale": {
-          "x": 1,
-          "y": 1,
-          "z": 1
-        }
-      },
-      {
-        "id": "plane_1773873413628_16314",
-        "textureId": "tex12",
-        "width": 1.15,
-        "height": 1.15,
-        "vertical": true,
-        "doubleSided": true,
-        "position": {
-          "x": 101,
-          "y": 0.5,
-          "z": 94.5
-        },
-        "rotation": {
-          "x": 3.141592653589793,
-          "y": 1.5707963267948966,
-          "z": -1.5707963267948966,
-          "height": null
-        },
-        "scale": {
-          "x": 1,
-          "y": 1,
-          "z": 1
-        }
-      },
-      {
-        "id": "plane_1773873430054_67642",
-        "textureId": "tex12",
-        "width": 1.15,
-        "height": 1.15,
-        "vertical": true,
-        "doubleSided": true,
-        "position": {
-          "x": 101,
-          "y": 1.54,
-          "z": 94.5
-        },
-        "rotation": {
-          "x": 0,
-          "y": 1.5707963267948966,
-          "z": 1.5707963267948966,
-          "height": null
         },
         "scale": {
           "x": 1,
@@ -7410,7 +7339,7 @@
         "vertical": true,
         "doubleSided": true,
         "position": {
-          "x": 87.5,
+          "x": 87.65064706205598,
           "y": 2.0785685801489113,
           "z": 80.5
         },
@@ -7554,7 +7483,7 @@
         "vertical": true,
         "doubleSided": true,
         "position": {
-          "x": 87.5,
+          "x": 87.64627177122934,
           "y": 2.0785685801489113,
           "z": 79.5
         },
@@ -8322,7 +8251,7 @@
         "vertical": true,
         "doubleSided": true,
         "position": {
-          "x": 72,
+          "x": 72.02815788291583,
           "y": 1.2731315052615486,
           "z": 87
         },
@@ -10534,7 +10463,7 @@
     ],
     "tiles": [],
     "heights": [],
-    "terrainGeneration": 41765,
+    "terrainGeneration": 50357,
     "activeChunks": [
       "1,1",
       "2,1",
@@ -10544,7 +10473,13 @@
       "0,1"
     ]
   },
-  "layers": [],
+  "layers": [
+    {
+      "id": "layer_0",
+      "name": "Layer 1",
+      "visible": true
+    }
+  ],
   "activeLayerId": "layer_0",
   "placedObjects": []
 }

@@ -89,6 +89,7 @@ interface ChunkMeshes {
   water: Mesh | null;
   paddyWater: Mesh | null;
   cliff: Mesh | null;
+  ceiling: Mesh | null;
   wall: Mesh | null;
   roof: Mesh | null;
   floor: Mesh | null;
@@ -130,6 +131,7 @@ export class ChunkManager {
   private floorHeights: Map<number, number> = new Map();
   private stairData: Map<number, StairData> = new Map();
   private roofData: Map<number, RoofData> = new Map();
+  private holeTiles: Set<number> = new Set();
   private texturePlaneFloorTiles: Set<number> = new Set(); // floors from texture planes (don't render floor mesh)
 
   // Multi-floor layer data (floor 1+)
@@ -279,6 +281,7 @@ export class ChunkManager {
     this.floorHeights.clear();
     this.stairData.clear();
     this.roofData.clear();
+    this.holeTiles.clear();
     this.floorLayerData.clear();
     this.currentFloor = 0;
     try {
@@ -300,6 +303,7 @@ export class ChunkManager {
         if (wallsData.floors) for (const [key, h] of Object.entries(wallsData.floors)) { const idx = parseKey(key); if (idx !== null) this.floorHeights.set(idx, h); }
         if (wallsData.stairs) for (const [key, data] of Object.entries(wallsData.stairs)) { const idx = parseKey(key); if (idx !== null) this.stairData.set(idx, data); }
         if (wallsData.roofs) for (const [key, data] of Object.entries(wallsData.roofs)) { const idx = parseKey(key); if (idx !== null) this.roofData.set(idx, data); }
+        if (wallsData.holes) for (const key of Object.keys(wallsData.holes)) { const idx = parseKey(key); if (idx !== null) this.holeTiles.add(idx); }
         if (wallsData.floorLayers) {
           for (const [floorStr, ld] of Object.entries(wallsData.floorLayers)) {
             const floorIdx = parseInt(floorStr as string);
@@ -554,6 +558,7 @@ export class ChunkManager {
         meshes.water?.dispose();
         meshes.paddyWater?.dispose();
         meshes.cliff?.dispose();
+        meshes.ceiling?.dispose();
         meshes.wall?.dispose();
         meshes.roof?.dispose();
         meshes.floor?.dispose();
@@ -693,16 +698,23 @@ export class ChunkManager {
     const ECHUNK = 64;
 
     try {
-      // Fetch tiles and heights in parallel
+      // Fetch tiles and heights in parallel (missing chunks return 404 — that's OK)
       const [tilesRes, heightsRes] = await Promise.all([
-        fetch(`/maps/${this.mapId}/tiles/chunk_${ecx}_${ecz}.json`),
-        fetch(`/maps/${this.mapId}/heights/chunk_${ecx}_${ecz}.json`),
+        fetch(`/maps/${this.mapId}/tiles/chunk_${ecx}_${ecz}.json`).catch(() => null),
+        fetch(`/maps/${this.mapId}/heights/chunk_${ecx}_${ecz}.json`).catch(() => null),
       ]);
+      if ((!tilesRes || !tilesRes.ok) && (!heightsRes || !heightsRes.ok)) {
+        // No data for this chunk — mark as loaded (empty) and skip
+        this.loadedEditorChunks.add(key);
+        this.loadingEditorChunks.delete(key);
+        this.buildPendingGameChunks();
+        return;
+      }
 
       const startX = ecx * ECHUNK, startZ = ecz * ECHUNK;
 
       // Populate heights
-      if (heightsRes.ok) {
+      if (heightsRes?.ok) {
         const hData: Record<string, number> = await heightsRes.json();
         const vw = this.mapWidth + 1;
         for (const [k, val] of Object.entries(hData)) {
@@ -725,7 +737,7 @@ export class ChunkManager {
           }
         }
       }
-      if (tilesRes.ok) {
+      if (tilesRes?.ok) {
         const tData: Record<string, Partial<KCTile>> = await tilesRes.json();
         for (const [k, partial] of Object.entries(tData)) {
           const [lz, lx] = k.split(',').map(Number);
@@ -756,6 +768,10 @@ export class ChunkManager {
       }
 
       this.loadedEditorChunks.add(key);
+
+      // Re-register texture plane bridges for tiles in this chunk only
+      // (chunk loading may set WATER tile types that need bridge override)
+      this.registerTexturePlaneFloorsInRegion(startX, startZ, endX, endZ);
     } catch (e) {
       console.warn(`[ChunkManager] Failed to load editor chunk ${key}:`, e);
     } finally {
@@ -798,6 +814,7 @@ export class ChunkManager {
     const water = this.buildWaterMesh(chunkX, chunkZ, startX, startZ, endX, endZ);
     const paddyWater = this.buildPaddyWaterMesh(chunkX, chunkZ, startX, startZ, endX, endZ);
     const cliff = this.buildCliffMesh(chunkX, chunkZ, startX, startZ, endX, endZ);
+    const ceiling = this.buildCeilingMesh(chunkX, chunkZ, startX, startZ, endX, endZ);
     // Wall meshes disabled — collision walls are invisible barriers, GLB models provide visuals
     const wall = null;
     const roof = this.buildRoofMesh(chunkX, chunkZ, startX, startZ, endX, endZ);
@@ -813,7 +830,7 @@ export class ChunkManager {
       }
     }
 
-    return { ground, water, paddyWater, cliff, wall, roof, floor, stairs, upperFloors };
+    return { ground, water, paddyWater, cliff, ceiling, wall, roof, floor, stairs, upperFloors };
   }
 
   // --- Ground mesh with KC editor shading ---
@@ -827,6 +844,7 @@ export class ChunkManager {
     for (let x = startX; x < endX; x++) {
       for (let z = startZ; z < endZ; z++) {
         if (this.activeChunks && !this.activeChunks.has(`${Math.floor(x / 64)},${Math.floor(z / 64)}`)) continue;
+        if (this.holeTiles.has(z * this.mapWidth + x)) continue; // skip ground for terrain holes
         const tile = this.getTileRaw(x, z);
         const tileType = tile?.ground ?? 'grass';
         const h = this.getTileCornerHeights(x, z);
@@ -991,6 +1009,7 @@ export class ChunkManager {
     for (let x = startX; x < endX; x++) {
       for (let z = startZ; z < endZ; z++) {
         if (!this.shouldRenderWater(x, z)) continue;
+        if (this.holeTiles.has(z * this.mapWidth + x)) continue; // no water in holes
         hasWater = true;
 
         const wY = this.getChunkWaterLevel(x, z) + 0.02;
@@ -1094,9 +1113,38 @@ export class ChunkManager {
       for (let z = startZ; z < endZ; z++) {
         const h = this.getTileCornerHeights(x, z);
         const wl = this.getChunkWaterLevel(x, z);
+        const tileIdx = z * this.mapWidth + x;
+        const isHole = this.holeTiles.has(tileIdx);
 
-        // Check right neighbor
-        if (x + 1 < this.mapWidth) {
+        // Hole-edge cliff faces: where a hole meets solid terrain, render rock walls
+        if (isHole) {
+          const floorH = this.floorHeights.get(tileIdx) ?? (Math.min(h.tl, h.tr, h.bl, h.br) - 2);
+          const holeColor = cliffColor(Math.max(h.tl, h.tr, h.bl, h.br), floorH);
+          // East edge
+          if (x + 1 < this.mapWidth && !this.holeTiles.has(z * this.mapWidth + (x + 1))) {
+            hasCliff = true;
+            pushQuad([x + 1, h.tr, z], [x + 1, h.br, z + 1], [x + 1, floorH, z], [x + 1, floorH, z + 1], holeColor);
+          }
+          // West edge
+          if (x - 1 >= 0 && !this.holeTiles.has(z * this.mapWidth + (x - 1))) {
+            hasCliff = true;
+            pushQuad([x, h.bl, z + 1], [x, h.tl, z], [x, floorH, z + 1], [x, floorH, z], holeColor);
+          }
+          // South edge
+          if (z + 1 < this.mapHeight && !this.holeTiles.has((z + 1) * this.mapWidth + x)) {
+            hasCliff = true;
+            pushQuad([x + 1, h.br, z + 1], [x, h.bl, z + 1], [x + 1, floorH, z + 1], [x, floorH, z + 1], holeColor);
+          }
+          // North edge
+          if (z - 1 >= 0 && !this.holeTiles.has((z - 1) * this.mapWidth + x)) {
+            hasCliff = true;
+            pushQuad([x, h.tl, z], [x + 1, h.tr, z], [x, floorH, z], [x + 1, floorH, z], holeColor);
+          }
+          continue; // don't render normal cliffs for hole tiles
+        }
+
+        // Check right neighbor (normal cliff logic)
+        if (x + 1 < this.mapWidth && !this.holeTiles.has(z * this.mapWidth + (x + 1))) {
           const rh = this.getTileCornerHeights(x + 1, z);
           const topR = h.tr, topBR = h.br;
           const botR = rh.tl, botBR = rh.bl;
@@ -1117,8 +1165,8 @@ export class ChunkManager {
           }
         }
 
-        // Check bottom neighbor
-        if (z + 1 < this.mapHeight) {
+        // Check bottom neighbor (normal cliff logic)
+        if (z + 1 < this.mapHeight && !this.holeTiles.has((z + 1) * this.mapWidth + x)) {
           const bh = this.getTileCornerHeights(x, z + 1);
           const topB = h.bl, topBR = h.br;
           const botB = bh.tl, botBR = bh.tr;
@@ -1157,11 +1205,70 @@ export class ChunkManager {
     return mesh;
   }
 
+  /** Build ceiling mesh — underside of terrain rendered at hole tiles */
+  private buildCeilingMesh(chunkX: number, chunkZ: number, startX: number, startZ: number, endX: number, endZ: number): Mesh | null {
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const colors: number[] = [];
+    let vertexIndex = 0;
+    let hasCeiling = false;
+
+    for (let x = startX; x < endX; x++) {
+      for (let z = startZ; z < endZ; z++) {
+        const tileIdx = z * this.mapWidth + x;
+        if (!this.holeTiles.has(tileIdx)) continue;
+        hasCeiling = true;
+
+        const h = this.getTileCornerHeights(x, z);
+        // Dark rock ceiling color with slight variation
+        const shade = 0.25 + ((x * 7 + z * 13) % 10) * 0.01;
+        const cr = 0.35 * shade, cg = 0.30 * shade, cb = 0.25 * shade;
+
+        // Emit quad with reversed winding (normals point downward — visible from below)
+        positions.push(
+          x, h.tl, z,
+          x + 1, h.tr, z,
+          x, h.bl, z + 1,
+          x + 1, h.br, z + 1,
+        );
+        colors.push(cr, cg, cb, 1, cr, cg, cb, 1, cr, cg, cb, 1, cr, cg, cb, 1);
+        // Reversed winding: swap triangle order so face is visible from below
+        indices.push(
+          vertexIndex, vertexIndex + 2, vertexIndex + 1,
+          vertexIndex + 1, vertexIndex + 2, vertexIndex + 3,
+        );
+        vertexIndex += 4;
+      }
+    }
+
+    if (!hasCeiling) return null;
+
+    const mesh = new Mesh(`ceiling_${chunkX}_${chunkZ}`, this.scene);
+    const vertexData = new VertexData();
+    vertexData.positions = positions;
+    vertexData.indices = indices;
+    vertexData.colors = colors;
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, indices, normals);
+    vertexData.normals = normals;
+    vertexData.applyToMesh(mesh);
+    if (!this.cliffMat) {
+      this.cliffMat = new StandardMaterial('chunkCliffMat', this.scene);
+      this.cliffMat.specularColor = new Color3(0, 0, 0);
+      this.cliffMat.backFaceCulling = false;
+    }
+    mesh.material = this.cliffMat;
+    mesh.hasVertexAlpha = false;
+    mesh.isPickable = false;
+    return mesh;
+  }
+
   // --- Tile texture overlays (painted textures on individual tiles) ---
 
   private buildTextureOverlays(chunkX: number, chunkZ: number, startX: number, startZ: number, endX: number, endZ: number): void {
     for (let x = startX; x < endX; x++) {
       for (let z = startZ; z < endZ; z++) {
+        if (this.holeTiles.has(z * this.mapWidth + x)) continue;
         const tile = this.getTileRaw(x, z);
         if (!tile || (!tile.textureId && !tile.textureIdB)) continue;
 
@@ -1774,6 +1881,16 @@ export class ChunkManager {
   }
 
   isBlocked(x: number, z: number): boolean {
+    const tx = Math.floor(x), tz = Math.floor(z);
+    const idx = tz * this.mapWidth + tx;
+    // Hole tiles are passable if they have a floor or stairs
+    if (this.holeTiles.has(idx)) {
+      return !this.floorHeights.has(idx) && !this.stairData.has(idx);
+    }
+    // Tiles with floors or texture plane bridges are always walkable (overrides water/wall tile type)
+    if (this.floorHeights.has(idx) || this.texturePlaneFloorTiles.has(idx) || this.stairData.has(idx)) {
+      return false;
+    }
     return BLOCKING_TILES.has(this.getTileType(x, z));
   }
 
@@ -1781,6 +1898,31 @@ export class ChunkManager {
     if (!this.walls) return 0;
     if (x < 0 || x >= this.mapWidth || z < 0 || z >= this.mapHeight) return 0;
     return this.walls[z * this.mapWidth + x];
+  }
+
+  /** Get wall bitmask at a tile (public accessor for door system) */
+  getWallRawPublic(x: number, z: number): number {
+    return this.getWallRaw(x, z);
+  }
+
+  /** Set wall bitmask at a tile (used by door toggle) */
+  setWall(x: number, z: number, mask: number): void {
+    if (!this.walls) return;
+    if (x < 0 || x >= this.mapWidth || z < 0 || z >= this.mapHeight) return;
+    this.walls[z * this.mapWidth + x] = mask;
+  }
+
+  /** Clear neighbor wall edges pointing toward the given tile (used by door open) */
+  clearNeighborWallsToward(tx: number, tz: number): void {
+    if (!this.walls) return;
+    // North neighbor's South edge
+    if (tz > 0) this.walls[(tz - 1) * this.mapWidth + tx] &= ~WallEdge.S;
+    // South neighbor's North edge
+    if (tz < this.mapHeight - 1) this.walls[(tz + 1) * this.mapWidth + tx] &= ~WallEdge.N;
+    // West neighbor's East edge
+    if (tx > 0) this.walls[tz * this.mapWidth + (tx - 1)] &= ~WallEdge.E;
+    // East neighbor's West edge
+    if (tx < this.mapWidth - 1) this.walls[tz * this.mapWidth + (tx + 1)] &= ~WallEdge.W;
   }
 
   isBlockedOnFloor(x: number, z: number, floor: number): boolean {
@@ -1841,10 +1983,10 @@ export class ChunkManager {
     const fx = Math.floor(fromX), fz = Math.floor(fromZ), tx = Math.floor(toX), tz = Math.floor(toZ);
     const dx = tx - fx, dz = tz - fz;
     const getW = (x: number, z: number) => layer.walls.get(z * this.mapWidth + x) ?? 0;
-    if (dx === 0 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0;
-    if (dx === 1 && dz === 0) return (getW(fx, fz) & WallEdge.E) !== 0;
-    if (dx === 0 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0;
-    if (dx === -1 && dz === 0) return (getW(fx, fz) & WallEdge.W) !== 0;
+    if (dx === 0 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(tx, tz) & WallEdge.S) !== 0;
+    if (dx === 1 && dz === 0) return (getW(fx, fz) & WallEdge.E) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
+    if (dx === 0 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.N) !== 0;
+    if (dx === -1 && dz === 0) return (getW(fx, fz) & WallEdge.W) !== 0 || (getW(tx, tz) & WallEdge.E) !== 0;
     if (dx === 1 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(fx, fz) & WallEdge.E) !== 0 || (getW(tx, tz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
     if (dx === -1 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(fx, fz) & WallEdge.W) !== 0 || (getW(tx, tz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.E) !== 0;
     if (dx === 1 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0 || (getW(fx, fz) & WallEdge.E) !== 0 || (getW(tx, tz) & WallEdge.N) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
@@ -1852,37 +1994,48 @@ export class ChunkManager {
     return false;
   }
 
-  isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number): boolean {
+  /** Check if a wall edge blocks at a given player height */
+  private wallEdgeBlocksAtHeight(x: number, z: number, edge: number, playerY?: number): boolean {
+    if ((this.getWallRaw(x, z) & edge) === 0) return false;
+    if (playerY == null) return true;
+    const idx = z * this.mapWidth + x;
+    const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
+    const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
+    return playerY < floorH + wallH; // below wall top = blocked
+  }
+
+  isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number, playerY?: number): boolean {
     const fx = Math.floor(fromX), fz = Math.floor(fromZ), tx = Math.floor(toX), tz = Math.floor(toZ);
     const dx = tx - fx, dz = tz - fz;
-    // Cardinal
-    if (dx === 0 && dz === -1) return (this.getWallRaw(fx, fz) & WallEdge.N) !== 0;
-    if (dx === 1 && dz === 0) return (this.getWallRaw(fx, fz) & WallEdge.E) !== 0;
-    if (dx === 0 && dz === 1) return (this.getWallRaw(fx, fz) & WallEdge.S) !== 0;
-    if (dx === -1 && dz === 0) return (this.getWallRaw(fx, fz) & WallEdge.W) !== 0;
+    const wb = (x: number, z: number, e: number) => this.wallEdgeBlocksAtHeight(x, z, e, playerY);
+    // Cardinal: check source edge OR destination's opposite edge
+    if (dx === 0 && dz === -1) return wb(fx, fz, WallEdge.N) || wb(tx, tz, WallEdge.S);
+    if (dx === 1 && dz === 0) return wb(fx, fz, WallEdge.E) || wb(tx, tz, WallEdge.W);
+    if (dx === 0 && dz === 1) return wb(fx, fz, WallEdge.S) || wb(tx, tz, WallEdge.N);
+    if (dx === -1 && dz === 0) return wb(fx, fz, WallEdge.W) || wb(tx, tz, WallEdge.E);
     // Diagonal: check source, destination, AND both intermediate tiles
     if (dx === 1 && dz === -1) {
-      if ((this.getWallRaw(fx, fz) & WallEdge.N) !== 0 || (this.getWallRaw(fx, fz) & WallEdge.E) !== 0) return true;
-      if ((this.getWallRaw(tx, tz) & WallEdge.S) !== 0 || (this.getWallRaw(tx, tz) & WallEdge.W) !== 0) return true;
-      if ((this.getWallRaw(fx + 1, fz) & WallEdge.N) !== 0 || (this.getWallRaw(fx, fz - 1) & WallEdge.E) !== 0) return true;
+      if (wb(fx, fz, WallEdge.N) || wb(fx, fz, WallEdge.E)) return true;
+      if (wb(tx, tz, WallEdge.S) || wb(tx, tz, WallEdge.W)) return true;
+      if (wb(fx + 1, fz, WallEdge.N) || wb(fx, fz - 1, WallEdge.E)) return true;
       return false;
     }
     if (dx === -1 && dz === -1) {
-      if ((this.getWallRaw(fx, fz) & WallEdge.N) !== 0 || (this.getWallRaw(fx, fz) & WallEdge.W) !== 0) return true;
-      if ((this.getWallRaw(tx, tz) & WallEdge.S) !== 0 || (this.getWallRaw(tx, tz) & WallEdge.E) !== 0) return true;
-      if ((this.getWallRaw(fx - 1, fz) & WallEdge.N) !== 0 || (this.getWallRaw(fx, fz - 1) & WallEdge.W) !== 0) return true;
+      if (wb(fx, fz, WallEdge.N) || wb(fx, fz, WallEdge.W)) return true;
+      if (wb(tx, tz, WallEdge.S) || wb(tx, tz, WallEdge.E)) return true;
+      if (wb(fx - 1, fz, WallEdge.N) || wb(fx, fz - 1, WallEdge.W)) return true;
       return false;
     }
     if (dx === 1 && dz === 1) {
-      if ((this.getWallRaw(fx, fz) & WallEdge.S) !== 0 || (this.getWallRaw(fx, fz) & WallEdge.E) !== 0) return true;
-      if ((this.getWallRaw(tx, tz) & WallEdge.N) !== 0 || (this.getWallRaw(tx, tz) & WallEdge.W) !== 0) return true;
-      if ((this.getWallRaw(fx + 1, fz) & WallEdge.S) !== 0 || (this.getWallRaw(fx, fz + 1) & WallEdge.E) !== 0) return true;
+      if (wb(fx, fz, WallEdge.S) || wb(fx, fz, WallEdge.E)) return true;
+      if (wb(tx, tz, WallEdge.N) || wb(tx, tz, WallEdge.W)) return true;
+      if (wb(fx + 1, fz, WallEdge.S) || wb(fx, fz + 1, WallEdge.E)) return true;
       return false;
     }
     if (dx === -1 && dz === 1) {
-      if ((this.getWallRaw(fx, fz) & WallEdge.S) !== 0 || (this.getWallRaw(fx, fz) & WallEdge.W) !== 0) return true;
-      if ((this.getWallRaw(tx, tz) & WallEdge.N) !== 0 || (this.getWallRaw(tx, tz) & WallEdge.E) !== 0) return true;
-      if ((this.getWallRaw(fx - 1, fz) & WallEdge.S) !== 0 || (this.getWallRaw(fx, fz + 1) & WallEdge.W) !== 0) return true;
+      if (wb(fx, fz, WallEdge.S) || wb(fx, fz, WallEdge.W)) return true;
+      if (wb(tx, tz, WallEdge.N) || wb(tx, tz, WallEdge.E)) return true;
+      if (wb(fx - 1, fz, WallEdge.S) || wb(fx, fz + 1, WallEdge.W)) return true;
       return false;
     }
     return false;
@@ -1999,6 +2152,57 @@ export class ChunkManager {
     }
     if (count > 0) {
       console.log(`[ChunkManager] Registered ${count} tiles as walkable from texture plane bridges`);
+    }
+  }
+
+  /** Register texture plane bridges only for tiles within a specific region */
+  private registerTexturePlaneFloorsInRegion(rx0: number, rz0: number, rx1: number, rz1: number): void {
+    if (!this.mapData) return;
+    const planes = this.mapData.texturePlanes || [];
+    for (const plane of planes) {
+      const rx = plane.rotation?.x ?? 0;
+      if (Math.abs(Math.abs(rx) - Math.PI / 2) >= 0.1) continue;
+      const px = plane.position?.x ?? 0;
+      const py = plane.position?.y ?? 0;
+      const pz = plane.position?.z ?? 0;
+      const sx = plane.scale?.x ?? 1;
+      const sy = plane.scale?.y ?? 1;
+      const ry = plane.rotation?.y ?? 0;
+      const hw = (plane.width ?? 1) * sx / 2;
+      const hd = (plane.height ?? 1) * sy / 2;
+      const cosR = Math.cos(ry), sinR = Math.sin(ry);
+      const corners = [
+        { x: px + (-hw) * cosR - (-hd) * sinR, z: pz + (-hw) * sinR + (-hd) * cosR },
+        { x: px + (hw) * cosR - (-hd) * sinR, z: pz + (hw) * sinR + (-hd) * cosR },
+        { x: px + (hw) * cosR - (hd) * sinR, z: pz + (hw) * sinR + (hd) * cosR },
+        { x: px + (-hw) * cosR - (hd) * sinR, z: pz + (-hw) * sinR + (hd) * cosR },
+      ];
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const c of corners) {
+        if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
+        if (c.z < minZ) minZ = c.z; if (c.z > maxZ) maxZ = c.z;
+      }
+      const tx0 = Math.max(rx0, Math.floor(minX));
+      const tx1 = Math.min(rx1 - 1, Math.floor(maxX));
+      const tz0 = Math.max(rz0, Math.floor(minZ));
+      const tz1 = Math.min(rz1 - 1, Math.floor(maxZ));
+      if (tx0 > tx1 || tz0 > tz1) continue; // plane doesn't overlap this region
+      for (let tz = tz0; tz <= tz1; tz++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          const idx = tz * this.mapWidth + tx;
+          if (this.tileTypes && BLOCKING_TILES.has(this.tileTypes[idx] as TileType)) {
+            this.tileTypes[idx] = TileType.STONE;
+          }
+          const terrainH = this.getInterpolatedHeight(tx + 0.5, tz + 0.5);
+          if (py > terrainH + 1.0) {
+            const existing = this.elevatedFloorHeights.get(idx);
+            if (existing === undefined || py < existing) {
+              this.elevatedFloorHeights.set(idx, py);
+            }
+            this.texturePlaneFloorTiles.add(idx);
+          }
+        }
+      }
     }
   }
 
@@ -2126,8 +2330,9 @@ export class ChunkManager {
           if (fetched.length > 0) {
             this.placedObjectsByChunk.set(chunkKey, fetched);
             objects = fetched;
-            // Add shadows for newly loaded objects
+            // Add shadows for newly loaded objects and rebuild affected ground chunks
             this.addShadowsForObjects(fetched);
+            this.rebuildGroundChunksForObjects(fetched);
           }
         }
       } catch { /* no per-chunk objects file */ }
@@ -2205,12 +2410,13 @@ export class ChunkManager {
         this.placedObjectGrid.set(gridKey, root);
       }
 
-      // Index roof objects for indoor detection (cover a ~2 tile radius around placement)
+      // Index roof objects for indoor detection — cover a 2-tile radius around placement
+      // isUnderRoof checks Y height to prevent triggering from outside
       if (obj.assetId.toLowerCase().includes('roof')) {
         const tx = Math.floor(obj.position.x);
         const tz = Math.floor(obj.position.z);
-        for (let dz = -1; dz <= 1; dz++) {
-          for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
+          for (let dx = -2; dx <= 2; dx++) {
             const rk = `${tx + dx},${tz + dz}`;
             let arr = this.roofObjectGrid.get(rk);
             if (!arr) { arr = []; this.roofObjectGrid.set(rk, arr); }
@@ -2289,11 +2495,21 @@ export class ChunkManager {
     }
   }
 
-  /** Check if a world position is under a placed roof object */
-  isUnderRoof(x: number, z: number): boolean {
+  /** Check if a world position is under a placed roof object.
+   *  Only triggers when the player is within 1 tile of a roof's placement position
+   *  AND below the roof's Y height. */
+  isUnderRoof(x: number, z: number, playerY: number): boolean {
     const key = `${Math.floor(x)},${Math.floor(z)}`;
     const arr = this.roofObjectGrid.get(key);
-    return !!arr && arr.length > 0;
+    if (!arr || arr.length === 0) return false;
+    for (const node of arr) {
+      if (node.position.y <= playerY) continue;
+      // Only trigger if player is within 1.5 tiles of the roof's actual position
+      const dx = Math.abs(x - node.position.x);
+      const dz = Math.abs(z - node.position.z);
+      if (dx <= 1.5 && dz <= 1.5) return true;
+    }
+    return false;
   }
 
   /** Get all roof nodes near a position that are above minY (for hiding/showing) */
@@ -2319,7 +2535,8 @@ export class ChunkManager {
     return result;
   }
 
-  /** Get all placed object nodes near a position that are above a given Y height */
+  /** Get all placed object nodes near a position that are above a given Y height.
+   *  Excludes door objects so they remain clickable when indoors. */
   getNodesAboveHeight(x: number, z: number, radius: number, minY: number): TransformNode[] {
     const result: TransformNode[] = [];
     const tx = Math.floor(x);
@@ -2331,6 +2548,9 @@ export class ChunkManager {
       for (const node of nodes) {
         if (seen.has(node)) continue;
         if (node.position.y <= minY) continue;
+        // Don't hide doors — they need to stay clickable
+        const assetId = (node.metadata as any)?.assetId;
+        if (assetId && (assetId.toLowerCase().includes('door') || assetId.toLowerCase().includes('truedoor'))) continue;
         const dx = Math.floor(node.position.x) - tx;
         const dz = Math.floor(node.position.z) - tz;
         if (Math.abs(dx) <= r && Math.abs(dz) <= r) {
@@ -2423,6 +2643,36 @@ export class ChunkManager {
           if (factor < this.shadowInf[idx]) this.shadowInf[idx] = factor;
         }
       }
+    }
+  }
+
+  /** Rebuild ground meshes for chunks affected by newly loaded placed objects (for shadow updates) */
+  private rebuildGroundChunksForObjects(objects: PlacedObject[]): void {
+    const affectedChunks = new Set<string>();
+    for (const obj of objects) {
+      const name = obj.assetId.toLowerCase();
+      if (!name.includes('tree') && !name.includes('bush')) continue; // only shadow-casting objects
+      const shadowR = 3.8;
+      const cx0 = Math.floor((obj.position.x - shadowR) / CHUNK_SIZE);
+      const cx1 = Math.floor((obj.position.x + shadowR) / CHUNK_SIZE);
+      const cz0 = Math.floor((obj.position.z - shadowR) / CHUNK_SIZE);
+      const cz1 = Math.floor((obj.position.z + shadowR) / CHUNK_SIZE);
+      for (let cx = cx0; cx <= cx1; cx++) {
+        for (let cz = cz0; cz <= cz1; cz++) {
+          affectedChunks.add(`${cx},${cz}`);
+        }
+      }
+    }
+    for (const key of affectedChunks) {
+      const existing = this.chunks.get(key);
+      if (!existing) continue;
+      const [cx, cz] = key.split(',').map(Number);
+      const startX = cx * CHUNK_SIZE, startZ = cz * CHUNK_SIZE;
+      const endX = Math.min(startX + CHUNK_SIZE, this.mapWidth);
+      const endZ = Math.min(startZ + CHUNK_SIZE, this.mapHeight);
+      // Rebuild just the ground mesh with updated shadows
+      existing.ground.dispose();
+      existing.ground = this.buildGroundMesh(cx, cz, startX, startZ, endX, endZ);
     }
   }
 

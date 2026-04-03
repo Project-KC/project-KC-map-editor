@@ -39,6 +39,9 @@ export class SidePanel {
   // Item definitions
   private itemDefs: Map<number, ItemDef> = new Map();
 
+  // Optional sell callback (active when shop is open)
+  private sellCallback: ((slot: number) => void) | null = null;
+
   // Tab content areas
   private tabContents: Map<string, HTMLDivElement> = new Map();
   private tabButtons: HTMLDivElement[] = [];
@@ -421,6 +424,14 @@ export class SidePanel {
       });
     }
 
+    if (this.sellCallback) {
+      const sellPrice = Math.max(1, Math.floor((def?.value || 1) / 2));
+      options.push({
+        label: `Sell ${name} (${sellPrice} gp)`,
+        action: () => this.sellCallback!(index),
+      });
+    }
+
     options.push({
       label: `Drop ${name}`,
       action: () => this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_DROP_ITEM, index)),
@@ -515,6 +526,11 @@ export class SidePanel {
   /** Get the current melee stance */
   getStance(): MeleeStance {
     return this.currentStance;
+  }
+
+  /** Set a sell callback (when shop is open) or null to clear */
+  setSellCallback(cb: ((slot: number) => void) | null): void {
+    this.sellCallback = cb;
   }
 
   /** Get the item ID in a given equipment slot (0 = empty) */

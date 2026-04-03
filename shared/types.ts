@@ -136,6 +136,7 @@ export interface FloorLayerData {
   floors?: Record<string, number>;            // "x,z" -> elevated floor height
   stairs?: Record<string, StairData>;         // "x,z" -> stair data
   tiles?: Record<string, number>;             // "x,z" -> tile type override (upper floors only)
+  holes?: Record<string, boolean>;            // "x,z" -> terrain hole (ground removed, cave ceiling rendered)
 }
 
 /** On-disk format for walls.json — sparse, only tiles with walls/roofs/floors/stairs */

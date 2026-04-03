@@ -39,6 +39,8 @@ export class GameMap {
   private stairs: Map<number, StairData> = new Map();
   /** Roof data (sparse) */
   private roofs: Map<number, RoofData> = new Map();
+  /** Terrain holes (sparse) */
+  private holes: Set<number> = new Set();
 
   /** Hashed transition lookup: tileKey -> MapTransition */
   private transitionMap: Map<number, MapTransition> = new Map();
@@ -186,6 +188,12 @@ export class GameMap {
         for (const [key, data] of Object.entries(wallsData.roofs)) {
           const coords = parseKey(key);
           if (coords) this.roofs.set(coords[1] * this.width + coords[0], data);
+        }
+      }
+      if (wallsData.holes) {
+        for (const key of Object.keys(wallsData.holes)) {
+          const coords = parseKey(key);
+          if (coords) this.holes.add(coords[1] * this.width + coords[0]);
         }
       }
       // Load floor layers
@@ -351,10 +359,10 @@ export class GameMap {
 
     const getW = (x: number, z: number) => this.getWallOnFloor(x, z, floor);
 
-    if (dx === 0 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0;
-    if (dx === 1 && dz === 0) return (getW(fx, fz) & WallEdge.E) !== 0;
-    if (dx === 0 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0;
-    if (dx === -1 && dz === 0) return (getW(fx, fz) & WallEdge.W) !== 0;
+    if (dx === 0 && dz === -1) return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(tx, tz) & WallEdge.S) !== 0;
+    if (dx === 1 && dz === 0) return (getW(fx, fz) & WallEdge.E) !== 0 || (getW(tx, tz) & WallEdge.W) !== 0;
+    if (dx === 0 && dz === 1) return (getW(fx, fz) & WallEdge.S) !== 0 || (getW(tx, tz) & WallEdge.N) !== 0;
+    if (dx === -1 && dz === 0) return (getW(fx, fz) & WallEdge.W) !== 0 || (getW(tx, tz) & WallEdge.E) !== 0;
 
     if (dx === 1 && dz === -1) {
       return (getW(fx, fz) & WallEdge.N) !== 0 || (getW(fx, fz) & WallEdge.E) !== 0
@@ -415,7 +423,12 @@ export class GameMap {
     const tx = Math.floor(x);
     const tz = Math.floor(z);
     if (tx < 0 || tx >= this.width || tz < 0 || tz >= this.height) return true;
-    return BLOCKING_TILES.has(this.tileTypes[tz * this.width + tx] as TileType);
+    const idx = tz * this.width + tx;
+    // Hole tiles are passable if they have a floor or stairs
+    if (this.holes.has(idx)) {
+      return !this.floorHeights.has(idx) && !this.stairs.has(idx);
+    }
+    return BLOCKING_TILES.has(this.tileTypes[idx] as TileType);
   }
 
   getTileType(x: number, z: number): TileType {
@@ -501,8 +514,23 @@ export class GameMap {
     return this.getInterpolatedHeight(x, z);
   }
 
-  /** Check if movement from (fromX,fromZ) to (toX,toZ) is blocked by a wall edge */
-  isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number): boolean {
+  /** Check if a wall at tile (x,z) actually blocks at the given player height.
+   *  If the player is above the wall top, the wall doesn't block. */
+  private wallBlocksAtHeight(x: number, z: number, edge: number, playerY?: number): boolean {
+    if ((this.getWall(x, z) & edge) === 0) return false;
+    if (playerY == null) return true;
+    const idx = z * this.width + x;
+    const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
+    const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
+    const wallTop = floorH + wallH;
+    return playerY < wallTop; // player below wall top = blocked
+  }
+
+  /** Check if movement from (fromX,fromZ) to (toX,toZ) is blocked by a wall edge.
+   *  Checks BOTH the source tile's edge AND the destination tile's opposite edge,
+   *  so a wall only needs to be defined on one side to block movement.
+   *  Optional playerY: if provided, walls below the player's height don't block. */
+  isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number, playerY?: number): boolean {
     const fx = Math.floor(fromX);
     const fz = Math.floor(fromZ);
     const tx = Math.floor(toX);
@@ -511,39 +539,36 @@ export class GameMap {
     const dx = tx - fx;
     const dz = tz - fz;
 
-    if (dx === 0 && dz === -1) return (this.getWall(fx, fz) & WallEdge.N) !== 0;
-    if (dx === 1 && dz === 0) return (this.getWall(fx, fz) & WallEdge.E) !== 0;
-    if (dx === 0 && dz === 1) return (this.getWall(fx, fz) & WallEdge.S) !== 0;
-    if (dx === -1 && dz === 0) return (this.getWall(fx, fz) & WallEdge.W) !== 0;
+    // Cardinal: check source edge OR destination's opposite edge
+    if (dx === 0 && dz === -1) return this.wallBlocksAtHeight(fx, fz, WallEdge.N, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.S, playerY);
+    if (dx === 1 && dz === 0) return this.wallBlocksAtHeight(fx, fz, WallEdge.E, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.W, playerY);
+    if (dx === 0 && dz === 1) return this.wallBlocksAtHeight(fx, fz, WallEdge.S, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.N, playerY);
+    if (dx === -1 && dz === 0) return this.wallBlocksAtHeight(fx, fz, WallEdge.W, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.E, playerY);
 
     // Diagonal movement: check source, destination, AND both intermediate tiles
     // Moving NE (dx=1, dz=-1): also check (fx+1, fz) and (fx, fz-1)
     if (dx === 1 && dz === -1) {
-      if ((this.getWall(fx, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz) & WallEdge.E) !== 0) return true;
-      if ((this.getWall(tx, tz) & WallEdge.S) !== 0 || (this.getWall(tx, tz) & WallEdge.W) !== 0) return true;
-      // Check intermediate: east tile's N edge and north tile's E edge
-      if ((this.getWall(fx + 1, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz - 1) & WallEdge.E) !== 0) return true;
+      if (this.wallBlocksAtHeight(fx, fz, WallEdge.N, playerY) || this.wallBlocksAtHeight(fx, fz, WallEdge.E, playerY)) return true;
+      if (this.wallBlocksAtHeight(tx, tz, WallEdge.S, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.W, playerY)) return true;
+      if (this.wallBlocksAtHeight(fx + 1, fz, WallEdge.N, playerY) || this.wallBlocksAtHeight(fx, fz - 1, WallEdge.E, playerY)) return true;
       return false;
     }
     if (dx === -1 && dz === -1) {
-      if ((this.getWall(fx, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz) & WallEdge.W) !== 0) return true;
-      if ((this.getWall(tx, tz) & WallEdge.S) !== 0 || (this.getWall(tx, tz) & WallEdge.E) !== 0) return true;
-      // Check intermediate: west tile's N edge and north tile's W edge
-      if ((this.getWall(fx - 1, fz) & WallEdge.N) !== 0 || (this.getWall(fx, fz - 1) & WallEdge.W) !== 0) return true;
+      if (this.wallBlocksAtHeight(fx, fz, WallEdge.N, playerY) || this.wallBlocksAtHeight(fx, fz, WallEdge.W, playerY)) return true;
+      if (this.wallBlocksAtHeight(tx, tz, WallEdge.S, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.E, playerY)) return true;
+      if (this.wallBlocksAtHeight(fx - 1, fz, WallEdge.N, playerY) || this.wallBlocksAtHeight(fx, fz - 1, WallEdge.W, playerY)) return true;
       return false;
     }
     if (dx === 1 && dz === 1) {
-      if ((this.getWall(fx, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz) & WallEdge.E) !== 0) return true;
-      if ((this.getWall(tx, tz) & WallEdge.N) !== 0 || (this.getWall(tx, tz) & WallEdge.W) !== 0) return true;
-      // Check intermediate: east tile's S edge and south tile's E edge
-      if ((this.getWall(fx + 1, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz + 1) & WallEdge.E) !== 0) return true;
+      if (this.wallBlocksAtHeight(fx, fz, WallEdge.S, playerY) || this.wallBlocksAtHeight(fx, fz, WallEdge.E, playerY)) return true;
+      if (this.wallBlocksAtHeight(tx, tz, WallEdge.N, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.W, playerY)) return true;
+      if (this.wallBlocksAtHeight(fx + 1, fz, WallEdge.S, playerY) || this.wallBlocksAtHeight(fx, fz + 1, WallEdge.E, playerY)) return true;
       return false;
     }
     if (dx === -1 && dz === 1) {
-      if ((this.getWall(fx, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz) & WallEdge.W) !== 0) return true;
-      if ((this.getWall(tx, tz) & WallEdge.N) !== 0 || (this.getWall(tx, tz) & WallEdge.E) !== 0) return true;
-      // Check intermediate: west tile's S edge and south tile's W edge
-      if ((this.getWall(fx - 1, fz) & WallEdge.S) !== 0 || (this.getWall(fx, fz + 1) & WallEdge.W) !== 0) return true;
+      if (this.wallBlocksAtHeight(fx, fz, WallEdge.S, playerY) || this.wallBlocksAtHeight(fx, fz, WallEdge.W, playerY)) return true;
+      if (this.wallBlocksAtHeight(tx, tz, WallEdge.N, playerY) || this.wallBlocksAtHeight(tx, tz, WallEdge.E, playerY)) return true;
+      if (this.wallBlocksAtHeight(fx - 1, fz, WallEdge.S, playerY) || this.wallBlocksAtHeight(fx, fz + 1, WallEdge.W, playerY)) return true;
       return false;
     }
 

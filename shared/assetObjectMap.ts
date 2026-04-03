@@ -52,6 +52,7 @@ export const STAIR_ASSET_CONFIG: Record<string, StairAssetConfig> = {
   'dark stone stairs':       { tilesLong: 3, heightGain: 1.8, baseDirection: 'N' },
   'dark stone stairs small': { tilesLong: 2, heightGain: 1.0, baseDirection: 'N' },
   'stone small stairs':      { tilesLong: 2, heightGain: 1.0, baseDirection: 'N' },
+  'limestone stairs':        { tilesLong: 3, heightGain: 3.0, baseDirection: 'N' },
 };
 
 /** Rotate a direction by a Y rotation angle (radians) */

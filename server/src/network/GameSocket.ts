@@ -124,6 +124,26 @@ export function handleGameSocketMessage(
       break;
     }
 
+    case ClientOpcode.PLAYER_TALK_NPC: {
+      const npcEntityId = values[0];
+      world.handlePlayerTalkNpc(playerId, npcEntityId);
+      break;
+    }
+
+    case ClientOpcode.PLAYER_BUY_ITEM: {
+      const itemId = values[0];
+      const quantity = values[1] ?? 1;
+      world.handlePlayerBuyItem(playerId, itemId, quantity);
+      break;
+    }
+
+    case ClientOpcode.PLAYER_SELL_ITEM: {
+      const slot = values[0];
+      const quantity = values[1] ?? 1;
+      world.handlePlayerSellItem(playerId, slot, quantity);
+      break;
+    }
+
     case ClientOpcode.MAP_READY: {
       world.handleMapReady(playerId);
       break;

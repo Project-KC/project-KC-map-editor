@@ -5,10 +5,22 @@ import type { NpcDef, ItemDef, SpawnsFile, WorldObjectDef } from '@projectrs/sha
 const DATA_DIR = resolve(import.meta.dir, '../../data');
 const MAPS_DIR = resolve(DATA_DIR, 'maps');
 
+export interface ShopItem {
+  itemId: number;
+  price: number;
+  stock: number;
+}
+
+export interface ShopDef {
+  name: string;
+  items: ShopItem[];
+}
+
 export class DataLoader {
   private npcs: Map<number, NpcDef> = new Map();
   private items: Map<number, ItemDef> = new Map();
   private objects: Map<number, WorldObjectDef> = new Map();
+  private shops: Map<number, ShopDef> = new Map();
 
   get itemDefs(): Map<number, ItemDef> {
     return this.items;
@@ -22,6 +34,7 @@ export class DataLoader {
     this.loadNpcs();
     this.loadItems();
     this.loadObjects();
+    this.loadShops();
   }
 
   private loadNpcs(): void {
@@ -49,6 +62,23 @@ export class DataLoader {
       this.objects.set(def.id, def);
     }
     console.log(`Loaded ${this.objects.size} object definitions`);
+  }
+
+  private loadShops(): void {
+    try {
+      const raw = readFileSync(resolve(DATA_DIR, 'shops.json'), 'utf-8');
+      const data: Record<string, ShopDef> = JSON.parse(raw);
+      for (const [npcId, shop] of Object.entries(data)) {
+        this.shops.set(Number(npcId), shop);
+      }
+      console.log(`Loaded ${this.shops.size} shop definitions`);
+    } catch {
+      console.log('No shops.json found, skipping');
+    }
+  }
+
+  getShop(npcDefId: number): ShopDef | undefined {
+    return this.shops.get(npcDefId);
   }
 
   getObject(id: number): WorldObjectDef | undefined {

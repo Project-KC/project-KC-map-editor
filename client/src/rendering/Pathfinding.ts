@@ -1,78 +1,27 @@
-interface PathNode {
-  x: number;
-  z: number;
-  g: number;
-  h: number;
-  f: number;
-  parent: PathNode | null;
-  heapIdx: number;
-}
-
-/** Binary min-heap for A* open list, keyed by f value */
-class MinHeap {
-  private data: PathNode[] = [];
-
-  get length(): number { return this.data.length; }
-
-  push(node: PathNode): void {
-    node.heapIdx = this.data.length;
-    this.data.push(node);
-    this.bubbleUp(this.data.length - 1);
-  }
-
-  pop(): PathNode {
-    const top = this.data[0];
-    const last = this.data.pop()!;
-    if (this.data.length > 0) {
-      this.data[0] = last;
-      last.heapIdx = 0;
-      this.sinkDown(0);
-    }
-    return top;
-  }
-
-  decreaseKey(node: PathNode): void {
-    this.bubbleUp(node.heapIdx);
-  }
-
-  private bubbleUp(i: number): void {
-    const node = this.data[i];
-    while (i > 0) {
-      const parentIdx = (i - 1) >> 1;
-      const parent = this.data[parentIdx];
-      if (node.f >= parent.f) break;
-      this.data[i] = parent;
-      parent.heapIdx = i;
-      i = parentIdx;
-    }
-    this.data[i] = node;
-    node.heapIdx = i;
-  }
-
-  private sinkDown(i: number): void {
-    const len = this.data.length;
-    const node = this.data[i];
-    while (true) {
-      let smallest = i;
-      const left = 2 * i + 1;
-      const right = 2 * i + 2;
-      if (left < len && this.data[left].f < this.data[smallest].f) smallest = left;
-      if (right < len && this.data[right].f < this.data[smallest].f) smallest = right;
-      if (smallest === i) break;
-      this.data[i] = this.data[smallest];
-      this.data[i].heapIdx = i;
-      i = smallest;
-    }
-    this.data[i] = node;
-    node.heapIdx = i;
-  }
-}
-
 /**
- * A* pathfinding on a 2D tile grid with binary heap.
- * isBlocked(x, z) returns true if tile is impassable.
- * mapWidth/mapHeight define the map bounds.
+ * RS2-style BFS pathfinding (based on 2004Scape/rsmod-pathfinder).
+ *
+ * Uses breadth-first search on a local 128x128 grid with ring buffer queue.
+ * Supports collision flags, diagonal movement with 3-way checking,
+ * and closest-approach-point when destination is unreachable.
  */
+
+const SEARCH_SIZE = 128;
+const SEARCH_HALF = 64;
+const QUEUE_SIZE = 4096;
+const MAX_APPROACH_DISTANCE = 10;
+const MAX_WAYPOINTS = 25;
+
+// Direction flags for backtracking
+const DIR_WEST  = 0x01;
+const DIR_EAST  = 0x02;
+const DIR_SOUTH = 0x04;
+const DIR_NORTH = 0x08;
+const DIR_SW = DIR_SOUTH | DIR_WEST;
+const DIR_SE = DIR_SOUTH | DIR_EAST;
+const DIR_NW = DIR_NORTH | DIR_WEST;
+const DIR_NE = DIR_NORTH | DIR_EAST;
+
 export function findPath(
   startX: number,
   startZ: number,
@@ -81,7 +30,7 @@ export function findPath(
   isBlocked: (x: number, z: number) => boolean,
   mapWidth: number = 1024,
   mapHeight: number = 1024,
-  maxSteps: number = 200,
+  _maxSteps: number = 500,
   isWallBlocked?: (fx: number, fz: number, tx: number, tz: number) => boolean
 ): { x: number; z: number }[] {
   const sx = Math.floor(startX);
@@ -90,111 +39,217 @@ export function findPath(
   const gz = Math.floor(goalZ);
 
   if (sx === gx && sz === gz) return [];
-  if (isBlocked(gx, gz)) {
-    const neighbors = getNeighbors(gx, gz, isBlocked);
-    let bestNeighbor: { x: number; z: number } | null = null;
-    let bestDist = Infinity;
-    for (const n of neighbors) {
-      if (!isBlocked(n.x, n.z)) {
-        const dist = Math.abs(n.x - sx) + Math.abs(n.z - sz);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestNeighbor = n;
-        }
-      }
+
+  // Local grid origin (source is at center of 128x128 search area)
+  const baseX = sx - SEARCH_HALF;
+  const baseZ = sz - SEARCH_HALF;
+
+  // Local coordinates
+  const srcLX = sx - baseX;
+  const srcLZ = sz - baseZ;
+  const dstLX = gx - baseX;
+  const dstLZ = gz - baseZ;
+
+  // Check if destination is in search area
+  if (dstLX < 0 || dstLX >= SEARCH_SIZE || dstLZ < 0 || dstLZ >= SEARCH_SIZE) return [];
+
+  // BFS arrays
+  const directions = new Uint8Array(SEARCH_SIZE * SEARCH_SIZE);
+  const distances = new Int32Array(SEARCH_SIZE * SEARCH_SIZE);
+  distances.fill(99999);
+
+  // Ring buffer queue
+  const queueX = new Int32Array(QUEUE_SIZE);
+  const queueZ = new Int32Array(QUEUE_SIZE);
+  let queueRead = 0;
+  let queueWrite = 0;
+
+  const idx = (lx: number, lz: number) => lz * SEARCH_SIZE + lx;
+
+  // Helper: can move from (lx,lz) in a direction?
+  const canMoveCardinal = (lx: number, lz: number, dx: number, dz: number): boolean => {
+    const nx = lx + dx, nz = lz + dz;
+    if (nx < 0 || nx >= SEARCH_SIZE || nz < 0 || nz >= SEARCH_SIZE) return false;
+    if (directions[idx(nx, nz)] !== 0) return false; // already visited
+    const wx = baseX + nx, wz = baseZ + nz;
+    if (wx < 0 || wx >= mapWidth || wz < 0 || wz >= mapHeight) return false;
+    if (isBlocked(wx, wz)) return false;
+    if (isWallBlocked) {
+      const fx = baseX + lx, fz = baseZ + lz;
+      if (isWallBlocked(fx, fz, wx, wz)) return false;
     }
-    if (!bestNeighbor) return [];
-    return findPath(startX, startZ, bestNeighbor.x + 0.5, bestNeighbor.z + 0.5, isBlocked, mapWidth, mapHeight, maxSteps, isWallBlocked);
-  }
-
-  const open = new MinHeap();
-  const closed = new Set<number>();
-  const openMap = new Map<number, PathNode>();
-
-  const key = (x: number, z: number) => z * mapWidth + x;
-  const heuristic = (x: number, z: number) => {
-    const dx = Math.abs(x - gx);
-    const dz = Math.abs(z - gz);
-    return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
+    return true;
   };
 
-  const startH = heuristic(sx, sz);
-  const startNode: PathNode = { x: sx, z: sz, g: 0, h: startH, f: startH, parent: null, heapIdx: 0 };
-  open.push(startNode);
-  openMap.set(key(sx, sz), startNode);
+  // Enqueue
+  const enqueue = (lx: number, lz: number, dir: number, dist: number) => {
+    const i = idx(lx, lz);
+    directions[i] = dir;
+    distances[i] = dist;
+    queueX[queueWrite & (QUEUE_SIZE - 1)] = lx;
+    queueZ[queueWrite & (QUEUE_SIZE - 1)] = lz;
+    queueWrite++;
+  };
 
-  let steps = 0;
-  while (open.length > 0 && steps < maxSteps) {
-    steps++;
+  // Seed BFS from source
+  directions[idx(srcLX, srcLZ)] = 99; // mark source
+  distances[idx(srcLX, srcLZ)] = 0;
+  enqueue(srcLX, srcLZ, 99, 0);
 
-    const current = open.pop();
-    const k = key(current.x, current.z);
-    openMap.delete(k);
+  let foundX = -1, foundZ = -1;
+  let pathFound = false;
 
-    if (current.x === gx && current.z === gz) {
-      const path: { x: number; z: number }[] = [];
-      let node: PathNode | null = current;
-      while (node && !(node.x === sx && node.z === sz)) {
-        path.unshift({ x: node.x + 0.5, z: node.z + 0.5 });
-        node = node.parent;
-      }
-      return path;
+  // BFS loop
+  while (queueRead !== queueWrite) {
+    const cx = queueX[queueRead & (QUEUE_SIZE - 1)];
+    const cz = queueZ[queueRead & (QUEUE_SIZE - 1)];
+    queueRead++;
+
+    // Check if reached destination
+    if (cx === dstLX && cz === dstLZ) {
+      foundX = cx;
+      foundZ = cz;
+      pathFound = true;
+      break;
     }
 
-    closed.add(k);
+    const dist = distances[idx(cx, cz)] + 1;
 
-    for (const neighbor of getNeighbors(current.x, current.z, isBlocked, isWallBlocked)) {
-      const nk = key(neighbor.x, neighbor.z);
-      if (closed.has(nk)) continue;
-      if (neighbor.x < 0 || neighbor.x >= mapWidth || neighbor.z < 0 || neighbor.z >= mapHeight) continue;
-      if (isBlocked(neighbor.x, neighbor.z)) continue;
-      if (isWallBlocked && isWallBlocked(current.x, current.z, neighbor.x, neighbor.z)) continue;
+    // Cardinal directions
+    // West
+    if (canMoveCardinal(cx, cz, -1, 0)) enqueue(cx - 1, cz, DIR_EAST, dist);
+    // East
+    if (canMoveCardinal(cx, cz, 1, 0)) enqueue(cx + 1, cz, DIR_WEST, dist);
+    // South
+    if (canMoveCardinal(cx, cz, 0, -1)) enqueue(cx, cz - 1, DIR_NORTH, dist);
+    // North
+    if (canMoveCardinal(cx, cz, 0, 1)) enqueue(cx, cz + 1, DIR_SOUTH, dist);
 
-      const isDiagonal = neighbor.x !== current.x && neighbor.z !== current.z;
-      const g = current.g + (isDiagonal ? 1.414 : 1);
-
-      const existing = openMap.get(nk);
-      if (existing) {
-        if (g < existing.g) {
-          existing.g = g;
-          existing.f = g + existing.h;
-          existing.parent = current;
-          open.decreaseKey(existing);
+    // Diagonal directions — require 3 checks each (diagonal + both cardinals)
+    // Southwest
+    if (canMoveCardinal(cx, cz, -1, 0) && canMoveCardinal(cx, cz, 0, -1) && canMoveCardinal(cx, cz, -1, -1)) {
+      const nx = cx - 1, nz = cz - 1;
+      if (directions[idx(nx, nz)] === 0) {
+        // Also check walls on the intermediate tiles
+        const wx = baseX + cx, wz = baseZ + cz;
+        let wallOk = true;
+        if (isWallBlocked) {
+          if (isWallBlocked(wx - 1, wz, wx - 1, wz - 1)) wallOk = false;
+          if (isWallBlocked(wx, wz - 1, wx - 1, wz - 1)) wallOk = false;
         }
-        continue;
+        if (wallOk) enqueue(nx, nz, DIR_NE, dist);
       }
-
-      const h = heuristic(neighbor.x, neighbor.z);
-      const node: PathNode = { x: neighbor.x, z: neighbor.z, g, h, f: g + h, parent: current, heapIdx: 0 };
-      open.push(node);
-      openMap.set(nk, node);
+    }
+    // Southeast
+    if (canMoveCardinal(cx, cz, 1, 0) && canMoveCardinal(cx, cz, 0, -1) && canMoveCardinal(cx, cz, 1, -1)) {
+      const nx = cx + 1, nz = cz - 1;
+      if (directions[idx(nx, nz)] === 0) {
+        let wallOk = true;
+        if (isWallBlocked) {
+          const wx = baseX + cx, wz = baseZ + cz;
+          if (isWallBlocked(wx + 1, wz, wx + 1, wz - 1)) wallOk = false;
+          if (isWallBlocked(wx, wz - 1, wx + 1, wz - 1)) wallOk = false;
+        }
+        if (wallOk) enqueue(nx, nz, DIR_NW, dist);
+      }
+    }
+    // Northwest
+    if (canMoveCardinal(cx, cz, -1, 0) && canMoveCardinal(cx, cz, 0, 1) && canMoveCardinal(cx, cz, -1, 1)) {
+      const nx = cx - 1, nz = cz + 1;
+      if (directions[idx(nx, nz)] === 0) {
+        let wallOk = true;
+        if (isWallBlocked) {
+          const wx = baseX + cx, wz = baseZ + cz;
+          if (isWallBlocked(wx - 1, wz, wx - 1, wz + 1)) wallOk = false;
+          if (isWallBlocked(wx, wz + 1, wx - 1, wz + 1)) wallOk = false;
+        }
+        if (wallOk) enqueue(nx, nz, DIR_SE, dist);
+      }
+    }
+    // Northeast
+    if (canMoveCardinal(cx, cz, 1, 0) && canMoveCardinal(cx, cz, 0, 1) && canMoveCardinal(cx, cz, 1, 1)) {
+      const nx = cx + 1, nz = cz + 1;
+      if (directions[idx(nx, nz)] === 0) {
+        let wallOk = true;
+        if (isWallBlocked) {
+          const wx = baseX + cx, wz = baseZ + cz;
+          if (isWallBlocked(wx + 1, wz, wx + 1, wz + 1)) wallOk = false;
+          if (isWallBlocked(wx, wz + 1, wx + 1, wz + 1)) wallOk = false;
+        }
+        if (wallOk) enqueue(nx, nz, DIR_SW, dist);
+      }
     }
   }
 
-  return [];
-}
+  // If destination not reached, find closest approach point
+  if (!pathFound) {
+    let bestDist = 99999;
+    let bestCost = 99999;
+    const range = MAX_APPROACH_DISTANCE;
 
-function getNeighbors(
-  x: number, z: number,
-  isBlocked: (x: number, z: number) => boolean,
-  isWallBlocked?: (fx: number, fz: number, tx: number, tz: number) => boolean
-): { x: number; z: number }[] {
-  const neighbors = [
-    { x: x - 1, z },
-    { x: x + 1, z },
-    { x, z: z - 1 },
-    { x, z: z + 1 },
-  ];
+    for (let dz = -range; dz <= range; dz++) {
+      for (let dx = -range; dx <= range; dx++) {
+        const lx = dstLX + dx;
+        const lz = dstLZ + dz;
+        if (lx < 0 || lx >= SEARCH_SIZE || lz < 0 || lz >= SEARCH_SIZE) continue;
+        const i = idx(lx, lz);
+        if (distances[i] >= 99999) continue; // not reached by BFS
 
-  const wb = isWallBlocked || (() => false);
-  const canW = !isBlocked(x - 1, z) && !wb(x, z, x - 1, z);
-  const canE = !isBlocked(x + 1, z) && !wb(x, z, x + 1, z);
-  const canN = !isBlocked(x, z - 1) && !wb(x, z, x, z - 1);
-  const canS = !isBlocked(x, z + 1) && !wb(x, z, x, z + 1);
-  if (canW && canN) neighbors.push({ x: x - 1, z: z - 1 });
-  if (canE && canN) neighbors.push({ x: x + 1, z: z - 1 });
-  if (canW && canS) neighbors.push({ x: x - 1, z: z + 1 });
-  if (canE && canS) neighbors.push({ x: x + 1, z: z + 1 });
+        const cost = dx * dx + dz * dz; // squared distance to goal
+        if (cost < bestCost || (cost === bestCost && distances[i] < bestDist)) {
+          bestCost = cost;
+          bestDist = distances[i];
+          foundX = lx;
+          foundZ = lz;
+        }
+      }
+    }
 
-  return neighbors;
+    if (foundX < 0) return []; // nothing reachable near goal
+  }
+
+  // Backtrack from destination to source using direction flags
+  const rawPath: { x: number; z: number }[] = [];
+  let cx = foundX, cz = foundZ;
+
+  while (cx !== srcLX || cz !== srcLZ) {
+    const dir = directions[idx(cx, cz)];
+    if (dir === 0 || dir === 99) break; // shouldn't happen
+
+    rawPath.push({ x: baseX + cx + 0.5, z: baseZ + cz + 0.5 });
+
+    // Move opposite to the direction we arrived from
+    if (dir & DIR_EAST) cx++;
+    else if (dir & DIR_WEST) cx--;
+    if (dir & DIR_NORTH) cz++;
+    else if (dir & DIR_SOUTH) cz--;
+  }
+
+  rawPath.reverse();
+
+  // Path compression: only keep waypoints where direction changes
+  if (rawPath.length <= 1) return rawPath;
+
+  const compressed: { x: number; z: number }[] = [];
+  let prevDx = 0, prevDz = 0;
+  for (let i = 0; i < rawPath.length; i++) {
+    if (i === rawPath.length - 1) {
+      compressed.push(rawPath[i]);
+    } else {
+      const dx = Math.sign(rawPath[i + 1].x - rawPath[i].x);
+      const dz = Math.sign(rawPath[i + 1].z - rawPath[i].z);
+      if (dx !== prevDx || dz !== prevDz) {
+        compressed.push(rawPath[i]);
+        prevDx = dx;
+        prevDz = dz;
+      }
+    }
+  }
+
+  // Cap to max waypoints
+  if (compressed.length > MAX_WAYPOINTS) {
+    compressed.length = MAX_WAYPOINTS;
+  }
+
+  return compressed;
 }

@@ -47,6 +47,42 @@
       "x": 66.5,
       "z": 111.5,
       "wanderRange": 3
+    },
+    {
+      "npcId": 5,
+      "x": 73.5,
+      "z": 142.5,
+      "wanderRange": 3
+    },
+    {
+      "npcId": 8,
+      "x": 82.5,
+      "z": 88.5,
+      "wanderRange": 1
+    },
+    {
+      "npcId": 2,
+      "x": 98.5,
+      "z": 100.5,
+      "wanderRange": 2
+    },
+    {
+      "npcId": 2,
+      "x": 93.5,
+      "z": 101.5,
+      "wanderRange": 2
+    },
+    {
+      "npcId": 2,
+      "x": 91.5,
+      "z": 101.5,
+      "wanderRange": 2
+    },
+    {
+      "npcId": 2,
+      "x": 94.5,
+      "z": 100.5,
+      "wanderRange": 2
     }
   ],
   "objects": [],

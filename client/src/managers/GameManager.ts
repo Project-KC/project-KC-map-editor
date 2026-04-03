@@ -12,6 +12,7 @@ import '@babylonjs/loaders/glTF';
 import { ChunkManager } from '../rendering/ChunkManager';
 import { GameCamera } from '../rendering/Camera';
 import { SpriteEntity, loadDirectionalSprites, loadAnimationSprites, load8DirAnimationSprites, type DirectionalSpriteSet, type AnimationSpriteSet } from '../rendering/SpriteEntity';
+import { loadRecoloredDirectionalSprites, loadRecolored8DirAnimationSprites, loadRecoloredAnimationSprites, type RecolorConfig } from '../rendering/SpriteRecolor';
 import { InputManager } from './InputManager';
 import { NetworkManager } from './NetworkManager';
 import { findPath } from '../rendering/Pathfinding';
@@ -19,7 +20,8 @@ import { SidePanel } from '../ui/SidePanel';
 import { ChatPanel } from '../ui/ChatPanel';
 import { Minimap } from '../ui/Minimap';
 import { StatsPanel } from '../ui/StatsPanel';
-import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, decodeStringPacket, type WorldObjectDef, type ItemDef } from '@projectrs/shared';
+import { ShopPanel, type ShopItem } from '../ui/ShopPanel';
+import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, type WorldObjectDef, type ItemDef } from '@projectrs/shared';
 
 // NPC color palette by definition ID
 const NPC_COLORS: Record<number, Color3> = {
@@ -33,12 +35,17 @@ const NPC_COLORS: Record<number, Color3> = {
   8: new Color3(0.7, 0.5, 0.2),   // Shopkeeper — gold
   9: new Color3(0.15, 0.1, 0.2),  // Dark Knight — dark purple
   10: new Color3(0.6, 0.4, 0.2),  // Cow — brown
+  11: new Color3(0.6, 0.2, 0.15), // Weapon Smith — dark red
+  12: new Color3(0.4, 0.4, 0.45), // Armorer — steel grey
+  13: new Color3(0.45, 0.35, 0.25), // Leg Armorer — brown
+  14: new Color3(0.3, 0.35, 0.5),  // Shield Smith — blue-grey
 };
 
 const NPC_NAMES: Record<number, string> = {
   1: 'Chicken', 2: 'Rat', 3: 'Goblin', 4: 'Wolf',
   5: 'Skeleton', 6: 'Spider', 7: 'Guard', 8: 'Shopkeeper',
   9: 'Dark Knight', 10: 'Cow',
+  11: 'Weapon Smith', 12: 'Armorer', 13: 'Leg Armorer', 14: 'Shield Smith',
 };
 
 const NPC_SIZES: Record<number, { w: number; h: number }> = {
@@ -125,6 +132,8 @@ export class GameManager {
   private npcSpriteSets: Map<number, DirectionalSpriteSet> = new Map();
   /** Per-NPC-defId attack animation sprite sets */
   private npcAttackAnims: Map<number, AnimationSpriteSet> = new Map();
+  /** Per-NPC-defId walk animation sprite sets (for recolored humanoid NPCs) */
+  private npcWalkAnims: Map<number, AnimationSpriteSet> = new Map();
   private isSkilling: boolean = false;
   private isIndoors: boolean = false;
   private hiddenRoofNodes: TransformNode[] = [];
@@ -138,6 +147,7 @@ export class GameManager {
   private chatPanel: ChatPanel | null = null;
   private minimap: Minimap | null = null;
   private statsPanel: StatsPanel | null = null;
+  private shopPanel: ShopPanel | null = null;
 
   // Combat hit splats (HTML overlay)
   private hitSplats: { worldPos: Vector3; el: HTMLDivElement; timer: number; startY: number }[] = [];
@@ -210,6 +220,10 @@ export class GameManager {
     this.sidePanel = new SidePanel(this.network, this.token);
     this.chatPanel = new ChatPanel();
     this.chatPanel.setSendHandler((msg) => this.network.sendChat(msg));
+    this.shopPanel = new ShopPanel(this.network, this.itemDefsCache);
+    this.shopPanel.setOnClose(() => {
+      this.sidePanel?.setSellCallback(null);
+    });
     this.chatPanel.addSystemMessage(`Welcome, ${username}! Click to move, right-click NPCs to attack.`, '#0f0');
 
     // Chat message handler
@@ -597,18 +611,80 @@ export class GameManager {
     return 'punch';
   }
 
-  /** NPC sprite config: defId → sprite folder path + optional attack animation */
-  private static readonly NPC_SPRITE_CONFIG: { defId: number; path: string; name: string; attackPath?: string; attackFrames?: number }[] = [
+  /** NPC sprite config: defId → sprite folder path + optional attack animation + optional recolor */
+  private static readonly NPC_SPRITE_CONFIG: {
+    defId: number; path: string; name: string;
+    attackPath?: string; attackFrames?: number;
+    /** If set, loads player sprites recolored instead of dedicated NPC sprites */
+    recolor?: RecolorConfig;
+  }[] = [
     { defId: 1, path: '/sprites/chicken', name: 'chicken' },
     { defId: 10, path: '/sprites/cow', name: 'cow', attackPath: '/sprites/cow/attack', attackFrames: 4 },
+    // Humanoid NPCs — recolored from player sprites
+    { defId: 3, path: '/sprites/player', name: 'goblin_sprite', recolor: {
+      shirtHue: 100, shirtSat: 0.6, shirtLightOffset: -0.05,   // green shirt
+      pantsHue: 30, pantsSat: 0.4, pantsLightOffset: -0.15,     // brown pants
+      skinHue: 95, skinSat: 0.5, skinLightOffset: -0.15,        // greenish skin
+      hairHue: 30, hairSat: 0.3, hairLightOffset: -0.1,         // dark hair
+    }},
+    { defId: 7, path: '/sprites/player', name: 'guard_sprite', recolor: {
+      shirtHue: 220, shirtSat: 0.3, shirtLightOffset: 0.1,     // silver-blue armor
+      pantsHue: 220, pantsSat: 0.2, pantsLightOffset: -0.05,    // matching grey pants
+      hairHue: 25, hairSat: 0.6,                                 // keep brown hair
+    }},
+    { defId: 8, path: '/sprites/player', name: 'shopkeeper_sprite', recolor: {
+      shirtHue: 35, shirtSat: 0.7, shirtLightOffset: 0.05,     // gold/tan shirt
+      pantsHue: 25, pantsSat: 0.3, pantsLightOffset: -0.1,      // brown pants
+      hairHue: 10, hairSat: 0.4, hairLightOffset: -0.1,         // dark reddish hair
+    }},
+    { defId: 9, path: '/sprites/player', name: 'darkknight_sprite', recolor: {
+      shirtHue: 270, shirtSat: 0.6, shirtLightOffset: -0.15,   // dark purple armor
+      pantsHue: 270, pantsSat: 0.4, pantsLightOffset: -0.25,    // dark purple pants
+      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.15,         // black hair
+      skinHue: 10, skinSat: 0.2, skinLightOffset: -0.15,        // pale skin
+    }},
+    { defId: 5, path: '/sprites/player', name: 'skeleton_sprite', recolor: {
+      shirtHue: 50, shirtSat: 0.05, shirtLightOffset: 0.3,     // bone white shirt
+      pantsHue: 50, pantsSat: 0.05, pantsLightOffset: 0.1,      // bone white pants
+      skinHue: 50, skinSat: 0.1, skinLightOffset: 0.1,          // bone-colored skin
+      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.2,          // no hair (dark)
+    }},
+    // Specialist shopkeepers
+    { defId: 11, path: '/sprites/player', name: 'weaponsmith_sprite', recolor: {
+      shirtHue: 10, shirtSat: 0.6, shirtLightOffset: -0.05,    // dark red shirt
+      pantsHue: 25, pantsSat: 0.3, pantsLightOffset: -0.2,      // dark brown pants
+      hairHue: 15, hairSat: 0.5, hairLightOffset: -0.1,         // dark auburn hair
+    }},
+    { defId: 12, path: '/sprites/player', name: 'armorer_sprite', recolor: {
+      shirtHue: 220, shirtSat: 0.15, shirtLightOffset: -0.05,  // steel grey shirt
+      pantsHue: 220, pantsSat: 0.1, pantsLightOffset: -0.1,     // dark grey pants
+      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.15,         // black hair
+    }},
+    { defId: 13, path: '/sprites/player', name: 'legarmorer_sprite', recolor: {
+      shirtHue: 30, shirtSat: 0.5, shirtLightOffset: -0.05,    // brown shirt
+      pantsHue: 30, pantsSat: 0.6, pantsLightOffset: -0.1,      // rich brown pants
+      hairHue: 35, hairSat: 0.7, hairLightOffset: 0.0,          // light brown hair
+    }},
+    { defId: 14, path: '/sprites/player', name: 'shieldsmith_sprite', recolor: {
+      shirtHue: 210, shirtSat: 0.4, shirtLightOffset: 0.0,     // blue-grey shirt
+      pantsHue: 210, pantsSat: 0.2, pantsLightOffset: -0.1,     // grey-blue pants
+      hairHue: 20, hairSat: 0.3, hairLightOffset: -0.05,        // dark hair
+    }},
   ];
 
   private async loadNpcSprites(): Promise<void> {
     for (const cfg of GameManager.NPC_SPRITE_CONFIG) {
       try {
-        const sprites = await loadDirectionalSprites(this.scene, cfg.path, cfg.name);
+        let sprites: DirectionalSpriteSet;
+        if (cfg.recolor) {
+          // Load player sprites with recolored pixels
+          sprites = await loadRecoloredDirectionalSprites(this.scene, cfg.path, cfg.name, cfg.recolor);
+          console.log(`Recolored NPC sprites loaded for ${cfg.name} (defId=${cfg.defId})`);
+        } else {
+          sprites = await loadDirectionalSprites(this.scene, cfg.path, cfg.name);
+          console.log(`NPC sprites loaded for ${cfg.name} (defId=${cfg.defId})`);
+        }
         this.npcSpriteSets.set(cfg.defId, sprites);
-        console.log(`NPC sprites loaded for ${cfg.name} (defId=${cfg.defId})`);
         // Upgrade existing NPC sprites of this type
         for (const [entityId, sprite] of this.npcSprites) {
           if (this.npcDefs.get(entityId) === cfg.defId) {
@@ -619,7 +695,7 @@ export class GameManager {
         console.warn(`Failed to load NPC sprites for ${cfg.name}:`, e);
       }
 
-      // Load attack animation if configured
+      // Load attack animation if configured (dedicated path)
       if (cfg.attackPath && cfg.attackFrames) {
         try {
           const attackAnim = await loadAnimationSprites(this.scene, cfg.attackPath, cfg.name, cfg.attackFrames);
@@ -647,6 +723,41 @@ export class GameManager {
           }
         } catch (e) {
           console.warn(`Failed to load attack animation for ${cfg.name}:`, e);
+        }
+      }
+
+      // For recolored humanoid NPCs, also load recolored walk/punch animations from player sprites
+      if (cfg.recolor) {
+        try {
+          const walkAnim = await loadRecolored8DirAnimationSprites(
+            this.scene, '/sprites/player/walk', `${cfg.name}_walk`, 4, cfg.recolor
+          );
+          // Attach walk anim to existing NPC sprites of this type
+          for (const [entityId, sprite] of this.npcSprites) {
+            if (this.npcDefs.get(entityId) === cfg.defId) {
+              sprite.setWalkAnimation(walkAnim);
+            }
+          }
+          // Store for future spawns
+          this.npcWalkAnims.set(cfg.defId, walkAnim);
+          console.log(`Recolored walk animation loaded for ${cfg.name}`);
+        } catch (e) {
+          console.warn(`Failed to load recolored walk animation for ${cfg.name}:`, e);
+        }
+
+        try {
+          const punchAnim = await loadRecolored8DirAnimationSprites(
+            this.scene, '/sprites/player/punch', `${cfg.name}_punch`, 4, cfg.recolor
+          );
+          this.npcAttackAnims.set(cfg.defId, punchAnim);
+          for (const [entityId, sprite] of this.npcSprites) {
+            if (this.npcDefs.get(entityId) === cfg.defId) {
+              sprite.setAttackAnimation(punchAnim);
+            }
+          }
+          console.log(`Recolored punch animation loaded for ${cfg.name}`);
+        } catch (e) {
+          console.warn(`Failed to load recolored punch animation for ${cfg.name}:`, e);
         }
       }
     }
@@ -817,7 +928,9 @@ export class GameManager {
         labelColor: '#00ff00',
         directionalSprites: this.playerSprites ?? undefined,
       });
-      this.localPlayer.position = new Vector3(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+      const spawnH = this.getHeight(this.playerX, this.playerZ);
+      this.localPlayer.position = new Vector3(this.playerX, spawnH, this.playerZ);
+      this.inputManager.setPlayerY(spawnH);
       console.log(`Logged in as player ${this.localPlayerId}`);
     });
 
@@ -888,6 +1001,9 @@ export class GameManager {
         // Attach attack animation if available for this NPC type
         const attackAnim = this.npcAttackAnims.get(npcDefId);
         if (attackAnim) sprite.setAttackAnimation(attackAnim);
+        // Attach walk animation if available (recolored humanoid NPCs)
+        const walkAnim = this.npcWalkAnims.get(npcDefId);
+        if (walkAnim) sprite.setWalkAnimation(walkAnim);
         this.npcSprites.set(entityId, sprite);
       }
 
@@ -1013,6 +1129,28 @@ export class GameManager {
       }
     });
 
+    this.network.on(ServerOpcode.SHOP_OPEN, (_op, v) => {
+      const npcEntityId = v[0];
+      const itemCount = v[1];
+      const items: ShopItem[] = [];
+      for (let i = 0; i < itemCount; i++) {
+        items.push({
+          itemId: v[2 + i * 3],
+          price: v[2 + i * 3 + 1],
+          stock: v[2 + i * 3 + 2],
+        });
+      }
+      if (this.shopPanel) {
+        const npcDefId = this.npcDefs.get(npcEntityId);
+        const shopTitle = NPC_NAMES[npcDefId || 0] || 'Shop';
+        this.shopPanel.show(npcEntityId, items, shopTitle);
+        // Enable sell option in inventory context menu
+        this.sidePanel?.setSellCallback((slot) => {
+          this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_SELL_ITEM, slot, 1));
+        });
+      }
+    });
+
     this.network.on(ServerOpcode.WORLD_OBJECT_SYNC, (_op, v) => {
       const [objectEntityId, objectDefId, x10, z10, depleted] = v;
       const x = x10 / 10;
@@ -1025,7 +1163,26 @@ export class GameManager {
 
       // Track blocking tiles for pathfinding
       const tileKey = `${Math.floor(x)},${Math.floor(z)}`;
-      if (def?.blocking && !isDepleted) {
+      if (def?.category === 'door') {
+        // Doors block a specific edge, not the whole tile.
+        // Determine which edge based on fractional position (door sits on tile boundary)
+        const tx = Math.floor(x), tz = Math.floor(z);
+        const fracX = x - tx, fracZ = z - tz;
+        // Door is on the edge closest to its position within the tile
+        let edge = 0;
+        if (fracX < 0.15) edge = WallEdge.W;
+        else if (fracX > 0.85) edge = WallEdge.E;
+        else if (fracZ < 0.15) edge = WallEdge.N;
+        else if (fracZ > 0.85) edge = WallEdge.S;
+        else edge = WallEdge.N | WallEdge.S; // center — fallback to N/S
+
+        if (!isDepleted && edge) {
+          // Closed — set edge on door tile
+          const current = this.chunkManager.getWallRawPublic(tx, tz);
+          this.chunkManager.setWall(tx, tz, current | edge);
+        }
+        // Don't add to blockedObjectTiles — tile stays walkable
+      } else if (def?.blocking && !isDepleted) {
         this.blockedObjectTiles.add(tileKey);
       } else {
         this.blockedObjectTiles.delete(tileKey);
@@ -1083,7 +1240,24 @@ export class GameManager {
       if (data) {
         const def2 = this.objectDefsCache.get(data.defId);
         const tileKey = `${Math.floor(data.x)},${Math.floor(data.z)}`;
-        if (def2?.blocking && isDepleted === 0) {
+        if (def2?.category === 'door') {
+          const tx = Math.floor(data.x), tz = Math.floor(data.z);
+          const fracX = data.x - tx, fracZ = data.z - tz;
+          let edge = 0;
+          if (fracX < 0.15) edge = WallEdge.W;
+          else if (fracX > 0.85) edge = WallEdge.E;
+          else if (fracZ < 0.15) edge = WallEdge.N;
+          else if (fracZ > 0.85) edge = WallEdge.S;
+          else edge = WallEdge.N | WallEdge.S;
+
+          if (isDepleted === 1) {
+            // Opened — clear door edge
+            this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) & ~edge);
+          } else {
+            // Closed — restore door edge
+            this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) | edge);
+          }
+        } else if (def2?.blocking && isDepleted === 0) {
           this.blockedObjectTiles.add(tileKey);
         } else {
           this.blockedObjectTiles.delete(tileKey);
@@ -1324,16 +1498,16 @@ export class GameManager {
         if (sprite.getMesh().name === meshName) {
           const npcDefId = this.npcDefs.get(entityId);
           const name = NPC_NAMES[npcDefId || 0] || 'NPC';
-          options.push({
-            label: `Attack ${name}`,
-            action: () => this.attackNpc(entityId),
-          });
-          if (npcDefId === 8) {
+          if (npcDefId === 8 || npcDefId === 11 || npcDefId === 12 || npcDefId === 13 || npcDefId === 14) {
+            // Shopkeeper — trade instead of attack
             options.push({
-              label: `Talk-to ${name}`,
-              action: () => {
-                if (this.chatPanel) this.chatPanel.addSystemMessage('The shopkeeper nods at you.', '#ff0');
-              },
+              label: `Trade ${name}`,
+              action: () => this.talkToNpc(entityId),
+            });
+          } else {
+            options.push({
+              label: `Attack ${name}`,
+              action: () => this.attackNpc(entityId),
             });
           }
           break;
@@ -1399,9 +1573,9 @@ export class GameManager {
 
       if (pickedObjectEntityId != null) {
         const data = this.worldObjectDefs.get(pickedObjectEntityId);
-        if (data && !data.depleted) {
+        if (data) {
           const def = this.objectDefsCache.get(data.defId);
-          if (def) {
+          if (def && (!data.depleted || def.category === 'door')) {
             for (let i = 0; i < def.actions.length; i++) {
               const actionName = def.actions[i];
               const eid = pickedObjectEntityId;
@@ -1419,9 +1593,9 @@ export class GameManager {
       for (const [objectEntityId, sprite] of this.worldObjectSprites) {
         if (sprite.getMesh().name === meshName) {
           const data = this.worldObjectDefs.get(objectEntityId);
-          if (data && !data.depleted) {
+          if (data) {
             const def = this.objectDefsCache.get(data.defId);
-            if (def) {
+            if (def && (!data.depleted || def.category === 'door')) {
               for (let i = 0; i < def.actions.length; i++) {
                 const actionName = def.actions[i];
                 const actionIdx = i;
@@ -1507,15 +1681,41 @@ export class GameManager {
     }
   }
 
+  private talkToNpc(npcEntityId: number): void {
+    const target = this.npcTargets.get(npcEntityId);
+    if (!target) return;
+
+    // Walk to NPC first, then send talk opcode
+    const path = findPath(this.playerX, this.playerZ, target.x, target.z,
+      this.isTileBlocked,
+      this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 200,
+      this.isWallBlockedForPath);
+    if (path.length > 1) {
+      const last = path[path.length - 1];
+      if (Math.floor(last.x) === Math.floor(target.x) && Math.floor(last.z) === Math.floor(target.z)) {
+        path.pop();
+      }
+    }
+    if (path.length > 0) {
+      this.path = path; this.pathIndex = 0;
+      this.destMarker.isVisible = false;
+      this.minimap?.clearDestination();
+    }
+    // Send talk opcode — server checks distance
+    this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_TALK_NPC, npcEntityId));
+  }
+
   private pickupItem(groundItemId: number): void {
     this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_PICKUP_ITEM, groundItemId));
   }
 
   private handleObjectClick(objectEntityId: number): void {
     const data = this.worldObjectDefs.get(objectEntityId);
-    if (!data || data.depleted) return;
+    if (!data) return;
     const def = this.objectDefsCache.get(data.defId);
     if (!def) return;
+    // Doors can always be clicked (open/close toggle). Other objects can't when depleted.
+    if (data.depleted && def.category !== 'door') return;
     // Auto-interact with harvestable objects (trees, rocks) and doors
     if ((def.skill && def.harvestItemId) || def.category === 'door') {
       // Show red interaction marker at the object
@@ -1537,28 +1737,23 @@ export class GameManager {
     const data = this.worldObjectDefs.get(objectEntityId);
     if (!data) return;
 
-    // Walk to the object if not adjacent
     const dx = data.x - this.playerX;
     const dz = data.z - this.playerZ;
     const dist = Math.hypot(dx, dz);
+
     if (dist > 2.0) {
+      // Walk toward the object — pathfind to the object tile (goal fallback finds adjacent)
       const path = findPath(this.playerX, this.playerZ, data.x, data.z,
         this.isTileBlocked,
-        this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 200,
+        this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
         this.isWallBlockedForPath);
-      if (path.length > 1) {
-        const last = path[path.length - 1];
-        if (Math.floor(last.x) === Math.floor(data.x) && Math.floor(last.z) === Math.floor(data.z)) {
-          path.pop();
-        }
-      }
       if (path.length > 0) {
         this.path = path; this.pathIndex = 0;
         this.network.sendMove(path);
       }
     }
 
-    // Send interaction request
+    // Send interaction request — server validates distance
     this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_INTERACT_OBJECT, objectEntityId, actionIndex));
   }
 
@@ -1686,9 +1881,12 @@ export class GameManager {
   };
 
   private isWallBlockedForPath = (fx: number, fz: number, tx: number, tz: number): boolean => {
-    return this.currentFloor === 0
-      ? this.chunkManager.isWallBlocked(fx, fz, tx, tz)
-      : this.chunkManager.isWallBlockedOnFloor(fx, fz, tx, tz, this.currentFloor);
+    if (this.currentFloor !== 0) {
+      return this.chunkManager.isWallBlockedOnFloor(fx, fz, tx, tz, this.currentFloor);
+    }
+    // Pass player height so walls below the player don't block
+    const playerY = this.localPlayer?.position.y ?? this.getHeight(this.playerX, this.playerZ);
+    return this.chunkManager.isWallBlocked(fx, fz, tx, tz, playerY);
   };
 
   private handleGroundClick(worldX: number, worldZ: number): void {
@@ -1932,7 +2130,9 @@ export class GameManager {
           this.playerX += (dx / dist) * step;
           this.playerZ += (dz / dist) * step;
         }
-        this.localPlayer.position = new Vector3(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+        const playerH = this.getHeight(this.playerX, this.playerZ);
+        this.localPlayer.position = new Vector3(this.playerX, playerH, this.playerZ);
+        this.inputManager.setPlayerY(playerH);
       }
     }
 
@@ -2036,7 +2236,8 @@ export class GameManager {
     }
 
     // Indoor detection — check if player is under a roof
-    const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ);
+    const playerY = this.localPlayer?.position.y ?? this.getHeight(this.playerX, this.playerZ);
+    const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ, playerY);
     if (underRoof && !this.isIndoors) {
       this.isIndoors = true;
       this.camera.setTargetRadius(10);

@@ -18,5 +18,13 @@
   { "id": 8, "name": "Shopkeeper", "health": 50, "attack": 1, "defence": 1, "strength": 1, "attackSpeed": 4, "respawnTime": 100, "aggressive": false, "wanderRange": 1,
     "lootTable": [] },
   { "id": 9, "name": "Dark Knight", "health": 60, "attack": 18, "defence": 15, "strength": 16, "attackSpeed": 5, "respawnTime": 60, "aggressive": true, "wanderRange": 3,
-    "lootTable": [{ "itemId": 20, "quantity": 1, "chance": 1.0 }, { "itemId": 10, "quantity": 40, "chance": 1.0 }, { "itemId": 6, "quantity": 1, "chance": 0.1 }, { "itemId": 17, "quantity": 1, "chance": 0.06 }, { "itemId": 22, "quantity": 1, "chance": 0.03 }] }
+    "lootTable": [{ "itemId": 20, "quantity": 1, "chance": 1.0 }, { "itemId": 10, "quantity": 40, "chance": 1.0 }, { "itemId": 6, "quantity": 1, "chance": 0.1 }, { "itemId": 17, "quantity": 1, "chance": 0.06 }, { "itemId": 22, "quantity": 1, "chance": 0.03 }] },
+  { "id": 11, "name": "Weapon Smith", "health": 50, "attack": 1, "defence": 1, "strength": 1, "attackSpeed": 4, "respawnTime": 100, "aggressive": false, "wanderRange": 1,
+    "lootTable": [] },
+  { "id": 12, "name": "Armorer", "health": 50, "attack": 1, "defence": 1, "strength": 1, "attackSpeed": 4, "respawnTime": 100, "aggressive": false, "wanderRange": 1,
+    "lootTable": [] },
+  { "id": 13, "name": "Leg Armorer", "health": 50, "attack": 1, "defence": 1, "strength": 1, "attackSpeed": 4, "respawnTime": 100, "aggressive": false, "wanderRange": 1,
+    "lootTable": [] },
+  { "id": 14, "name": "Shield Smith", "health": 50, "attack": 1, "defence": 1, "strength": 1, "attackSpeed": 4, "respawnTime": 100, "aggressive": false, "wanderRange": 1,
+    "lootTable": [] }
 ]
