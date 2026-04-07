@@ -11,6 +11,7 @@ import { World } from './World';
 function splitObjectsByChunk(objects: PlacedObject[]): Map<string, PlacedObject[]> {
   const chunks = new Map<string, PlacedObject[]>();
   for (const obj of objects) {
+    if (obj.position.x == null || obj.position.z == null || isNaN(obj.position.x) || isNaN(obj.position.z)) continue;
     const cx = Math.floor(obj.position.x / CHUNK_SIZE);
     const cz = Math.floor(obj.position.z / CHUNK_SIZE);
     const key = `chunk_${cx}_${cz}`;
