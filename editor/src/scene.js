@@ -162,6 +162,7 @@ function tuneModelLighting(model) {
   let selectedAssetId = ''
   let previewObject = null
   let previewRotation = { x: 0, y: 0, z: 0 }
+  let previewScale = 1.0
   let hoverEdgeHelper = null
 
   let assetSectionFilter = 'all'
@@ -676,7 +677,7 @@ function tuneModelLighting(model) {
   const MAX_HISTORY = 100
 
 const state = {
-  tool: ToolMode.TERRAIN,
+  tool: ToolMode.SELECT,
   paintType: 'grass',
   halfPaint: false,
   hovered: { x: 0, z: 0 },
@@ -863,7 +864,9 @@ let paintBrushRadius = 1
       <input id="assetSearch" type="text" placeholder="Search assets..." />
       <div id="assetGrid" class="asset-grid"></div>
       <div style="margin-top:5px;">
-        <button id="refreshPreviewBtn" style="width:100%">Refresh Preview</button>
+        <label style="font-size:11px;color:rgba(255,255,255,0.45);">Scale <span id="placeScaleLabel">1.0</span></label>
+        <input id="placeScaleSlider" type="range" min="0.1" max="5" step="0.1" value="1.0" style="width:100%;margin-top:3px;" />
+        <button id="refreshPreviewBtn" style="width:100%;margin-top:5px;">Refresh Preview</button>
       </div>
     </div>
 
@@ -1419,6 +1422,8 @@ let paintBrushRadius = 1
   const assetSearch = sidebar.querySelector('#assetSearch')
   const assetGrid = sidebar.querySelector('#assetGrid')
   const refreshPreviewBtn = sidebar.querySelector('#refreshPreviewBtn')
+  const placeScaleSlider = sidebar.querySelector('#placeScaleSlider')
+  const placeScaleLabel = sidebar.querySelector('#placeScaleLabel')
 
   const textureSearch = sidebar.querySelector('#textureSearch')
   const texturePalette = sidebar.querySelector('#texturePalette')
@@ -3430,6 +3435,7 @@ function applyToolAtTile(tile, eventLike = null) {
     model.dispose() // dispose the source instance — ghost is a separate clone
     previewObject.rotationQuaternion = null // use euler rotation instead of quaternion
     previewObject.rotation.set(previewRotation.x, previewRotation.y, previewRotation.z)
+    previewObject.scaling.set(previewScale, previewScale, previewScale)
     previewObject.userData.assetId = asset.id
     // previewObject is already in the scene from makeGhostMaterial
 
@@ -3480,6 +3486,7 @@ function applyToolAtTile(tile, eventLike = null) {
     model.position.copyFrom(pos)
     model.rotationQuaternion = null // use euler rotation
     model.rotation.set(previewRotation.x, previewRotation.y, previewRotation.z)
+    model.scaling.set(previewScale, previewScale, previewScale)
     model.userData.assetId = asset.id
     model.userData.type = 'asset'
     model.userData.layerId = activeLayerId
@@ -4313,6 +4320,14 @@ function applyToolAtTile(tile, eventLike = null) {
 
   refreshPreviewBtn.addEventListener('click', async () => {
     await updatePreviewObject()
+  })
+
+  placeScaleSlider.addEventListener('input', () => {
+    previewScale = parseFloat(placeScaleSlider.value)
+    placeScaleLabel.textContent = previewScale.toFixed(1)
+    if (previewObject) {
+      previewObject.scaling.set(previewScale, previewScale, previewScale)
+    }
   })
 
   textureSearch.addEventListener('input', refreshTexturePalette)
@@ -5596,8 +5611,8 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
   canvas.addEventListener('mousedown', (e) => {
     if (e.button === 2) isRightDragging = true
     if (e.button === 1) {
-      if (e.shiftKey) isMiddlePanning = true
-      else isMiddleDragging = true
+      if (e.shiftKey) isMiddleDragging = true
+      else isMiddlePanning = true
     }
   })
 
