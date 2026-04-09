@@ -144,8 +144,8 @@ export class Player extends Entity {
   }
 
   processMovement(): void {
-    // Process up to 2 waypoints per tick to match client visual speed (~3.0 tiles/sec)
-    for (let i = 0; i < 2 && this.moveQueue.length > 0; i++) {
+    // Process 1 waypoint per tick to match RS2 walk speed (~1.67 tiles/sec)
+    for (let i = 0; i < 1 && this.moveQueue.length > 0; i++) {
       const target = this.moveQueue.shift()!;
       this.position.x = target.x;
       this.position.y = target.z;

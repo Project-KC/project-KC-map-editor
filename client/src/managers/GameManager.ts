@@ -12,6 +12,7 @@ import '@babylonjs/loaders/glTF';
 import { ChunkManager } from '../rendering/ChunkManager';
 import { GameCamera } from '../rendering/Camera';
 import { SpriteEntity, loadDirectionalSprites, loadAnimationSprites, load8DirAnimationSprites, type DirectionalSpriteSet, type AnimationSpriteSet } from '../rendering/SpriteEntity';
+import { CharacterEntity } from '../rendering/CharacterEntity';
 import { loadRecoloredDirectionalSprites, loadRecolored8DirAnimationSprites, loadRecoloredAnimationSprites, type RecolorConfig } from '../rendering/SpriteRecolor';
 import { InputManager } from './InputManager';
 import { NetworkManager } from './NetworkManager';
@@ -77,7 +78,7 @@ export class GameManager {
   private username: string;
 
   // Local player
-  private localPlayer: SpriteEntity | null = null;
+  private localPlayer: CharacterEntity | null = null;
   private localPlayerId: number = -1;
   private currentFloor: number = 0;
   private playerX: number = 512;
@@ -88,7 +89,7 @@ export class GameManager {
   // Movement
   private path: { x: number; z: number }[] = [];
   private pathIndex: number = 0;
-  private moveSpeed: number = 3.0;
+  private moveSpeed: number = 1.67; // RS2 walk speed: 1 tile per 600ms tick
   private _tempVec: Vector3 = new Vector3(); // reusable temp vector to avoid per-frame allocations
   private _splatVp = new Viewport(0, 0, 1, 1); // reusable viewport for hit splat projection
 
@@ -533,10 +534,7 @@ export class GameManager {
     try {
       this.playerSprites = await loadDirectionalSprites(this.scene, '/sprites/player', 'player');
       console.log('Player directional sprites loaded');
-      // Upgrade local player if already created
-      if (this.localPlayer) {
-        this.upgradeToDirectionalSprite(this.localPlayer);
-      }
+      // Note: local player is now a 3D CharacterEntity — no sprite upgrade needed
       // Upgrade existing remote players
       for (const [, sprite] of this.remotePlayers) {
         this.upgradeToDirectionalSprite(sprite);
@@ -549,7 +547,7 @@ export class GameManager {
     try {
       this.playerWalkAnim = await load8DirAnimationSprites(this.scene, '/sprites/player/walk', 'player_walk', 4);
       console.log('Player walk animation loaded');
-      if (this.localPlayer) this.localPlayer.setWalkAnimation(this.playerWalkAnim);
+      // Note: local player is a 3D CharacterEntity with its own walk animation
       for (const [, sprite] of this.remotePlayers) sprite.setWalkAnimation(this.playerWalkAnim);
     } catch (e) {
       console.warn('Failed to load player walk animation:', e);
@@ -559,7 +557,6 @@ export class GameManager {
     try {
       this.playerPunchAnim = await load8DirAnimationSprites(this.scene, '/sprites/player/punch', 'player_punch', 4);
       console.log('Player punch animation loaded');
-      this.attachPlayerAttackAnims(this.localPlayer);
       for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
     } catch (e) {
       console.warn('Failed to load player punch animation:', e);
@@ -569,7 +566,6 @@ export class GameManager {
     try {
       this.playerKickAnim = await loadAnimationSprites(this.scene, '/sprites/player/kick', 'player_kick', 4);
       console.log('Player kick animation loaded');
-      this.attachPlayerAttackAnims(this.localPlayer);
       for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
     } catch (e) {
       console.warn('Failed to load player kick animation:', e);
@@ -579,7 +575,6 @@ export class GameManager {
     try {
       this.playerSwordAnim = await loadAnimationSprites(this.scene, '/sprites/player/sword', 'player_sword', 4);
       console.log('Player sword animation loaded');
-      this.attachPlayerAttackAnims(this.localPlayer);
       for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
     } catch (e) {
       console.warn('Failed to load player sword animation:', e);
@@ -923,14 +918,21 @@ export class GameManager {
       this.playerZ = v[2] / 10;
       this.network.setLocalPlayerId(this.localPlayerId);
 
-      this.localPlayer = new SpriteEntity(this.scene, {
+      this.localPlayer = new CharacterEntity(this.scene, {
         name: 'localPlayer',
-        color: new Color3(0.2, 0.4, 0.9),
-        width: 1.0,
-        height: 1.7,
+        modelPath: '/Character models/main character.glb',
+        targetHeight: 1.7,
         label: this.username,
         labelColor: '#00ff00',
-        directionalSprites: this.playerSprites ?? undefined,
+        additionalAnimations: [
+          { name: 'idle', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Idle_Loop' },
+          { name: 'walk', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Walk_Loop' },
+          { name: 'attack', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' },
+          { name: 'attack_slash', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' },
+          { name: 'attack_punch', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Punch_Cross' },
+          { name: 'chop', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Interact' },
+          { name: 'death', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Death01' },
+        ],
       });
       const spawnH = this.getHeight(this.playerX, this.playerZ);
       this.localPlayer.position = new Vector3(this.playerX, spawnH, this.playerZ);
@@ -1106,17 +1108,19 @@ export class GameManager {
         this.remoteCombatTargets.set(attackerId, targetId);
       }
 
-      // Trigger attack animation on the attacker sprite
-      const attackerSprite = this.npcSprites.get(attackerId)
-        || this.remotePlayers.get(attackerId)
-        || (attackerId === this.localPlayerId ? this.localPlayer : null);
-      if (attackerSprite) {
-        const isPlayer = attackerId === this.localPlayerId || this.remotePlayers.has(attackerId);
-        if (isPlayer) {
-          attackerSprite.playAttackAnimation(this.getPlayerAttackAnimName(attackerId));
-        } else {
-          // NPC — use default attack animation
-          attackerSprite.playAttackAnimation();
+      // Trigger attack animation on the attacker
+      if (attackerId === this.localPlayerId && this.localPlayer) {
+        this.localPlayer.playAttackAnimation();
+      } else {
+        const attackerSprite = this.npcSprites.get(attackerId)
+          || this.remotePlayers.get(attackerId);
+        if (attackerSprite) {
+          const isPlayer = this.remotePlayers.has(attackerId);
+          if (isPlayer) {
+            attackerSprite.playAttackAnimation(this.getPlayerAttackAnimName(attackerId));
+          } else {
+            attackerSprite.playAttackAnimation();
+          }
         }
       }
 
@@ -1958,7 +1962,7 @@ export class GameManager {
     const identity = GameManager.IDENTITY;
 
     // Project overlays for sprites that actually have visible overlays — no intermediate array
-    const projectSprite = (sprite: SpriteEntity) => {
+    const projectSprite = (sprite: SpriteEntity | CharacterEntity) => {
       const hasBubble = sprite.hasChatBubble();
       const hasBar = sprite.hasHealthBar();
       if (!hasBubble && !hasBar) return;
