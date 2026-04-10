@@ -1,0 +1,236 @@
+import { Scene } from '@babylonjs/core/scene';
+import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import '@babylonjs/loaders/glTF';
+
+/**
+ * 3D NPC entity — loads a GLB with embedded animations.
+ * Exposes the same public interface as SpriteEntity so it can be used interchangeably.
+ */
+export class Npc3DEntity {
+  private scene: Scene;
+  private root: TransformNode | null = null;
+  private meshes: AbstractMesh[] = [];
+  private _position: Vector3 = Vector3.Zero();
+  private _rotationY: number = 0;
+  private targetRotationY: number = 0;
+  private modelScale: number = 1;
+
+  // Animations keyed by role (idle, walk, attack, death)
+  private animGroups: Map<string, AnimationGroup> = new Map();
+  private currentAnim: string = '';
+  private _walking: boolean = false;
+
+  // Health bar (HTML overlay — same as SpriteEntity)
+  private healthBarEl: HTMLDivElement | null = null;
+  private healthBarFillEl: HTMLDivElement | null = null;
+  private healthBarTextEl: HTMLDivElement | null = null;
+  private healthBarVisible: boolean = false;
+  private yOffset: number = 0.5;
+
+  private _ready = false;
+
+  constructor(
+    scene: Scene,
+    file: string,
+    scale: number,
+    animMap: { idle: string; walk?: string; attack?: string; death?: string },
+    label?: string,
+  ) {
+    this.scene = scene;
+    this.modelScale = scale;
+    this.load(file, animMap, label);
+  }
+
+  private async load(
+    file: string,
+    animMap: { idle: string; walk?: string; attack?: string; death?: string },
+    label?: string,
+  ): Promise<void> {
+    try {
+      const lastSlash = file.lastIndexOf('/');
+      const dir = file.substring(0, lastSlash + 1);
+      const fname = file.substring(lastSlash + 1);
+      const result = await SceneLoader.ImportMeshAsync('', dir, fname, this.scene);
+
+      // Same pattern as ChunkManager.loadGLBModel — proven to work
+      const glbRoot = result.meshes[0]; // __root__ node with coordinate transforms
+      this.root = new TransformNode(`npc3d_${label ?? ''}`, this.scene);
+      glbRoot.parent = this.root;
+
+      this.meshes = result.meshes.filter(m => m.getTotalVertices() > 0);
+
+      // Compute bounds and offset so feet are at Y=0
+      let minY = Infinity, maxY = -Infinity;
+      for (const mesh of this.meshes) {
+        mesh.computeWorldMatrix(true);
+        const bb = mesh.getBoundingInfo().boundingBox;
+        if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+        if (bb.maximumWorld.y > maxY) maxY = bb.maximumWorld.y;
+      }
+      glbRoot.position.y -= minY;
+
+      this.root.scaling.set(this.modelScale, this.modelScale, this.modelScale);
+      this.yOffset = (maxY - minY) * this.modelScale / 2;
+
+      // Map animations by role
+      for (const group of result.animationGroups) {
+        group.stop();
+        if (group.name === animMap.idle) this.animGroups.set('idle', group);
+        if (group.name === animMap.walk) this.animGroups.set('walk', group);
+        if (group.name === animMap.attack) this.animGroups.set('attack', group);
+        if (group.name === animMap.death) this.animGroups.set('death', group);
+      }
+
+      // Start idle
+      this.playAnim('idle', true);
+      this.root.position.set(this._position.x, this._position.y, this._position.z);
+      this._ready = true;
+      console.log(`[Npc3DEntity] Loaded '${label}' — meshes: ${this.meshes.length}, anims: ${this.animGroups.size}, minY: ${minY.toFixed(2)}, maxY: ${maxY.toFixed(2)}, pos: ${this._position.toString()}, meshesVisible: ${this.meshes.map(m => m.isVisible).join(',')}, enabled: ${this.meshes.map(m => m.isEnabled()).join(',')}`);
+      // Force enable all meshes
+      for (const mesh of this.meshes) {
+        mesh.isVisible = true;
+        mesh.setEnabled(true);
+      }
+    } catch (e) {
+      console.warn(`[Npc3DEntity] Failed to load ${file}:`, e);
+    }
+  }
+
+  private playAnim(name: string, loop: boolean): void {
+    if (name === this.currentAnim && loop) return;
+    if (this.currentAnim) {
+      const cur = this.animGroups.get(this.currentAnim);
+      cur?.stop();
+    }
+    const group = this.animGroups.get(name);
+    if (!group) return;
+    this.currentAnim = name;
+    group.start(loop, 1.0, group.from, group.to, false);
+  }
+
+  // --- Public API matching SpriteEntity ---
+
+  get position(): Vector3 { return this._position; }
+  set position(pos: Vector3) {
+    this._position = pos;
+    if (this.root) this.root.position.set(pos.x, pos.y, pos.z);
+  }
+
+  startWalking(): void {
+    if (this._walking) return;
+    this._walking = true;
+    this.playAnim('walk', true);
+  }
+
+  stopWalking(): void {
+    if (!this._walking) return;
+    this._walking = false;
+    this.playAnim('idle', true);
+  }
+
+  isWalking(): boolean { return this._walking; }
+
+  playAttackAnimation(_variant?: string): void {
+    if (this.currentAnim === 'attack') return;
+    this.playAnim('attack', false);
+    const group = this.animGroups.get('attack');
+    if (group) {
+      group.onAnimationGroupEndObservable.addOnce(() => {
+        if (this._walking) this.playAnim('walk', true);
+        else this.playAnim('idle', true);
+      });
+    }
+  }
+
+  updateAnimation(dt: number): void {
+    if (!this.root) return;
+    // Smooth rotation
+    let diff = this.targetRotationY - this._rotationY;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) > 0.01) {
+      this._rotationY += diff * Math.min(1, 10 * dt);
+      this.root.rotation.y = this._rotationY;
+    }
+  }
+
+  updateMovementDirection(dx: number, dz: number, _cameraPos?: Vector3): void {
+    if (Math.abs(dx) < 0.001 && Math.abs(dz) < 0.001) return;
+    this.targetRotationY = Math.atan2(dx, dz);
+  }
+
+  faceToward(target: Vector3, _cameraPos?: Vector3): void {
+    const dx = target.x - this._position.x;
+    const dz = target.z - this._position.z;
+    if (Math.abs(dx) < 0.001 && Math.abs(dz) < 0.001) return;
+    this.targetRotationY = Math.atan2(dx, dz);
+  }
+
+  updateDirection(_cameraPos: Vector3): void { /* no-op for 3D */ }
+
+  // Health bar
+  showHealthBar(current: number, max: number): void {
+    this.healthBarVisible = true;
+    if (!this.healthBarEl) {
+      this.healthBarEl = document.createElement('div');
+      this.healthBarEl.className = 'entity-health-bar';
+      this.healthBarEl.style.cssText = `position:fixed;pointer-events:none;z-index:150;width:48px;height:8px;background:#400;border:1px solid #000;transform:translate(-50%,-50%);border-radius:1px;overflow:hidden`;
+      this.healthBarFillEl = document.createElement('div');
+      this.healthBarFillEl.style.cssText = `height:100%;transition:width 0.15s,background 0.15s`;
+      this.healthBarEl.appendChild(this.healthBarFillEl);
+      this.healthBarTextEl = document.createElement('div');
+      this.healthBarTextEl.style.cssText = `position:absolute;top:-1px;left:0;right:0;text-align:center;font-family:monospace;font-size:8px;font-weight:bold;color:#fff;text-shadow:1px 1px 0 #000,-1px -1px 0 #000;line-height:10px;pointer-events:none`;
+      this.healthBarEl.appendChild(this.healthBarTextEl);
+      document.body.appendChild(this.healthBarEl);
+    }
+    const ratio = Math.max(0, current / max);
+    this.healthBarFillEl!.style.width = `${ratio * 100}%`;
+    this.healthBarFillEl!.style.background = ratio > 0.5 ? '#0b0' : ratio > 0.25 ? '#bb0' : '#b00';
+    this.healthBarTextEl!.textContent = `${current}/${max}`;
+  }
+
+  hideHealthBar(): void {
+    this.healthBarVisible = false;
+    if (this.healthBarEl) { this.healthBarEl.remove(); this.healthBarEl = null; }
+  }
+
+  getHealthBarWorldPos(): Vector3 | null {
+    if (!this.healthBarVisible) return null;
+    return new Vector3(this._position.x, this._position.y + this.yOffset * 2 + 0.3, this._position.z);
+  }
+
+  updateHealthBarScreenPos(x: number, y: number): void {
+    if (this.healthBarEl) { this.healthBarEl.style.left = `${x}px`; this.healthBarEl.style.top = `${y}px`; }
+  }
+
+  hasHealthBar(): boolean { return this.healthBarVisible && this.healthBarEl !== null; }
+
+  // Chat bubble stubs
+  showChatBubble(_msg: string, _dur?: number): void { }
+  hideChatBubble(): void { }
+  getChatBubbleWorldPos(): Vector3 | null { return null; }
+  updateChatBubbleScreenPos(_x: number, _y: number): void { }
+  hasChatBubble(): boolean { return false; }
+
+  // SpriteEntity compat stubs
+  setAttackAnimation(_anim: any): void { }
+  setWalkAnimation(_anim: any): void { }
+  setDirectionalSprites(_sprites: any): void { }
+  addAttackAnimation(_name: string, _anim: any): void { }
+  getMesh(): any { return this.meshes[0] ?? null; }
+  isAnimating(): boolean { return this.currentAnim === 'attack'; }
+
+  dispose(): void {
+    this.hideHealthBar();
+    for (const [, group] of this.animGroups) { group.stop(); group.dispose(); }
+    this.animGroups.clear();
+    for (const mesh of this.meshes) mesh.dispose();
+    if (this.root) this.root.dispose();
+    this.root = null;
+    this.meshes = [];
+  }
+}

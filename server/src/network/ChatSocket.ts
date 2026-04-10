@@ -152,6 +152,37 @@ function handleCommand(
       break;
     }
 
+    case '/spawn': {
+      const player = findPlayerByUsername(from, world);
+      if (player) {
+        const map = world.getMap(player.currentMapLevel);
+        if (map) {
+          world.teleportPlayer(player, map.meta.spawnPoint.x, map.meta.spawnPoint.z);
+          ws.send(JSON.stringify({ type: 'system', message: 'Teleported to spawn' }));
+        }
+      }
+      break;
+    }
+
+    case '/give': {
+      const itemId = parseInt(parts[1]);
+      const quantity = parseInt(parts[2]) || 1;
+      if (!isFinite(itemId)) {
+        ws.send(JSON.stringify({ type: 'system', message: 'Usage: /give <itemId> [quantity]' }));
+        return;
+      }
+      const player = findPlayerByUsername(from, world);
+      if (player) {
+        if (player.addItem(itemId, quantity)) {
+          world.sendInventory(player);
+          ws.send(JSON.stringify({ type: 'system', message: `Gave ${quantity}x item ${itemId}` }));
+        } else {
+          ws.send(JSON.stringify({ type: 'system', message: 'Inventory full' }));
+        }
+      }
+      break;
+    }
+
     default: {
       ws.send(JSON.stringify({ type: 'system', message: `Unknown command: ${cmd}` }));
     }

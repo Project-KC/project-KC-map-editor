@@ -106,13 +106,43 @@ export class Player extends Entity {
     return 4; // Unarmed
   }
 
-  getWeaponStyle(itemDefs: Map<number, any>): 'stab' | 'slash' | 'crush' {
+  getWeaponStyle(itemDefs: Map<number, any>): 'stab' | 'slash' | 'crush' | 'bow' | 'crossbow' {
     const weaponId = this.equipment.get('weapon');
     if (weaponId) {
       const def = itemDefs.get(weaponId);
       if (def?.weaponStyle) return def.weaponStyle;
     }
     return 'crush'; // Unarmed = crush (fists)
+  }
+
+  isRangedWeapon(itemDefs: Map<number, any>): boolean {
+    const style = this.getWeaponStyle(itemDefs);
+    return style === 'bow' || style === 'crossbow';
+  }
+
+  /** Find the first matching ammo in inventory. Returns slot index + item def, or null. */
+  findAmmo(itemDefs: Map<number, any>): { slotIndex: number; itemDef: any } | null {
+    const weaponId = this.equipment.get('weapon');
+    if (!weaponId) return null;
+    const weaponDef = itemDefs.get(weaponId);
+    if (!weaponDef?.ammoType) return null;
+
+    for (let i = 0; i < this.inventory.length; i++) {
+      const slot = this.inventory[i];
+      if (!slot) continue;
+      const def = itemDefs.get(slot.itemId);
+      if (def?.isAmmo) return { slotIndex: i, itemDef: def };
+    }
+    return null;
+  }
+
+  /** Remove quantity from an inventory slot. Returns true if successful. */
+  removeItemFromSlot(slotIndex: number, quantity: number): boolean {
+    const slot = this.inventory[slotIndex];
+    if (!slot || slot.quantity < quantity) return false;
+    slot.quantity -= quantity;
+    if (slot.quantity <= 0) this.inventory[slotIndex] = null;
+    return true;
   }
 
   addItem(itemId: number, quantity: number = 1): boolean {

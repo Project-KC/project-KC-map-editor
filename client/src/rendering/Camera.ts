@@ -20,6 +20,10 @@ export class GameCamera {
       scene
     );
 
+    // Clip planes — minZ/maxZ tuned to reduce overdraw (far = fog end)
+    this.camera.minZ = 0.5;
+    this.camera.maxZ = 60;
+
     // Constrain camera
     this.camera.lowerBetaLimit = 0.4;
     this.camera.upperBetaLimit = Math.PI / 2.2;

@@ -7,7 +7,7 @@ import { Npc } from './entity/Npc';
 import { WorldObject } from './entity/WorldObject';
 import { DataLoader } from './data/DataLoader';
 import { GameDatabase } from './Database';
-import { processPlayerCombat, processNpcCombat, rollLoot } from './combat/Combat';
+import { processPlayerCombat, processPlayerRangedCombat, processNpcCombat, rollLoot, RANGED_ATTACK_DISTANCE } from './combat/Combat';
 import { broadcastPlayerInfo } from './network/ChatSocket';
 import { ServerChunkManager } from './ChunkManager';
 import { readdirSync } from 'fs';
@@ -612,11 +612,26 @@ export class World {
     const dx = npc.position.x - player.position.x;
     const dz = npc.position.y - player.position.y;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist > 1.5) {
+    const isRanged = player.isRangedWeapon(this.data.itemDefs);
+    const attackDist = isRanged ? RANGED_ATTACK_DISTANCE : 1.5;
+
+    if (dist > attackDist) {
       const map = this.getPlayerMap(player);
       const path = map.findPathOnFloor(player.position.x, player.position.y, npc.position.x, npc.position.y, player.currentFloor);
-      if (path.length > 1) {
-        player.moveQueue = path.slice(0, -1);
+      if (!isRanged && path.length > 1) {
+        player.moveQueue = path.slice(0, -1); // melee: walk to adjacent
+      } else if (isRanged) {
+        // Ranged: walk until within range, then stop
+        let cutIdx = path.length;
+        for (let i = 0; i < path.length; i++) {
+          const pdx = Math.abs(path[i].x - npc.position.x);
+          const pdz = Math.abs(path[i].z - npc.position.y);
+          if (pdx <= attackDist && pdz <= attackDist) {
+            cutIdx = i + 1;
+            break;
+          }
+        }
+        player.moveQueue = path.slice(0, cutIdx);
       } else {
         player.moveQueue = path;
       }
@@ -968,6 +983,26 @@ export class World {
 
     player.equipment.set(equipSlot, slot.itemId);
 
+    // Two-handed weapons: unequip shield when equipping a 2h weapon (and vice versa)
+    if (equipSlot === 'weapon' && itemDef.twoHanded) {
+      const shieldId = player.equipment.get('shield');
+      if (shieldId !== undefined) {
+        if (player.addItem(shieldId, 1)) {
+          player.equipment.delete('shield');
+        }
+      }
+    } else if (equipSlot === 'shield') {
+      const weaponId = player.equipment.get('weapon');
+      if (weaponId !== undefined) {
+        const weaponDef = this.data.getItem(weaponId);
+        if (weaponDef?.twoHanded) {
+          if (player.addItem(weaponId, 1)) {
+            player.equipment.delete('weapon');
+          }
+        }
+      }
+    }
+
     this.sendInventory(player);
     this.sendEquipment(player);
   }
@@ -1116,10 +1151,13 @@ export class World {
 
       player.position.x = Math.floor(player.position.x) + 0.5;
       player.position.y = Math.floor(player.position.y) + 0.5;
+      const isRanged = player.isRangedWeapon(itemDefs);
+      const attackDist = isRanged ? RANGED_ATTACK_DISTANCE : 1.5;
       const cdx = npc.position.x - player.position.x;
       const cdz = npc.position.y - player.position.y;
       const combatDist = Math.sqrt(cdx * cdx + cdz * cdz);
-      if (combatDist > 1.5) {
+      if (combatDist > attackDist) {
+        // Chase — ranged players stop when in range, melee players walk adjacent
         player.moveQueue = [];
         const sx = cdx !== 0 ? Math.sign(cdx) : 0;
         const sz = cdz !== 0 ? Math.sign(cdz) : 0;
@@ -1140,7 +1178,29 @@ export class World {
         }
       }
 
-      const result = processPlayerCombat(player, npc, itemDefs);
+      // Process combat — ranged or melee
+      let result: any = null;
+      if (isRanged) {
+        const ammo = player.findAmmo(itemDefs);
+        if (ammo) {
+          const arrowStr = ammo.itemDef.rangedStrength ?? 0;
+          result = processPlayerRangedCombat(player, npc, itemDefs, arrowStr);
+          if (result) {
+            // Consume 1 arrow
+            player.removeItemFromSlot(ammo.slotIndex, 1);
+            this.sendInventory(player);
+            // Send projectile visual
+            this.broadcastProjectile(player.id, npc.id, 1, player.currentMapLevel, player.position.x, player.position.y);
+          }
+        } else {
+          // No ammo — cancel combat
+          this.clearCombatTarget(playerId);
+          this.sendChatSystem(player, 'You have no arrows left.');
+          continue;
+        }
+      } else {
+        result = processPlayerCombat(player, npc, itemDefs);
+      }
       if (result) {
         this.broadcastCombatHit(result.hit.attackerId, result.hit.targetId, result.hit.damage, result.hit.targetHealth, result.hit.targetMaxHealth, player.currentMapLevel, npc.position.x, npc.position.y);
 
@@ -1645,6 +1705,17 @@ export class World {
 
   private broadcastCombatHit(attackerId: number, targetId: number, damage: number, targetHp: number, targetMaxHp: number, mapLevel: string, worldX: number, worldZ: number): void {
     this.broadcastNearby(mapLevel, worldX, worldZ, ServerOpcode.COMBAT_HIT, attackerId, targetId, damage, targetHp, targetMaxHp);
+  }
+
+  private broadcastProjectile(attackerId: number, targetId: number, projectileType: number, mapLevel: string, worldX: number, worldZ: number): void {
+    this.broadcastNearby(mapLevel, worldX, worldZ, ServerOpcode.COMBAT_PROJECTILE, attackerId, targetId, projectileType);
+  }
+
+  private sendChatSystem(player: Player, message: string): void {
+    // Find the player's chat socket and send system message
+    try {
+      player.ws.sendBinary(encodePacket(ServerOpcode.CHAT_SYSTEM, 0));
+    } catch { /* ignore */ }
   }
 
   private sendMapChange(player: Player, mapId: string): void {

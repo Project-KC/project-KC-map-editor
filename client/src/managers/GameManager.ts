@@ -12,7 +12,8 @@ import '@babylonjs/loaders/glTF';
 import { ChunkManager } from '../rendering/ChunkManager';
 import { GameCamera } from '../rendering/Camera';
 import { SpriteEntity, loadDirectionalSprites, loadAnimationSprites, load8DirAnimationSprites, type DirectionalSpriteSet, type AnimationSpriteSet } from '../rendering/SpriteEntity';
-import { CharacterEntity } from '../rendering/CharacterEntity';
+import { CharacterEntity, loadGearTemplate, type GearDef } from '../rendering/CharacterEntity';
+import { Npc3DEntity } from '../rendering/Npc3DEntity';
 import { loadRecoloredDirectionalSprites, loadRecolored8DirAnimationSprites, loadRecoloredAnimationSprites, type RecolorConfig } from '../rendering/SpriteRecolor';
 import { InputManager } from './InputManager';
 import { NetworkManager } from './NetworkManager';
@@ -57,6 +58,35 @@ const NPC_SIZES: Record<number, { w: number; h: number }> = {
   10: { w: 1.6, h: 1.4 },  // Cow (wide, slightly shorter than player)
 };
 
+/** 3D model config for NPCs. npcDefId → GLB path + scale + animation name mappings */
+const NPC_3D_MODELS: Record<number, { file: string; scale: number; anims: { idle: string; walk?: string; attack?: string; death?: string } }> = {
+  1:  { file: '/models/npcs/cow.glb', scale: 0.15, anims: { idle: 'Armature|Armature|Idle', walk: 'Armature|Armature|WalkSlow', death: 'Armature|Armature|Death' } }, // Chicken placeholder
+  2:  { file: '/models/npcs/rat.glb', scale: 0.2, anims: { idle: 'RatArmature|RatArmature|Rat_Idle', walk: 'RatArmature|RatArmature|Rat_Walk', attack: 'RatArmature|RatArmature|Rat_Attack', death: 'RatArmature|RatArmature|Rat_Death' } },
+  6:  { file: '/models/npcs/spider.glb', scale: 0.2, anims: { idle: 'SpiderArmature|SpiderArmature|Spider_Idle', walk: 'SpiderArmature|SpiderArmature|Spider_Walk', attack: 'SpiderArmature|SpiderArmature|Spider_Attack', death: 'SpiderArmature|SpiderArmature|Spider_Death' } },
+  10: { file: '/models/npcs/cow.glb', scale: 0.2, anims: { idle: 'Armature|Armature|Idle', walk: 'Armature|Armature|WalkSlow', death: 'Armature|Armature|Death' } },
+};
+
+/**
+ * Equipment slot → bone attachment config.
+ * Each slot maps to a bone on the character skeleton + default transform.
+ * Gear GLBs go in /gear/{slot}/{itemId}.glb
+ */
+const EQUIP_SLOT_BONES: Record<string, { boneName: string; localPosition: { x: number; y: number; z: number }; localRotation: { x: number; y: number; z: number }; scale: number }> = {
+  weapon:  { boneName: 'hand_r',    localPosition: { x: -0.05, y: 0.08, z: -0.2 },    localRotation: { x: Math.PI / 2, y: 0, z: 0 }, scale: 0.9 },
+  shield:  { boneName: 'lowerarm_l', localPosition: { x: -0.08, y: -0.15, z: 0 },    localRotation: { x: 0, y: Math.PI, z: 0 }, scale: 0.85 },
+  head:    { boneName: 'Head',      localPosition: { x: 0, y: 0.08, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  body:    { boneName: 'spine_02',  localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  legs:    { boneName: 'pelvis',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  feet:    { boneName: 'foot_r',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  hands:   { boneName: 'hand_r',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  neck:    { boneName: 'neck_01',   localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  ring:    { boneName: 'hand_l',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+  cape:    { boneName: 'spine_03',  localPosition: { x: 0, y: -0.1, z: -0.1 }, localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+};
+
+/** Equipment slot index → slot name (matches server slot ordering) */
+const EQUIP_SLOT_NAMES = ['weapon', 'shield', 'head', 'body', 'legs', 'neck', 'ring', 'hands', 'feet', 'cape'];
+
 interface GroundItemData {
   id: number;
   itemId: number;
@@ -91,7 +121,15 @@ export class GameManager {
   private pathIndex: number = 0;
   private moveSpeed: number = 1.67; // RS2 walk speed: 1 tile per 600ms tick
   private _tempVec: Vector3 = new Vector3(); // reusable temp vector to avoid per-frame allocations
+  // NOTE: do NOT reuse a single Vector3 for entity positions — the setter stores the reference
   private _splatVp = new Viewport(0, 0, 1, 1); // reusable viewport for hit splat projection
+
+  // Local player equipment tracking (slot index → item ID)
+  private localEquipment: Map<number, number> = new Map();
+
+  // Gear — cached templates so the same GLB isn't loaded twice
+  private gearTemplateCache: Map<string, any> = new Map(); // key: "slot/itemId"
+  private gearLoadingPromises: Map<string, Promise<any>> = new Map();
 
   // Combat follow (local player follows melee target)
   private combatTargetId: number = -1;
@@ -106,7 +144,7 @@ export class GameManager {
   private nameToEntityId: Map<string, number> = new Map();
 
   // NPCs
-  private npcSprites: Map<number, SpriteEntity> = new Map();
+  private npcSprites: Map<number, SpriteEntity | Npc3DEntity> = new Map();
   private npcTargets: Map<number, { x: number; z: number }> = new Map();
   private npcDefs: Map<number, number> = new Map();
 
@@ -293,6 +331,12 @@ export class GameManager {
     this.loadPlayerSprites();
     this.loadNpcSprites();
 
+    // FPS counter
+    const fpsEl = document.createElement('div');
+    fpsEl.style.cssText = 'position:fixed;top:4px;left:50%;transform:translateX(-50%);color:#0f0;font:bold 14px monospace;z-index:9999;text-shadow:1px 1px 0 #000;pointer-events:none';
+    document.body.appendChild(fpsEl);
+    let fpsFrames = 0, fpsLast = performance.now();
+
     // Game loop
     let lastTime = performance.now();
     this.engine.runRenderLoop(() => {
@@ -301,6 +345,13 @@ export class GameManager {
       lastTime = now;
       this.update(dt);
       this.scene.render();
+
+      fpsFrames++;
+      if (now - fpsLast >= 1000) {
+        fpsEl.textContent = `${fpsFrames} FPS | ${this.scene.getActiveMeshes().length} meshes`;
+        fpsFrames = 0;
+        fpsLast = now;
+      }
     });
 
     window.addEventListener('resize', () => this.engine.resize());
@@ -911,6 +962,76 @@ export class GameManager {
     });
   }
 
+  /**
+   * Equip or unequip a 3D gear piece on the local player.
+   * Loads /gear/{slotName}/{itemId}.glb on demand, caches the template.
+   * itemId = 0 or -1 means unequip.
+   */
+  private async equipGear(slotIndex: number, itemId: number): Promise<void> {
+    if (!this.localPlayer) return;
+    const slotName = EQUIP_SLOT_NAMES[slotIndex];
+    if (!slotName) return;
+
+    // Unequip
+    if (itemId <= 0) {
+      this.localPlayer.detachGear(slotName);
+      return;
+    }
+
+    // Already wearing this item?
+    if (this.localPlayer.getGearItemId(slotName) === itemId) return;
+
+    const cacheKey = `${slotName}/${itemId}`;
+    const boneConfig = EQUIP_SLOT_BONES[slotName];
+    if (!boneConfig) return;
+
+    // Check if this is a bow/crossbow — needs different grip transform
+    const itemDef = this.itemDefsCache.get(itemId);
+    const isBow = itemDef?.weaponStyle === 'bow' || itemDef?.weaponStyle === 'crossbow';
+
+    // Clear cache for this item so rotation changes take effect immediately
+    this.gearTemplateCache.delete(cacheKey);
+
+    // Check cache
+    let template = this.gearTemplateCache.get(cacheKey);
+    if (!template) {
+      // Check if already loading
+      let promise = this.gearLoadingPromises.get(cacheKey);
+      if (!promise) {
+        promise = (async () => {
+          const pos = isBow
+            ? { x: -0.04, y: 0, z: 0 }
+            : boneConfig.localPosition;
+          const rot = isBow
+            ? { x: Math.PI / 2, y: 0, z: 0 }
+            : boneConfig.localRotation;
+          const gearDef: GearDef = {
+            itemId,
+            file: `/gear/${slotName}/${itemId}.glb`,
+            boneName: boneConfig.boneName,
+            localPosition: pos,
+            localRotation: rot,
+            scale: isBow ? 0.9 : boneConfig.scale,
+            centerOrigin: isBow,
+          };
+          const tmpl = await loadGearTemplate(this.scene, gearDef);
+          if (tmpl) {
+            this.gearTemplateCache.set(cacheKey, tmpl);
+            console.log(`[Gear] Loaded ${slotName} item ${itemId}`);
+          }
+          this.gearLoadingPromises.delete(cacheKey);
+          return tmpl;
+        })();
+        this.gearLoadingPromises.set(cacheKey, promise);
+      }
+      template = await promise;
+    }
+
+    if (template && this.localPlayer) {
+      this.localPlayer.attachGear(slotName, itemId, template);
+    }
+  }
+
   private setupNetworkHandlers(): void {
     this.network.on(ServerOpcode.LOGIN_OK, (_op, v) => {
       this.localPlayerId = v[0];
@@ -921,17 +1042,22 @@ export class GameManager {
       this.localPlayer = new CharacterEntity(this.scene, {
         name: 'localPlayer',
         modelPath: '/Character models/main character.glb',
-        targetHeight: 1.7,
+        targetHeight: 1.53,
         label: this.username,
         labelColor: '#00ff00',
+        // Each animation can be replaced individually by dropping a GLB into
+        // /Character models/animations/ (e.g. walk.glb, idle.glb, attack.glb).
+        // The GLB just needs the armature + one animation — the mesh is ignored.
+        // Fallback: UAL library animations until replaced.
         additionalAnimations: [
-          { name: 'idle', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Idle_Loop' },
-          { name: 'walk', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Walk_Loop' },
-          { name: 'attack', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' },
-          { name: 'attack_slash', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' },
-          { name: 'attack_punch', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Punch_Cross' },
-          { name: 'chop', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Interact' },
-          { name: 'death', path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Death01' },
+          { name: 'idle', path: '/Character models/animations/idle.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Idle_Loop' } },
+          { name: 'walk', path: '/Character models/animations/walk.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Walk_Loop' } },
+          { name: 'attack', path: '/Character models/animations/attack.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' } },
+          { name: 'attack_slash', path: '/Character models/animations/attack_slash.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' } },
+          { name: 'attack_punch', path: '/Character models/animations/attack_punch.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Punch_Cross' } },
+          { name: 'chop', path: '/Character models/animations/chop.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Interact' } },
+          { name: 'bow_attack', path: '/Character models/animations/bow_attack.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Spell_Simple_Shoot' } },
+          { name: 'death', path: '/Character models/animations/death.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Death01' } },
         ],
       });
       const spawnH = this.getHeight(this.playerX, this.playerZ);
@@ -990,27 +1116,36 @@ export class GameManager {
       this.npcDefs.set(entityId, npcDefId);
 
       if (!this.npcSprites.has(entityId)) {
-        const color = NPC_COLORS[npcDefId] || new Color3(0.5, 0.5, 0.5);
         const name = NPC_NAMES[npcDefId] || `NPC${npcDefId}`;
-        const size = NPC_SIZES[npcDefId] || { w: 0.8, h: 1.4 };
-        const npcSpriteSet = this.npcSpriteSets.get(npcDefId);
-        const sprite = new SpriteEntity(this.scene, {
-          name: `npc_${entityId}`,
-          color,
-          label: name,
-          labelColor: '#ffff00',
-          width: size.w,
-          height: size.h,
-          directionalSprites: npcSpriteSet ?? undefined,
-        });
-        sprite.position = new Vector3(x, this.getHeight(x, z), z);
-        // Attach attack animation if available for this NPC type
-        const attackAnim = this.npcAttackAnims.get(npcDefId);
-        if (attackAnim) sprite.setAttackAnimation(attackAnim);
-        // Attach walk animation if available (recolored humanoid NPCs)
-        const walkAnim = this.npcWalkAnims.get(npcDefId);
-        if (walkAnim) sprite.setWalkAnimation(walkAnim);
-        this.npcSprites.set(entityId, sprite);
+        const modelCfg = NPC_3D_MODELS[npcDefId];
+
+        if (modelCfg) {
+          // Use 3D model
+          const npc3d = new Npc3DEntity(this.scene, modelCfg.file, modelCfg.scale, modelCfg.anims, name);
+          npc3d.position = new Vector3(x, this.getHeight(x, z), z);
+          this.npcSprites.set(entityId, npc3d);
+
+        } else {
+          // Fall back to sprite
+          const color = NPC_COLORS[npcDefId] || new Color3(0.5, 0.5, 0.5);
+          const size = NPC_SIZES[npcDefId] || { w: 0.8, h: 1.4 };
+          const npcSpriteSet = this.npcSpriteSets.get(npcDefId);
+          const sprite = new SpriteEntity(this.scene, {
+            name: `npc_${entityId}`,
+            color,
+            label: name,
+            labelColor: '#ffff00',
+            width: size.w,
+            height: size.h,
+            directionalSprites: npcSpriteSet ?? undefined,
+          });
+          sprite.position = new Vector3(x, this.getHeight(x, z), z);
+          const attackAnim = this.npcAttackAnims.get(npcDefId);
+          if (attackAnim) sprite.setAttackAnimation(attackAnim);
+          const walkAnim = this.npcWalkAnims.get(npcDefId);
+          if (walkAnim) sprite.setWalkAnimation(walkAnim);
+          this.npcSprites.set(entityId, sprite);
+        }
       }
 
       this.npcTargets.set(entityId, { x, z });
@@ -1110,7 +1245,11 @@ export class GameManager {
 
       // Trigger attack animation on the attacker
       if (attackerId === this.localPlayerId && this.localPlayer) {
-        this.localPlayer.playAttackAnimation();
+        // Use punch animation for ranged (no bow draw animation yet)
+        const weaponId = this.localEquipment.get(0) ?? -1; // slot 0 = weapon
+        const weaponDef = this.itemDefsCache.get(weaponId);
+        const isBow = weaponDef?.weaponStyle === 'bow' || weaponDef?.weaponStyle === 'crossbow';
+        this.localPlayer.playAttackAnimation(isBow ? 'bow_attack' : undefined);
       } else {
         const attackerSprite = this.npcSprites.get(attackerId)
           || this.remotePlayers.get(attackerId);
@@ -1134,6 +1273,32 @@ export class GameManager {
         } else {
           this.localPlayer.hideHealthBar();
         }
+      }
+    });
+
+    // Ranged projectile visual
+    this.network.on(ServerOpcode.COMBAT_PROJECTILE, (_op, v) => {
+      const [attackerId, targetId, _projectileType] = v;
+
+      // Get attacker and target positions
+      let fromPos: Vector3 | null = null;
+      let toPos: Vector3 | null = null;
+
+      if (attackerId === this.localPlayerId && this.localPlayer) {
+        fromPos = this.localPlayer.position.clone();
+      } else {
+        const sprite = this.remotePlayers.get(attackerId) || this.npcSprites.get(attackerId);
+        if (sprite) fromPos = sprite.position.clone();
+      }
+
+      const targetSprite = this.npcSprites.get(targetId) || this.remotePlayers.get(targetId);
+      if (targetSprite) toPos = targetSprite.position.clone();
+      if (targetId === this.localPlayerId && this.localPlayer) {
+        toPos = this.localPlayer.position.clone();
+      }
+
+      if (fromPos && toPos) {
+        this.spawnProjectile(fromPos, toPos);
       }
     });
 
@@ -1378,9 +1543,12 @@ export class GameManager {
 
     this.network.on(ServerOpcode.PLAYER_EQUIPMENT, (_op, v) => {
       const [slotIndex, itemId] = v;
+      this.localEquipment.set(slotIndex, itemId);
       if (this.sidePanel) {
         this.sidePanel.updateEquipSlot(slotIndex, itemId);
       }
+      // Attach/detach 3D gear on local player
+      this.equipGear(slotIndex, itemId);
     });
 
     // Batch equipment: [slot0_itemId, slot1_itemId, ...]
@@ -1388,7 +1556,12 @@ export class GameManager {
       if (this.sidePanel) {
         for (let i = 0; i < v.length; i++) {
           this.sidePanel.updateEquipSlot(i, v[i]);
+          this.localEquipment.set(i, v[i]);
         }
+      }
+      // Attach/detach 3D gear on local player
+      for (let i = 0; i < v.length; i++) {
+        this.equipGear(i, v[i]);
       }
     });
 
@@ -1782,6 +1955,41 @@ export class GameManager {
         sprite.showChatBubble(message);
       }
     }
+  }
+
+  /** Spawn a simple arrow projectile that flies from→to over 300ms */
+  private spawnProjectile(from: Vector3, to: Vector3): void {
+    // Create a thin cylinder as the arrow
+    const arrow = MeshBuilder.CreateCylinder('projectile', { height: 0.6, diameter: 0.04 }, this.scene);
+    const mat = new StandardMaterial('projMat', this.scene);
+    mat.diffuseColor = new Color3(0.4, 0.25, 0.1); // brown
+    mat.emissiveColor = new Color3(0.2, 0.12, 0.05);
+    arrow.material = mat;
+
+    // Position at start, elevated slightly
+    from.y += 1.0;
+    to.y += 0.8;
+    arrow.position = from.clone();
+
+    // Orient toward target
+    const dir = to.subtract(from).normalize();
+    const up = Vector3.Up();
+    const right = Vector3.Cross(up, dir).normalize();
+    const correctedUp = Vector3.Cross(dir, right);
+    arrow.rotationQuaternion = Quaternion.FromLookDirectionLH(dir, correctedUp);
+
+    // Animate over 300ms
+    const duration = 300;
+    const startTime = performance.now();
+    const obs = this.scene.onBeforeRenderObservable.add(() => {
+      const t = Math.min(1, (performance.now() - startTime) / duration);
+      arrow.position = Vector3.Lerp(from, to, t);
+      if (t >= 1) {
+        this.scene.onBeforeRenderObservable.remove(obs);
+        arrow.dispose();
+        mat.dispose();
+      }
+    });
   }
 
   private showHitSplat(pos: Vector3, damage: number): void {
@@ -2192,12 +2400,14 @@ export class GameManager {
       const dz = target.z - c.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 0.05) {
+        if (!sprite.isWalking()) sprite.startWalking();
         if (camPos) sprite.updateMovementDirection(dx, dz, camPos);
         const step = Math.min(3.0 * dt, dist);
         const nx = c.x + (dx / dist) * step;
         const nz = c.z + (dz / dist) * step;
         sprite.position = new Vector3(nx, this.getHeight(nx, nz), nz);
       } else {
+        if (sprite.isWalking()) sprite.stopWalking();
         // Idle — face combat target if in combat
         const combatTarget = this.npcCombatTargets.get(entityId);
         if (combatTarget !== undefined) {

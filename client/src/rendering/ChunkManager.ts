@@ -377,6 +377,11 @@ export class ChunkManager {
       }
     }
 
+    // Freeze shared materials — they never change after setup (big perf win)
+    for (const mat of [this.groundMat, this.cliffMat, this.wallMat, this.roofMat, this.floorMat, this.stairMat]) {
+      if (mat) mat.freeze();
+    }
+
     // Load asset/texture registry before marking loaded so chunk texture overlays work immediately
     await this.loadAssetRegistry();
 
@@ -827,6 +832,18 @@ export class ChunkManager {
       if (floorSet) {
         upperFloors.set(floorIdx, floorSet);
         this.setFloorMeshSetVisibility(floorSet, floorIdx);
+      }
+    }
+
+    // Freeze world matrices on all static chunk meshes — big perf win since these never move
+    const allMeshes = [ground, water, paddyWater, cliff, ceiling, wall, roof, floor, stairs];
+    for (const [, floorSet] of upperFloors) {
+      allMeshes.push(floorSet.wall ?? null, floorSet.roof ?? null, floorSet.floor ?? null, floorSet.stairs ?? null);
+    }
+    for (const m of allMeshes) {
+      if (m) {
+        m.freezeWorldMatrix();
+        m.doNotSyncBoundingInfo = true;
       }
     }
 
@@ -2386,6 +2403,18 @@ export class ChunkManager {
         .multiply(Quaternion.RotationAxis(new Vector3(0, 0, 1), orz));
       root.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
       root.metadata = { ...root.metadata, assetId: obj.assetId };
+
+      // Freeze static placed objects — they never move
+      const hasAnims = !!templateAnims && templateAnims.length > 0;
+      if (!hasAnims) {
+        root.freezeWorldMatrix();
+        for (const child of root.getChildMeshes()) {
+          child.freezeWorldMatrix();
+          child.doNotSyncBoundingInfo = true;
+          if (child.material) (child.material as any).freeze?.();
+        }
+      }
+
       nodes.push(root);
       this.placedObjectNodes.push(root);
 
@@ -2431,6 +2460,23 @@ export class ChunkManager {
     this.chunkPlacedNodes.set(chunkKey, nodes);
     this.chunkAnimGroups.set(chunkKey, anims);
     this.loadingObjectChunks.delete(chunkKey);
+
+    // Log mesh counts per asset to identify expensive models
+    const meshCountByAsset = new Map<string, { count: number; meshes: number }>();
+    for (const node of nodes) {
+      const assetId = node.metadata?.assetId ?? 'unknown';
+      const childMeshes = node.getChildMeshes(false).length;
+      const entry = meshCountByAsset.get(assetId) ?? { count: 0, meshes: 0 };
+      entry.count++;
+      entry.meshes += childMeshes + 1; // +1 for root
+      meshCountByAsset.set(assetId, entry);
+    }
+    const sorted = [...meshCountByAsset.entries()].sort((a, b) => b[1].meshes - a[1].meshes);
+    const totalMeshes = sorted.reduce((s, [, v]) => s + v.meshes, 0);
+    console.log(`[ChunkManager] Chunk ${chunkKey}: ${nodes.length} objects → ${totalMeshes} meshes`);
+    for (const [asset, { count, meshes }] of sorted.slice(0, 5)) {
+      console.log(`  ${asset}: ${count} instances × ${Math.round(meshes / count)} meshes = ${meshes} total`);
+    }
 
     this.onChunkObjectsLoaded?.(chunkKey);
   }

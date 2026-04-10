@@ -9,6 +9,9 @@ export class Npc extends Entity {
 
   // AI
   wanderCooldown: number = 0;
+  wanderStepsLeft: number = 0;
+  wanderDirX: number = 0;
+  wanderDirZ: number = 0;
   combatTarget: Entity | null = null;
   attackCooldown: number = 0;
   returning: boolean = false; // Walking back to spawn after leash
@@ -124,18 +127,10 @@ export class Npc extends Entity {
 
     // Wander behavior (only when not in combat)
     if (this.wanderRange > 0) {
-      this.wanderCooldown--;
-      if (this.wanderCooldown <= 0) {
-        this.wanderCooldown = 5 + Math.floor(Math.random() * 10); // 5-15 ticks
-
-        // Pick a random cardinal direction (no allocation)
-        const r = Math.floor(Math.random() * 4);
-        const dirX = r === 0 ? -1 : r === 1 ? 1 : 0;
-        const dirZ = r === 2 ? -1 : r === 3 ? 1 : 0;
-        const nx = this.position.x + dirX;
-        const nz = this.position.y + dirZ;
-
-        // Check within wander range of spawn
+      // Currently walking in a direction — take another step
+      if (this.wanderStepsLeft > 0) {
+        const nx = this.position.x + this.wanderDirX;
+        const nz = this.position.y + this.wanderDirZ;
         const dxSpawn = nx - this.spawnX;
         const dzSpawn = nz - this.spawnZ;
         const wallBlock = isWallBlocked ? isWallBlocked(this.position.x, this.position.y, nx, nz) : false;
@@ -146,7 +141,27 @@ export class Npc extends Entity {
         ) {
           this.position.x = nx;
           this.position.y = nz;
+          this.wanderStepsLeft--;
+        } else {
+          // Blocked — stop walking, pause before next wander
+          this.wanderStepsLeft = 0;
+          this.wanderCooldown = 3 + Math.floor(Math.random() * 5);
         }
+        return;
+      }
+
+      // Pausing — count down until next wander
+      this.wanderCooldown--;
+      if (this.wanderCooldown <= 0) {
+        // Pick a random direction (8 directions including diagonals)
+        const r = Math.floor(Math.random() * 8);
+        const dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+        this.wanderDirX = dirs[r][0];
+        this.wanderDirZ = dirs[r][1];
+        // Walk 1-4 steps in this direction
+        this.wanderStepsLeft = 1 + Math.floor(Math.random() * 4);
+        // Pause 5-20 ticks after finishing this walk
+        this.wanderCooldown = 5 + Math.floor(Math.random() * 15);
       }
     }
   }
@@ -224,6 +239,7 @@ export class Npc extends Entity {
     this.combatTarget = null;
     this.attackCooldown = 0;
     this.wanderCooldown = 0;
+    this.wanderStepsLeft = 0;
     this.returning = false;
     this.heroPoints.clear();
     this.lastCombatTick = 0;

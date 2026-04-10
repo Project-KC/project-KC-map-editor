@@ -5,10 +5,31 @@ import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { Bone } from '@babylonjs/core/Bones/bone';
 import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Animation } from '@babylonjs/core/Animations/animation';
+import { Vector3, Quaternion } from '@babylonjs/core/Maths/math.vector';
 import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import { Matrix } from '@babylonjs/core/Maths/math.vector';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import '@babylonjs/loaders/glTF';
+
+/** Number of keyframes to quantize animations down to (RS-style choppy look) */
+const QUANTIZE_FRAMES = 8;
+
+/** Target durations in seconds — tuned so each pose holds long enough to read */
+const ANIM_DURATIONS: Record<string, number> = {
+  idle: 3.6,          // 6 ticks — slow gentle sway, ~450ms per pose
+  walk: 1.2,          // 2 ticks — full stride (both feet) over 2 tiles, half-cycle per tile
+  run: 1.2,           // 2 ticks
+  attack: 1.2,        // 2 ticks — wind up + swing
+  attack_slash: 1.2,
+  attack_punch: 1.2,
+  bow_attack: 1.2,    // 2 ticks — draw and release
+  chop: 1.8,          // 3 ticks — rhythmic chop
+  skill: 1.8,         // 3 ticks
+  death: 1.8,         // 3 ticks — dramatic fall
+};
 
 /**
  * Animation state priority (higher = takes precedence).
@@ -52,6 +73,8 @@ export interface GearDef {
   localPosition?: { x: number; y: number; z: number };
   localRotation?: { x: number; y: number; z: number };
   scale?: number;
+  /** If true, keep the model's origin as-is (centered grip). Default: shift bottom to Y=0 (swords). */
+  centerOrigin?: boolean;
 }
 
 /**
@@ -65,6 +88,8 @@ export interface AdditionalAnimation {
   path: string;
   /** If the GLB contains multiple animations, pick this one by name. If omitted, uses the first. */
   animName?: string;
+  /** Fallback if the primary path doesn't exist (e.g. UAL library placeholder) */
+  fallback?: { path: string; animName?: string };
 }
 
 export interface CharacterEntityOptions {
@@ -189,13 +214,43 @@ export class CharacterEntity {
       }
       this.root.scaling.set(this.modelScale, this.modelScale, this.modelScale);
 
-      // Configure materials for the game's lighting
+      // Convert PBR → flat StandardMaterial (matches the low-poly world style)
       for (const mesh of this.meshes) {
-        const mat = mesh.material as any;
-        if (mat) {
-          if (mat.transparencyMode !== undefined) mat.transparencyMode = 1;
-          mat.alpha = 1;
+        const pbrMat = mesh.material as any;
+        if (!pbrMat) continue;
+
+        const flat = new StandardMaterial(`${pbrMat.name}_flat`, this.scene);
+
+        // Extract base color from PBR (albedoColor or albedoTexture)
+        if (pbrMat.albedoTexture) {
+          flat.diffuseTexture = pbrMat.albedoTexture;
+          // Disable texture filtering for a crisper pixelated look
+          flat.diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST);
         }
+        if (pbrMat.albedoColor) {
+          // Brighten albedo — PBR textures are authored dark since PBR lighting adds a lot
+          const boost = 1.3;
+          flat.diffuseColor = new Color3(
+            Math.min(1, pbrMat.albedoColor.r * boost),
+            Math.min(1, pbrMat.albedoColor.g * boost),
+            Math.min(1, pbrMat.albedoColor.b * boost),
+          );
+        }
+
+        // Flat shading — no specular, tinted emissive to brighten without washing out
+        flat.specularColor = Color3.Black();
+        // Use a fraction of the diffuse color as emissive so skin/cloth tones are preserved
+        const dc = flat.diffuseColor;
+        flat.emissiveColor = new Color3(dc.r * 0.55, dc.g * 0.55, dc.b * 0.55);
+
+        // Note: convertToFlatShadedMesh() removed — it triples vertex count on a skeletal
+        // mesh which tanks FPS since every vertex gets bone-transformed each frame.
+
+        // Keep backface culling and transparency settings
+        flat.backFaceCulling = pbrMat.backFaceCulling ?? true;
+        flat.alpha = 1;
+
+        mesh.material = flat;
       }
 
       // Collect animation groups from the main GLB
@@ -209,6 +264,12 @@ export class CharacterEntity {
       // Load additional animations from separate GLB files
       if (options.additionalAnimations) {
         await this.loadAdditionalAnimations(options.additionalAnimations);
+      }
+
+      // Quantize all animations to QUANTIZE_FRAMES stepped keyframes (RS-style choppy look)
+      for (const [name, group] of this.animGroups) {
+        this.quantizeAnimationGroup(group, name);
+        console.log(`[CharacterEntity] Quantized '${name}' → ${QUANTIZE_FRAMES} frames, ${(ANIM_DURATIONS[name] ?? 1.2).toFixed(1)}s`);
       }
 
       // Start idle by default
@@ -258,24 +319,49 @@ export class CharacterEntity {
 
     for (const anim of anims) {
       try {
-        let result = loadedFiles.get(anim.path);
+        // Resolve path: try primary, fall back if 404
+        let activePath = anim.path;
+        let activeAnimName = anim.animName;
+
+        let result = loadedFiles.get(activePath);
         if (!result) {
-          const lastSlash = anim.path.lastIndexOf('/');
-          const dir = anim.path.substring(0, lastSlash + 1);
-          const file = anim.path.substring(lastSlash + 1);
-          const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
-          result = { animationGroups: imported.animationGroups, skeletons: imported.skeletons, meshes: imported.meshes };
-          loadedFiles.set(anim.path, result);
-          // Stop all animations from auto-playing
-          for (const g of result.animationGroups) g.stop();
+          try {
+            const lastSlash = activePath.lastIndexOf('/');
+            const dir = activePath.substring(0, lastSlash + 1);
+            const file = activePath.substring(lastSlash + 1);
+            const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
+            result = { animationGroups: imported.animationGroups, skeletons: imported.skeletons, meshes: imported.meshes };
+            loadedFiles.set(activePath, result);
+            for (const g of result.animationGroups) g.stop();
+            console.log(`[CharacterEntity] Custom animation '${anim.name}' loaded from ${activePath}`);
+          } catch {
+            // Primary path failed — try fallback
+            if (anim.fallback) {
+              activePath = anim.fallback.path;
+              activeAnimName = anim.fallback.animName;
+              result = loadedFiles.get(activePath);
+              if (!result) {
+                const lastSlash = activePath.lastIndexOf('/');
+                const dir = activePath.substring(0, lastSlash + 1);
+                const file = activePath.substring(lastSlash + 1);
+                const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
+                result = { animationGroups: imported.animationGroups, skeletons: imported.skeletons, meshes: imported.meshes };
+                loadedFiles.set(activePath, result);
+                for (const g of result.animationGroups) g.stop();
+              }
+            } else {
+              console.warn(`[CharacterEntity] Failed to load animation '${anim.name}' from ${activePath}, no fallback`);
+              continue;
+            }
+          }
         }
 
         // Find the specific animation group (by animName, or first one)
         let group: AnimationGroup | undefined;
-        if (anim.animName) {
-          group = result.animationGroups.find(g => g.name === anim.animName);
+        if (activeAnimName) {
+          group = result.animationGroups.find(g => g.name === activeAnimName);
           if (!group) {
-            console.warn(`[CharacterEntity] Animation '${anim.animName}' not found in '${anim.path}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
+            console.warn(`[CharacterEntity] Animation '${activeAnimName}' not found in '${activePath}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
             continue;
           }
         } else {
@@ -454,6 +540,8 @@ export class CharacterEntity {
 
   /** Play a one-shot attack animation. Optional variant name (e.g. 'attack_slash'). */
   playAttackAnimation(variant?: string): void {
+    // Don't restart if already playing an attack — let it finish
+    if (this.currentState === AnimState.Attack) return;
     this.queuedState = this.currentState >= AnimState.Walk ? AnimState.Walk : AnimState.Idle;
     this.queuedAnimName = '';
     this.playAnimByState(AnimState.Attack, variant, false);
@@ -830,6 +918,74 @@ export class CharacterEntity {
     }
     this.skeleton = null;
   }
+
+  // ---------------------------------------------------------------------------
+  // Animation quantization — resample to N stepped keyframes (RS-style)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resample an AnimationGroup to QUANTIZE_FRAMES stepped keyframes.
+   * This gives animations the choppy, low-frame look of RuneScape Classic.
+   * The animation is also retimed to match tick-aligned durations.
+   */
+  private quantizeAnimationGroup(group: AnimationGroup, animName: string): void {
+    const targetDuration = ANIM_DURATIONS[animName] ?? 1.2;
+    // Target frame rate: QUANTIZE_FRAMES over targetDuration seconds
+    const targetFps = QUANTIZE_FRAMES / targetDuration;
+
+    for (const ta of group.targetedAnimations) {
+      const anim = ta.animation;
+      const keys = anim.getKeys();
+      if (keys.length < 2) continue;
+
+      const srcFrom = keys[0].frame;
+      const srcTo = keys[keys.length - 1].frame;
+      const srcRange = srcTo - srcFrom;
+      if (srcRange <= 0) continue;
+
+      // Sample the animation at QUANTIZE_FRAMES evenly spaced points
+      const newKeys: any[] = [];
+      for (let i = 0; i < QUANTIZE_FRAMES; i++) {
+        // Sample position in original timeline
+        const t = i / (QUANTIZE_FRAMES - 1);
+        const srcFrame = srcFrom + t * srcRange;
+
+        // Find the two surrounding keyframes and interpolate
+        const value = this.sampleAnimationAt(keys, srcFrame, anim.dataType);
+
+        // Map to new timeline: frames 0..QUANTIZE_FRAMES-1
+        newKeys.push({ frame: i, value });
+      }
+
+      // Replace keys and set frame rate so total duration matches target
+      anim.setKeys(newKeys);
+      anim.framePerSecond = targetFps;
+    }
+  }
+
+  /**
+   * Sample an animation value at a fractional frame by finding the nearest keyframe.
+   * Uses step interpolation (nearest-neighbor) — no blending between frames.
+   */
+  private sampleAnimationAt(keys: any[], frame: number, dataType: number): any {
+    // Find the nearest keyframe (step/snap, not lerp)
+    let best = keys[0];
+    let bestDist = Infinity;
+    for (const key of keys) {
+      const dist = Math.abs(key.frame - frame);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = key;
+      }
+    }
+
+    // Deep-clone the value to avoid sharing references
+    const v = best.value;
+    if (v == null) return v;
+    if (typeof v === 'number') return v;
+    if (v.clone) return v.clone();
+    return v;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -859,15 +1015,19 @@ export async function loadGearTemplate(
     }
 
     // Normalize position so the attachment point is at origin
-    let minY = Infinity;
-    for (const mesh of result.meshes) {
-      if (mesh.getTotalVertices() === 0) continue;
-      mesh.computeWorldMatrix(true);
-      const bb = mesh.getBoundingInfo().boundingBox;
-      if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
-    }
-    for (const child of root.getChildren()) {
-      (child as TransformNode).position.y -= minY;
+    // centerOrigin: keep model centered (bows grip at center)
+    // default: shift bottom to Y=0 (swords held by handle end)
+    if (!def.centerOrigin) {
+      let minY = Infinity;
+      for (const mesh of result.meshes) {
+        if (mesh.getTotalVertices() === 0) continue;
+        mesh.computeWorldMatrix(true);
+        const bb = mesh.getBoundingInfo().boundingBox;
+        if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+      }
+      for (const child of root.getChildren()) {
+        (child as TransformNode).position.y -= minY;
+      }
     }
 
     root.setEnabled(false);

@@ -81,5 +81,19 @@
     "equipSlot": "weapon", "attackSpeed": 5, "weaponStyle": "slash",
     "slashAttack": 20, "meleeStrength": 15, "value": 500,
     "toolType": "axe", "toolLevel": 41, "toolBonus": 4, "sprite": "axe base.png" },
-  { "id": 39, "name": "Maple Logs", "description": "Logs cut from a maple tree.", "stackable": false, "equippable": false, "value": 20 }
+  { "id": 39, "name": "Maple Logs", "description": "Logs cut from a maple tree.", "stackable": false, "equippable": false, "value": 20 },
+  { "id": 40, "name": "Shortbow", "description": "A short bow made from wood.",
+    "stackable": false, "equippable": true,
+    "equipSlot": "weapon", "attackSpeed": 4, "weaponStyle": "bow", "twoHanded": true,
+    "rangedAccuracy": 8, "rangedStrength": 0, "ammoType": "arrow", "value": 30 },
+  { "id": 41, "name": "Longbow", "description": "A long bow with greater range.",
+    "stackable": false, "equippable": true,
+    "equipSlot": "weapon", "attackSpeed": 6, "weaponStyle": "bow", "twoHanded": true,
+    "rangedAccuracy": 14, "rangedStrength": 0, "ammoType": "arrow", "value": 60 },
+  { "id": 42, "name": "Bronze Arrows", "description": "Arrows with bronze tips.",
+    "stackable": true, "equippable": false,
+    "isAmmo": true, "rangedStrength": 7, "value": 2 },
+  { "id": 43, "name": "Iron Arrows", "description": "Arrows with iron tips.",
+    "stackable": true, "equippable": false,
+    "isAmmo": true, "rangedStrength": 10, "value": 5 }
 ]

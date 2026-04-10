@@ -66,7 +66,7 @@ export function findPath(
 
   const idx = (lx: number, lz: number) => lz * SEARCH_SIZE + lx;
 
-  // Helper: can move from (lx,lz) in a direction?
+  // Helper: can move from (lx,lz) to an unvisited neighbor?
   const canMoveCardinal = (lx: number, lz: number, dx: number, dz: number): boolean => {
     const nx = lx + dx, nz = lz + dz;
     if (nx < 0 || nx >= SEARCH_SIZE || nz < 0 || nz >= SEARCH_SIZE) return false;
@@ -76,6 +76,21 @@ export function findPath(
     if (isBlocked(wx, wz)) return false;
     if (isWallBlocked) {
       const fx = baseX + lx, fz = baseZ + lz;
+      if (isWallBlocked(fx, fz, wx, wz)) return false;
+    }
+    return true;
+  };
+
+  // Helper: is a tile passable (no collision/wall check from source)? Ignores visited state.
+  // Used for diagonal intermediate tile checks — the adjacent cardinals may already be visited
+  // but we still need to verify they're walkable for corner-cutting prevention.
+  const isPassable = (lx: number, lz: number, fromLx: number, fromLz: number): boolean => {
+    if (lx < 0 || lx >= SEARCH_SIZE || lz < 0 || lz >= SEARCH_SIZE) return false;
+    const wx = baseX + lx, wz = baseZ + lz;
+    if (wx < 0 || wx >= mapWidth || wz < 0 || wz >= mapHeight) return false;
+    if (isBlocked(wx, wz)) return false;
+    if (isWallBlocked) {
+      const fx = baseX + fromLx, fz = baseZ + fromLz;
       if (isWallBlocked(fx, fz, wx, wz)) return false;
     }
     return true;
@@ -125,15 +140,16 @@ export function findPath(
     // North
     if (canMoveCardinal(cx, cz, 0, 1)) enqueue(cx, cz + 1, DIR_SOUTH, dist);
 
-    // Diagonal directions — require 3 checks each (diagonal + both cardinals)
+    // Diagonal directions — intermediate cardinals use isPassable (ignores visited state),
+    // only the diagonal destination checks visited via directions[].
     // Southwest
-    if (canMoveCardinal(cx, cz, -1, 0) && canMoveCardinal(cx, cz, 0, -1) && canMoveCardinal(cx, cz, -1, -1)) {
+    {
       const nx = cx - 1, nz = cz - 1;
-      if (directions[idx(nx, nz)] === 0) {
-        // Also check walls on the intermediate tiles
-        const wx = baseX + cx, wz = baseZ + cz;
+      if (nx >= 0 && nz >= 0 && directions[idx(nx, nz)] === 0
+        && isPassable(cx - 1, cz, cx, cz) && isPassable(cx, cz - 1, cx, cz) && isPassable(nx, nz, cx, cz)) {
         let wallOk = true;
         if (isWallBlocked) {
+          const wx = baseX + cx, wz = baseZ + cz;
           if (isWallBlocked(wx - 1, wz, wx - 1, wz - 1)) wallOk = false;
           if (isWallBlocked(wx, wz - 1, wx - 1, wz - 1)) wallOk = false;
         }
@@ -141,9 +157,10 @@ export function findPath(
       }
     }
     // Southeast
-    if (canMoveCardinal(cx, cz, 1, 0) && canMoveCardinal(cx, cz, 0, -1) && canMoveCardinal(cx, cz, 1, -1)) {
+    {
       const nx = cx + 1, nz = cz - 1;
-      if (directions[idx(nx, nz)] === 0) {
+      if (nx < SEARCH_SIZE && nz >= 0 && directions[idx(nx, nz)] === 0
+        && isPassable(cx + 1, cz, cx, cz) && isPassable(cx, cz - 1, cx, cz) && isPassable(nx, nz, cx, cz)) {
         let wallOk = true;
         if (isWallBlocked) {
           const wx = baseX + cx, wz = baseZ + cz;
@@ -154,9 +171,10 @@ export function findPath(
       }
     }
     // Northwest
-    if (canMoveCardinal(cx, cz, -1, 0) && canMoveCardinal(cx, cz, 0, 1) && canMoveCardinal(cx, cz, -1, 1)) {
+    {
       const nx = cx - 1, nz = cz + 1;
-      if (directions[idx(nx, nz)] === 0) {
+      if (nx >= 0 && nz < SEARCH_SIZE && directions[idx(nx, nz)] === 0
+        && isPassable(cx - 1, cz, cx, cz) && isPassable(cx, cz + 1, cx, cz) && isPassable(nx, nz, cx, cz)) {
         let wallOk = true;
         if (isWallBlocked) {
           const wx = baseX + cx, wz = baseZ + cz;
@@ -167,9 +185,10 @@ export function findPath(
       }
     }
     // Northeast
-    if (canMoveCardinal(cx, cz, 1, 0) && canMoveCardinal(cx, cz, 0, 1) && canMoveCardinal(cx, cz, 1, 1)) {
+    {
       const nx = cx + 1, nz = cz + 1;
-      if (directions[idx(nx, nz)] === 0) {
+      if (nx < SEARCH_SIZE && nz < SEARCH_SIZE && directions[idx(nx, nz)] === 0
+        && isPassable(cx + 1, cz, cx, cz) && isPassable(cx, cz + 1, cx, cz) && isPassable(nx, nz, cx, cz)) {
         let wallOk = true;
         if (isWallBlocked) {
           const wx = baseX + cx, wz = baseZ + cz;

@@ -138,6 +138,93 @@ export function processPlayerCombat(
   };
 }
 
+/** Maximum range for ranged attacks in tiles */
+export const RANGED_ATTACK_DISTANCE = 7;
+
+/**
+ * Ranged combat: player attacks NPC with a bow + arrows.
+ * Same dual-roll hit check as melee but uses archery/ranged stats.
+ * Arrow rangedStrength is passed in separately since arrows aren't equipped.
+ */
+export function processPlayerRangedCombat(
+  player: Player,
+  npc: Npc,
+  itemDefs: Map<number, ItemDef>,
+  arrowStrength: number,
+): { hit: CombatHit; xpDrops: XpDrop[]; levelUps: { skill: string; level: number }[]; isRanged: true } | null {
+  if (npc.dead || !player.alive) return null;
+
+  // Check distance — must be within ranged distance
+  const dx = Math.abs(player.position.x - npc.position.x);
+  const dz = Math.abs(player.position.y - npc.position.y);
+  if (dx > RANGED_ATTACK_DISTANCE || dz > RANGED_ATTACK_DISTANCE) return null;
+
+  // Check cooldown
+  player.attackCooldown--;
+  if (player.attackCooldown > 0) return null;
+  player.attackCooldown = player.getAttackSpeed(itemDefs);
+
+  // Compute equipment bonuses
+  const bonuses = player.computeBonuses(itemDefs);
+
+  // Effective ranged level (archery skill + 8, no stance bonus for v1)
+  const effRanged = player.skills.archery.currentLevel + 8;
+
+  // Attack roll uses ranged accuracy
+  const attackRoll = effRanged * (bonuses.rangedAccuracy + ACC_BASE);
+
+  // NPC defence roll
+  const npcDefLevel = npc.def.defence + 8;
+  const npcDefRoll = npcDefLevel * ACC_BASE;
+
+  // Max hit — bow rangedStrength + arrow rangedStrength
+  const totalRangedStr = bonuses.rangedStrength + arrowStrength;
+  const maxHit = osrsMeleeMaxHit(effRanged, totalRangedStr);
+
+  let damage = 0;
+  if (rollHit(attackRoll, npcDefRoll)) {
+    damage = Math.floor(Math.random() * (maxHit + 1));
+  }
+
+  const actual = npc.takeDamage(damage);
+
+  // NPC retaliates — tries to chase the player
+  if (npc.alive) {
+    const wasInCombat = npc.combatTarget != null;
+    npc.combatTarget = player;
+    if (!wasInCombat) {
+      npc.attackCooldown = Math.floor(npc.def.attackSpeed / 2);
+    }
+  }
+
+  // Award archery XP (4 XP per damage dealt)
+  const xpDrops: XpDrop[] = [];
+  const levelUps: { skill: string; level: number }[] = [];
+
+  if (actual > 0) {
+    const amt = actual * 4;
+    const r = addXp(player.skills, 'archery', amt);
+    xpDrops.push({ skill: 'archery', amount: Math.floor(amt) });
+    if (r.leveled) levelUps.push({ skill: 'archery', level: r.newLevel });
+
+    npc.addHeroPoints(player.id, actual);
+    player.syncHealthFromSkills();
+  }
+
+  return {
+    hit: {
+      attackerId: player.id,
+      targetId: npc.id,
+      damage: actual,
+      targetHealth: npc.health,
+      targetMaxHealth: npc.maxHealth,
+    },
+    xpDrops,
+    levelUps,
+    isRanged: true,
+  };
+}
+
 /**
  * NPC attacks player — 2004Scape style.
  */

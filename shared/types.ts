@@ -30,7 +30,10 @@ export interface ItemDef {
   equippable: boolean;
   equipSlot?: 'weapon' | 'head' | 'body' | 'legs' | 'shield' | 'neck' | 'ring' | 'hands' | 'feet' | 'cape';
   attackSpeed?: number;
-  weaponStyle?: 'stab' | 'slash' | 'crush';
+  weaponStyle?: 'stab' | 'slash' | 'crush' | 'bow' | 'crossbow';
+  twoHanded?: boolean;
+  ammoType?: 'arrow' | 'bolt';
+  isAmmo?: boolean;
   // Attack bonuses
   stabAttack?: number;
   slashAttack?: number;
