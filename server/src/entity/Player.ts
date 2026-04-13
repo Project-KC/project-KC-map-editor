@@ -145,21 +145,29 @@ export class Player extends Entity {
     return true;
   }
 
-  addItem(itemId: number, quantity: number = 1): boolean {
-    for (let i = 0; i < this.inventory.length; i++) {
-      const slot = this.inventory[i];
-      if (slot && slot.itemId === itemId) {
-        slot.quantity += quantity;
-        return true;
+  addItem(itemId: number, quantity: number = 1, itemDefs?: Map<number, any>): boolean {
+    const def = itemDefs?.get(itemId);
+    const stackable = def?.stackable === true;
+
+    // Only stack if the item is explicitly marked as stackable
+    if (stackable) {
+      for (let i = 0; i < this.inventory.length; i++) {
+        const slot = this.inventory[i];
+        if (slot && slot.itemId === itemId) {
+          slot.quantity += quantity;
+          return true;
+        }
       }
     }
-    for (let i = 0; i < this.inventory.length; i++) {
-      if (!this.inventory[i]) {
-        this.inventory[i] = { itemId, quantity };
-        return true;
-      }
+
+    // Non-stackable: each unit takes its own slot
+    const toPlace = stackable ? 1 : quantity;
+    for (let q = 0; q < toPlace; q++) {
+      const emptySlot = this.inventory.findIndex(s => s === null);
+      if (emptySlot < 0) return false;
+      this.inventory[emptySlot] = { itemId, quantity: stackable ? quantity : 1 };
     }
-    return false;
+    return true;
   }
 
   removeItem(slot: number, quantity: number = 1): InventorySlot | null {

@@ -390,6 +390,9 @@ export class CharacterEntity {
           }
 
           if (ourTarget) {
+            // Skip position and scale tracks for neck_01 and Head bones.
+            // External animations carry the original (longer) neck rest pose —
+            // without this filter they override the shortened rest pose in the GLB.
             retargetedAnims.push({ animation: ta.animation, target: ourTarget });
           } else {
             missCount++;

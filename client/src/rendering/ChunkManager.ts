@@ -2322,8 +2322,8 @@ export class ChunkManager {
   private async loadChunkPlacedObjects(chunkKey: string): Promise<void> {
     if (this.chunkPlacedNodes.has(chunkKey) || this.loadingObjectChunks.has(chunkKey)) return;
     let objects = this.placedObjectsByChunk.get(chunkKey);
-    // If no pre-indexed objects, try fetching per-chunk file from server (chunked mode)
-    if ((!objects || objects.length === 0) && this.chunkedMode) {
+    // If no pre-indexed objects, try fetching per-chunk file from server
+    if (!objects || objects.length === 0) {
       try {
         const [cx, cz] = chunkKey.split(',').map(Number);
         const res = await fetch(`/maps/${this.mapId}/objects/chunk_${cx}_${cz}.json`);
@@ -2460,6 +2460,13 @@ export class ChunkManager {
     this.chunkPlacedNodes.set(chunkKey, nodes);
     this.chunkAnimGroups.set(chunkKey, anims);
     this.loadingObjectChunks.delete(chunkKey);
+
+    // Rebuild ground chunks now that objects (and their shadows) are loaded
+    // Ground chunks exist by now, so the rebuild will find them
+    if (objects && objects.length > 0) {
+      this.addShadowsForObjects(objects);
+      this.rebuildGroundChunksForObjects(objects);
+    }
 
     // Log mesh counts per asset to identify expensive models
     const meshCountByAsset = new Map<string, { count: number; meshes: number }>();
@@ -2650,7 +2657,7 @@ export class ChunkManager {
 
   /** Add shadow contribution from a set of placed objects (used in chunked mode) */
   private addShadowsForObjects(objects: PlacedObject[]): void {
-    if (!this.shadowInf || !this.mapWidth) return;
+    if (!this.shadowInf || !this.mapWidth) { console.log(`[ChunkManager] addShadowsForObjects: no shadowInf or mapWidth`); return; }
     const w = this.mapWidth + 1;
     for (const obj of objects) {
       const cx = obj.position.x;
@@ -2682,7 +2689,8 @@ export class ChunkManager {
     const affectedChunks = new Set<string>();
     for (const obj of objects) {
       const name = obj.assetId.toLowerCase();
-      if (!name.includes('tree') && !name.includes('bush')) continue; // only shadow-casting objects
+      const isShadowCaster = name.includes('tree') || name.includes('bush') || name.includes('modular') || name.includes('wall') || name.includes('house');
+      if (!isShadowCaster) continue;
       const shadowR = 3.8;
       const cx0 = Math.floor((obj.position.x - shadowR) / CHUNK_SIZE);
       const cx1 = Math.floor((obj.position.x + shadowR) / CHUNK_SIZE);
@@ -2694,6 +2702,7 @@ export class ChunkManager {
         }
       }
     }
+    let rebuilt = 0;
     for (const key of affectedChunks) {
       const existing = this.chunks.get(key);
       if (!existing) continue;
@@ -2704,6 +2713,7 @@ export class ChunkManager {
       // Rebuild just the ground mesh with updated shadows
       existing.ground.dispose();
       existing.ground = this.buildGroundMesh(cx, cz, startX, startZ, endX, endZ);
+      rebuilt++;
     }
   }
 

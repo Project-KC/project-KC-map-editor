@@ -782,7 +782,7 @@ export class World {
       return;
     }
 
-    if (player.addItem(item.itemId, item.quantity)) {
+    if (player.addItem(item.itemId, item.quantity, this.data.itemDefs)) {
       this.groundItems.delete(groundItemId);
       this.despawningItemIds.delete(groundItemId);
       const itemCm = this.chunkManagers.get(item.mapLevel);
@@ -920,7 +920,7 @@ export class World {
       return;
     }
 
-    // Crafting station actions (Smelt, Cook)
+    // Crafting station actions (Smelt, Cook, Smith)
     if (obj.def.recipes && obj.def.recipes.length > 0) {
       // Find first valid recipe in player's inventory
       for (const recipe of obj.def.recipes) {
@@ -928,7 +928,15 @@ export class World {
         const playerLevel = player.skills[skillId]?.level ?? 1;
         if (playerLevel < recipe.levelRequired) continue;
 
-        // Check if player has the input item
+        // Check tool requirement (e.g. hammer for anvil smithing)
+        if (recipe.requiresTool) {
+          const hasTool = player.inventory.some(slot =>
+            slot !== null && this.data.getItem(slot.itemId)?.toolType === recipe.requiresTool
+          );
+          if (!hasTool) continue;
+        }
+
+        // Check if player has the primary input item
         let inputSlot = -1;
         for (let i = 0; i < player.inventory.length; i++) {
           const slot = player.inventory[i];
@@ -939,9 +947,29 @@ export class World {
         }
         if (inputSlot < 0) continue;
 
-        // Consume input, give output
+        // Check second input if required (e.g. tin ore, coal)
+        let secondInputSlot = -1;
+        if (recipe.secondInputItemId !== undefined) {
+          const needed = recipe.secondInputQuantity ?? 1;
+          for (let i = 0; i < player.inventory.length; i++) {
+            if (i === inputSlot) continue;
+            const slot = player.inventory[i];
+            if (slot && slot.itemId === recipe.secondInputItemId && slot.quantity >= needed) {
+              secondInputSlot = i;
+              break;
+            }
+          }
+          if (secondInputSlot < 0) continue;
+        }
+
+        // Consume inputs
         player.removeItem(inputSlot, recipe.inputQuantity);
-        player.addItem(recipe.outputItemId, recipe.outputQuantity);
+        if (secondInputSlot >= 0 && recipe.secondInputQuantity) {
+          player.removeItem(secondInputSlot, recipe.secondInputQuantity);
+        }
+
+        // Give output
+        player.addItem(recipe.outputItemId, recipe.outputQuantity, this.data.itemDefs);
 
         // Award XP
         const result = addXp(player.skills, skillId, recipe.xpReward);
@@ -987,7 +1015,7 @@ export class World {
     if (equipSlot === 'weapon' && itemDef.twoHanded) {
       const shieldId = player.equipment.get('shield');
       if (shieldId !== undefined) {
-        if (player.addItem(shieldId, 1)) {
+        if (player.addItem(shieldId, 1, this.data.itemDefs)) {
           player.equipment.delete('shield');
         }
       }
@@ -996,7 +1024,7 @@ export class World {
       if (weaponId !== undefined) {
         const weaponDef = this.data.getItem(weaponId);
         if (weaponDef?.twoHanded) {
-          if (player.addItem(weaponId, 1)) {
+          if (player.addItem(weaponId, 1, this.data.itemDefs)) {
             player.equipment.delete('weapon');
           }
         }
@@ -1018,7 +1046,7 @@ export class World {
     const itemId = player.equipment.get(slotName);
     if (itemId === undefined) return;
 
-    if (player.addItem(itemId, 1)) {
+    if (player.addItem(itemId, 1, this.data.itemDefs)) {
       player.equipment.delete(slotName);
       this.sendInventory(player);
       this.sendEquipment(player);
@@ -1369,7 +1397,7 @@ export class World {
         const qty = obj.def.harvestQuantity ?? 1;
         const xpReward = obj.def.xpReward ?? 0;
 
-        if (player.addItem(itemId, qty)) {
+        if (player.addItem(itemId, qty, this.data.itemDefs)) {
           // Award XP
           if (xpReward > 0) {
             const result = addXp(player.skills, skillId, xpReward);

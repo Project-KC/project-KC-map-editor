@@ -1,142 +1,1482 @@
 [
   {
-    "id": 1, "name": "Tree", "category": "tree",
-    "actions": ["Chop", "Examine"],
-    "blocking": true, "width": 1.0, "height": 2.0,
-    "color": [40, 100, 30],
-    "skill": "woodcut", "levelRequired": 1, "xpReward": 25,
-    "harvestItemId": 23, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.333, "respawnTime": 15,
-    "successChances": { "31": [64, 200], "32": [96, 300], "36": [128, 400], "37": [160, 500], "38": [176, 550] }
+    "id": 1,
+    "name": "Tree",
+    "category": "tree",
+    "actions": [
+      "Chop",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 2,
+    "color": [
+      40,
+      100,
+      30
+    ],
+    "skill": "woodcut",
+    "levelRequired": 1,
+    "xpReward": 25,
+    "harvestItemId": 23,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.333,
+    "respawnTime": 15,
+    "successChances": {
+      "31": [
+        64,
+        200
+      ],
+      "32": [
+        96,
+        300
+      ],
+      "36": [
+        128,
+        400
+      ],
+      "37": [
+        160,
+        500
+      ],
+      "38": [
+        176,
+        550
+      ]
+    }
   },
   {
-    "id": 2, "name": "Oak Tree", "category": "tree",
-    "actions": ["Chop", "Examine"],
-    "blocking": true, "width": 1.2, "height": 2.4,
-    "color": [30, 80, 20],
-    "skill": "woodcut", "levelRequired": 15, "xpReward": 38,
-    "harvestItemId": 24, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.125, "respawnTime": 20,
-    "successChances": { "31": [32, 100], "32": [48, 150], "36": [64, 200], "37": [80, 250], "38": [88, 275] }
+    "id": 2,
+    "name": "Oak Tree",
+    "category": "tree",
+    "actions": [
+      "Chop",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1.2,
+    "height": 2.4,
+    "color": [
+      30,
+      80,
+      20
+    ],
+    "skill": "woodcut",
+    "levelRequired": 15,
+    "xpReward": 38,
+    "harvestItemId": 24,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.125,
+    "respawnTime": 20,
+    "successChances": {
+      "31": [
+        32,
+        100
+      ],
+      "32": [
+        48,
+        150
+      ],
+      "36": [
+        64,
+        200
+      ],
+      "37": [
+        80,
+        250
+      ],
+      "38": [
+        88,
+        275
+      ]
+    }
   },
   {
-    "id": 3, "name": "Copper Rock", "category": "rock",
-    "actions": ["Mine", "Examine"],
-    "blocking": true, "width": 0.9, "height": 0.8,
-    "color": [140, 90, 50],
-    "skill": "mining", "levelRequired": 1, "xpReward": 18,
-    "harvestItemId": 25, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.40, "respawnTime": 10
+    "id": 3,
+    "name": "Copper Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      140,
+      90,
+      50
+    ],
+    "skill": "mining",
+    "levelRequired": 1,
+    "xpReward": 18,
+    "harvestItemId": 25,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.4,
+    "respawnTime": 10
   },
   {
-    "id": 4, "name": "Iron Rock", "category": "rock",
-    "actions": ["Mine", "Examine"],
-    "blocking": true, "width": 0.9, "height": 0.8,
-    "color": [100, 70, 60],
-    "skill": "mining", "levelRequired": 15, "xpReward": 35,
-    "harvestItemId": 26, "harvestQuantity": 1, "harvestTime": 5,
-    "depletionChance": 0.35, "respawnTime": 18
+    "id": 4,
+    "name": "Iron Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      100,
+      70,
+      60
+    ],
+    "skill": "mining",
+    "levelRequired": 15,
+    "xpReward": 35,
+    "harvestItemId": 26,
+    "harvestQuantity": 1,
+    "harvestTime": 5,
+    "depletionChance": 0.35,
+    "respawnTime": 18
   },
   {
-    "id": 5, "name": "Fishing Spot", "category": "fishingspot",
-    "actions": ["Fish", "Examine"],
-    "blocking": false, "width": 0.6, "height": 0.6,
-    "color": [50, 120, 200],
-    "skill": "fishing", "levelRequired": 1, "xpReward": 20,
-    "harvestItemId": 27, "harvestQuantity": 1, "harvestTime": 5,
-    "depletionChance": 0.0, "respawnTime": 0
+    "id": 5,
+    "name": "Fishing Spot",
+    "category": "fishingspot",
+    "actions": [
+      "Fish",
+      "Examine"
+    ],
+    "blocking": false,
+    "width": 0.6,
+    "height": 0.6,
+    "color": [
+      50,
+      120,
+      200
+    ],
+    "skill": "fishing",
+    "levelRequired": 1,
+    "xpReward": 20,
+    "harvestItemId": 27,
+    "harvestQuantity": 1,
+    "harvestTime": 5,
+    "depletionChance": 0,
+    "respawnTime": 0
   },
   {
-    "id": 6, "name": "Furnace", "category": "furnace",
-    "actions": ["Smelt", "Examine"],
-    "blocking": true, "width": 1.0, "height": 1.4,
-    "color": [180, 80, 30],
+    "id": 6,
+    "name": "Furnace",
+    "category": "furnace",
+    "actions": [
+      "Smelt",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 1.4,
+    "color": [
+      180,
+      80,
+      30
+    ],
     "recipes": [
-      { "inputItemId": 25, "inputQuantity": 1, "outputItemId": 29, "outputQuantity": 1, "skill": "smithing", "levelRequired": 1, "xpReward": 20 },
-      { "inputItemId": 26, "inputQuantity": 1, "outputItemId": 30, "outputQuantity": 1, "skill": "smithing", "levelRequired": 15, "xpReward": 35 }
+      {
+        "inputItemId": 25,
+        "inputQuantity": 1,
+        "outputItemId": 29,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 1,
+        "xpReward": 6,
+        "secondInputItemId": 34,
+        "secondInputQuantity": 1
+      },
+      {
+        "inputItemId": 26,
+        "inputQuantity": 1,
+        "outputItemId": 30,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 15,
+        "xpReward": 13
+      },
+      {
+        "inputItemId": 44,
+        "inputQuantity": 1,
+        "outputItemId": 48,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 30,
+        "xpReward": 18,
+        "secondInputItemId": 35,
+        "secondInputQuantity": 2
+      },
+      {
+        "inputItemId": 45,
+        "inputQuantity": 1,
+        "outputItemId": 49,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 50,
+        "xpReward": 30,
+        "secondInputItemId": 35,
+        "secondInputQuantity": 4
+      },
+      {
+        "inputItemId": 46,
+        "inputQuantity": 1,
+        "outputItemId": 50,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 70,
+        "xpReward": 38,
+        "secondInputItemId": 35,
+        "secondInputQuantity": 6
+      },
+      {
+        "inputItemId": 47,
+        "inputQuantity": 1,
+        "outputItemId": 51,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 85,
+        "xpReward": 50,
+        "secondInputItemId": 35,
+        "secondInputQuantity": 8
+      }
     ]
   },
   {
-    "id": 7, "name": "Cooking Range", "category": "cookingrange",
-    "actions": ["Cook", "Examine"],
-    "blocking": true, "width": 1.0, "height": 1.2,
-    "color": [160, 50, 20],
+    "id": 7,
+    "name": "Cooking Range",
+    "category": "cookingrange",
+    "actions": [
+      "Cook",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 1.2,
+    "color": [
+      160,
+      50,
+      20
+    ],
     "recipes": [
-      { "inputItemId": 11, "inputQuantity": 1, "outputItemId": 12, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 30 },
-      { "inputItemId": 14, "inputQuantity": 1, "outputItemId": 15, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 30 },
-      { "inputItemId": 27, "inputQuantity": 1, "outputItemId": 28, "outputQuantity": 1, "skill": "cooking", "levelRequired": 1, "xpReward": 20 }
+      {
+        "inputItemId": 11,
+        "inputQuantity": 1,
+        "outputItemId": 12,
+        "outputQuantity": 1,
+        "skill": "cooking",
+        "levelRequired": 1,
+        "xpReward": 30
+      },
+      {
+        "inputItemId": 14,
+        "inputQuantity": 1,
+        "outputItemId": 15,
+        "outputQuantity": 1,
+        "skill": "cooking",
+        "levelRequired": 1,
+        "xpReward": 30
+      },
+      {
+        "inputItemId": 27,
+        "inputQuantity": 1,
+        "outputItemId": 28,
+        "outputQuantity": 1,
+        "skill": "cooking",
+        "levelRequired": 1,
+        "xpReward": 20
+      }
     ]
   },
   {
-    "id": 8, "name": "Altar", "category": "altar",
-    "actions": ["Pray", "Examine"],
-    "blocking": true, "width": 1.0, "height": 1.0,
-    "color": [200, 200, 220]
+    "id": 8,
+    "name": "Altar",
+    "category": "altar",
+    "actions": [
+      "Pray",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 1,
+    "color": [
+      200,
+      200,
+      220
+    ]
   },
   {
-    "id": 9, "name": "Willow Tree", "category": "tree",
-    "actions": ["Chop", "Examine"],
-    "blocking": true, "width": 1.0, "height": 2.0,
-    "color": [50, 110, 40],
-    "skill": "woodcut", "levelRequired": 30, "xpReward": 68,
-    "harvestItemId": 23, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.125, "respawnTime": 14,
-    "successChances": { "31": [16, 50], "32": [24, 75], "36": [32, 100], "37": [40, 125], "38": [44, 137] }
+    "id": 9,
+    "name": "Willow Tree",
+    "category": "tree",
+    "actions": [
+      "Chop",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 2,
+    "color": [
+      50,
+      110,
+      40
+    ],
+    "skill": "woodcut",
+    "levelRequired": 30,
+    "xpReward": 68,
+    "harvestItemId": 23,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.125,
+    "respawnTime": 14,
+    "successChances": {
+      "31": [
+        16,
+        50
+      ],
+      "32": [
+        24,
+        75
+      ],
+      "36": [
+        32,
+        100
+      ],
+      "37": [
+        40,
+        125
+      ],
+      "38": [
+        44,
+        137
+      ]
+    }
   },
   {
-    "id": 10, "name": "Dead Tree", "category": "tree",
-    "actions": ["Chop", "Examine"],
-    "blocking": true, "width": 1.0, "height": 2.0,
-    "color": [80, 60, 40],
-    "skill": "woodcut", "levelRequired": 1, "xpReward": 25,
-    "harvestItemId": 23, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.50, "respawnTime": 12,
-    "successChances": { "31": [64, 200], "32": [96, 300], "36": [128, 400], "37": [160, 500], "38": [176, 550] }
+    "id": 10,
+    "name": "Dead Tree",
+    "category": "tree",
+    "actions": [
+      "Chop",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 2,
+    "color": [
+      80,
+      60,
+      40
+    ],
+    "skill": "woodcut",
+    "levelRequired": 1,
+    "xpReward": 25,
+    "harvestItemId": 23,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.5,
+    "respawnTime": 12,
+    "successChances": {
+      "31": [
+        64,
+        200
+      ],
+      "32": [
+        96,
+        300
+      ],
+      "36": [
+        128,
+        400
+      ],
+      "37": [
+        160,
+        500
+      ],
+      "38": [
+        176,
+        550
+      ]
+    }
   },
   {
-    "id": 11, "name": "Tin Rock", "category": "rock",
-    "actions": ["Mine", "Examine"],
-    "blocking": true, "width": 0.9, "height": 0.8,
-    "color": [160, 160, 160],
-    "skill": "mining", "levelRequired": 1, "xpReward": 18,
-    "harvestItemId": 34, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.40, "respawnTime": 10
+    "id": 11,
+    "name": "Tin Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      160,
+      160,
+      160
+    ],
+    "skill": "mining",
+    "levelRequired": 1,
+    "xpReward": 18,
+    "harvestItemId": 34,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.4,
+    "respawnTime": 10
   },
   {
-    "id": 12, "name": "Coal Rock", "category": "rock",
-    "actions": ["Mine", "Examine"],
-    "blocking": true, "width": 0.9, "height": 0.8,
-    "color": [40, 40, 40],
-    "skill": "mining", "levelRequired": 30, "xpReward": 50,
-    "harvestItemId": 35, "harvestQuantity": 1, "harvestTime": 5,
-    "depletionChance": 0.30, "respawnTime": 20
+    "id": 12,
+    "name": "Coal Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      40,
+      40,
+      40
+    ],
+    "skill": "mining",
+    "levelRequired": 30,
+    "xpReward": 50,
+    "harvestItemId": 35,
+    "harvestQuantity": 1,
+    "harvestTime": 5,
+    "depletionChance": 0.3,
+    "respawnTime": 20
   },
   {
-    "id": 14, "name": "Maple Tree", "category": "tree",
-    "actions": ["Chop", "Examine"],
-    "blocking": true, "width": 1.2, "height": 2.6,
-    "color": [120, 70, 20],
-    "skill": "woodcut", "levelRequired": 45, "xpReward": 100,
-    "harvestItemId": 39, "harvestQuantity": 1, "harvestTime": 4,
-    "depletionChance": 0.125, "respawnTime": 25,
-    "successChances": { "31": [8, 25], "32": [12, 37], "36": [16, 50], "37": [20, 62], "38": [22, 68] }
+    "id": 14,
+    "name": "Maple Tree",
+    "category": "tree",
+    "actions": [
+      "Chop",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1.2,
+    "height": 2.6,
+    "color": [
+      120,
+      70,
+      20
+    ],
+    "skill": "woodcut",
+    "levelRequired": 45,
+    "xpReward": 100,
+    "harvestItemId": 39,
+    "harvestQuantity": 1,
+    "harvestTime": 4,
+    "depletionChance": 0.125,
+    "respawnTime": 25,
+    "successChances": {
+      "31": [
+        8,
+        25
+      ],
+      "32": [
+        12,
+        37
+      ],
+      "36": [
+        16,
+        50
+      ],
+      "37": [
+        20,
+        62
+      ],
+      "38": [
+        22,
+        68
+      ]
+    }
   },
   {
-    "id": 13, "name": "Door", "category": "door",
-    "actions": ["Open", "Examine"],
-    "blocking": true, "width": 1.0, "height": 1.8,
-    "color": [120, 80, 40],
+    "id": 13,
+    "name": "Door",
+    "category": "door",
+    "actions": [
+      "Open",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 1.8,
+    "color": [
+      120,
+      80,
+      40
+    ],
     "respawnTime": 15
   },
   {
-    "id": 15, "name": "Cave Entrance", "category": "scenery",
-    "actions": ["Enter", "Examine"],
-    "blocking": true, "width": 2.0, "height": 2.5,
-    "color": [60, 50, 40],
+    "id": 15,
+    "name": "Cave Entrance",
+    "category": "scenery",
+    "actions": [
+      "Enter",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 2,
+    "height": 2.5,
+    "color": [
+      60,
+      50,
+      40
+    ],
     "transition": {
       "targetMap": "underground",
       "targetX": 130.5,
       "targetZ": 130.5
     }
+  },
+  {
+    "id": 16,
+    "name": "Mithril Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      70,
+      70,
+      120
+    ],
+    "skill": "mining",
+    "levelRequired": 55,
+    "xpReward": 80,
+    "harvestItemId": 45,
+    "harvestQuantity": 1,
+    "harvestTime": 6,
+    "depletionChance": 0.25,
+    "respawnTime": 120
+  },
+  {
+    "id": 17,
+    "name": "Adamantite Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      50,
+      100,
+      60
+    ],
+    "skill": "mining",
+    "levelRequired": 70,
+    "xpReward": 95,
+    "harvestItemId": 46,
+    "harvestQuantity": 1,
+    "harvestTime": 6,
+    "depletionChance": 0.2,
+    "respawnTime": 240
+  },
+  {
+    "id": 18,
+    "name": "Runite Rock",
+    "category": "rock",
+    "actions": [
+      "Mine",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 0.9,
+    "height": 0.8,
+    "color": [
+      60,
+      180,
+      180
+    ],
+    "skill": "mining",
+    "levelRequired": 85,
+    "xpReward": 125,
+    "harvestItemId": 47,
+    "harvestQuantity": 1,
+    "harvestTime": 7,
+    "depletionChance": 0.15,
+    "respawnTime": 720
+  },
+  {
+    "id": 19,
+    "name": "Anvil",
+    "category": "anvil",
+    "actions": [
+      "Smith",
+      "Examine"
+    ],
+    "blocking": true,
+    "width": 1,
+    "height": 0.8,
+    "color": [
+      80,
+      80,
+      80
+    ],
+    "recipes": [
+      {
+        "inputItemId": 29,
+        "inputQuantity": 1,
+        "outputItemId": 58,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 1,
+        "xpReward": 5,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 1,
+        "outputItemId": 59,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 2,
+        "xpReward": 5,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 1,
+        "outputItemId": 60,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 3,
+        "xpReward": 5,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 2,
+        "outputItemId": 61,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 5,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 2,
+        "outputItemId": 62,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 7,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 3,
+        "outputItemId": 63,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 11,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 3,
+        "outputItemId": 64,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 15,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 1,
+        "outputItemId": 65,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 4,
+        "xpReward": 5,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 2,
+        "outputItemId": 66,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 8,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 2,
+        "outputItemId": 67,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 9,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 3,
+        "outputItemId": 68,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 12,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 3,
+        "outputItemId": 69,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 13,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 3,
+        "outputItemId": 70,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 17,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 29,
+        "inputQuantity": 5,
+        "outputItemId": 71,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 19,
+        "xpReward": 24,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 1,
+        "outputItemId": 72,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 15,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 1,
+        "outputItemId": 73,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 16,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 1,
+        "outputItemId": 74,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 17,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 2,
+        "outputItemId": 75,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 19,
+        "xpReward": 21,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 2,
+        "outputItemId": 76,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 21,
+        "xpReward": 21,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 3,
+        "outputItemId": 77,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 25,
+        "xpReward": 31,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 3,
+        "outputItemId": 78,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 29,
+        "xpReward": 31,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 1,
+        "outputItemId": 79,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 18,
+        "xpReward": 10,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 2,
+        "outputItemId": 80,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 22,
+        "xpReward": 21,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 2,
+        "outputItemId": 81,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 23,
+        "xpReward": 21,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 3,
+        "outputItemId": 82,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 26,
+        "xpReward": 31,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 3,
+        "outputItemId": 83,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 27,
+        "xpReward": 31,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 3,
+        "outputItemId": 84,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 31,
+        "xpReward": 31,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 30,
+        "inputQuantity": 5,
+        "outputItemId": 85,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 33,
+        "xpReward": 52,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 1,
+        "outputItemId": 86,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 30,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 1,
+        "outputItemId": 87,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 31,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 1,
+        "outputItemId": 88,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 32,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 2,
+        "outputItemId": 89,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 34,
+        "xpReward": 29,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 2,
+        "outputItemId": 90,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 36,
+        "xpReward": 29,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 3,
+        "outputItemId": 91,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 40,
+        "xpReward": 43,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 3,
+        "outputItemId": 92,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 44,
+        "xpReward": 43,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 1,
+        "outputItemId": 93,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 33,
+        "xpReward": 14,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 2,
+        "outputItemId": 94,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 37,
+        "xpReward": 29,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 2,
+        "outputItemId": 95,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 38,
+        "xpReward": 29,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 3,
+        "outputItemId": 96,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 41,
+        "xpReward": 43,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 3,
+        "outputItemId": 97,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 42,
+        "xpReward": 43,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 3,
+        "outputItemId": 98,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 46,
+        "xpReward": 43,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 48,
+        "inputQuantity": 5,
+        "outputItemId": 99,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 48,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 1,
+        "outputItemId": 100,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 50,
+        "xpReward": 24,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 1,
+        "outputItemId": 101,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 51,
+        "xpReward": 24,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 1,
+        "outputItemId": 102,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 52,
+        "xpReward": 24,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 2,
+        "outputItemId": 103,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 54,
+        "xpReward": 48,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 2,
+        "outputItemId": 104,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 56,
+        "xpReward": 48,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 3,
+        "outputItemId": 105,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 60,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 3,
+        "outputItemId": 106,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 64,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 1,
+        "outputItemId": 107,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 53,
+        "xpReward": 24,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 2,
+        "outputItemId": 108,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 57,
+        "xpReward": 48,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 2,
+        "outputItemId": 109,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 58,
+        "xpReward": 48,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 3,
+        "outputItemId": 110,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 61,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 3,
+        "outputItemId": 111,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 62,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 3,
+        "outputItemId": 112,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 66,
+        "xpReward": 72,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 49,
+        "inputQuantity": 5,
+        "outputItemId": 113,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 68,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 1,
+        "outputItemId": 114,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 70,
+        "xpReward": 30,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 1,
+        "outputItemId": 115,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 71,
+        "xpReward": 30,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 1,
+        "outputItemId": 116,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 72,
+        "xpReward": 30,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 2,
+        "outputItemId": 117,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 74,
+        "xpReward": 61,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 2,
+        "outputItemId": 118,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 76,
+        "xpReward": 61,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 3,
+        "outputItemId": 119,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 80,
+        "xpReward": 91,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 3,
+        "outputItemId": 120,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 84,
+        "xpReward": 91,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 1,
+        "outputItemId": 121,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 73,
+        "xpReward": 30,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 2,
+        "outputItemId": 122,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 77,
+        "xpReward": 61,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 2,
+        "outputItemId": 123,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 78,
+        "xpReward": 61,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 3,
+        "outputItemId": 124,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 81,
+        "xpReward": 91,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 3,
+        "outputItemId": 125,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 82,
+        "xpReward": 91,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 3,
+        "outputItemId": 126,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 86,
+        "xpReward": 91,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 50,
+        "inputQuantity": 5,
+        "outputItemId": 127,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 88,
+        "xpReward": 152,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 1,
+        "outputItemId": 128,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 85,
+        "xpReward": 40,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 1,
+        "outputItemId": 129,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 86,
+        "xpReward": 40,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 1,
+        "outputItemId": 130,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 87,
+        "xpReward": 40,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 2,
+        "outputItemId": 131,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 89,
+        "xpReward": 80,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 2,
+        "outputItemId": 132,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 91,
+        "xpReward": 80,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 3,
+        "outputItemId": 133,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 95,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 3,
+        "outputItemId": 134,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 99,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 1,
+        "outputItemId": 135,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 88,
+        "xpReward": 40,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 2,
+        "outputItemId": 136,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 92,
+        "xpReward": 80,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 2,
+        "outputItemId": 137,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 93,
+        "xpReward": 80,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 3,
+        "outputItemId": 138,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 96,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 3,
+        "outputItemId": 139,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 97,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 3,
+        "outputItemId": 140,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 101,
+        "xpReward": 120,
+        "requiresTool": "hammer"
+      },
+      {
+        "inputItemId": 51,
+        "inputQuantity": 5,
+        "outputItemId": 141,
+        "outputQuantity": 1,
+        "skill": "smithing",
+        "levelRequired": 103,
+        "xpReward": 200,
+        "requiresTool": "hammer"
+      }
+    ]
   }
 ]

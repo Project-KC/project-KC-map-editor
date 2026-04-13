@@ -188,11 +188,14 @@ export interface WorldObjectDef {
 export interface ObjectRecipe {
   inputItemId: number;
   inputQuantity: number;
+  secondInputItemId?: number;   // e.g. tin ore for bronze bars, coal for steel bars
+  secondInputQuantity?: number;
   outputItemId: number;
   outputQuantity: number;
   skill: string; // SkillId
   levelRequired: number;
   xpReward: number;
+  requiresTool?: string; // e.g. "hammer" — must be in inventory but not consumed
 }
 
 // --- Map metadata types ---
