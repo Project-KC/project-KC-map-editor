@@ -129,6 +129,8 @@ export class GameManager {
   private tileProgress: number = 0; // 0→1 progress through current tile step
   private tileFrom: { x: number; z: number } = { x: 0, z: 0 }; // where we started this tile step
   private _tempVec: Vector3 = new Vector3(); // reusable temp vector to avoid per-frame allocations
+  private _minimapRemotes: { x: number; z: number }[] = [];
+  private _minimapNpcs: { x: number; z: number }[] = [];
   // NOTE: do NOT reuse a single Vector3 for entity positions — the setter stores the reference
   private _splatVp = new Viewport(0, 0, 1, 1); // reusable viewport for hit splat projection
 
@@ -141,6 +143,7 @@ export class GameManager {
 
   // Combat follow (local player follows melee target)
   private combatTargetId: number = -1;
+  private _combatPathTimer: number = 0;
   // Combat facing: track who each entity is targeting (from COMBAT_HIT events)
   private npcCombatTargets: Map<number, number> = new Map();  // npcId -> playerId they're attacking
   private remoteCombatTargets: Map<number, number> = new Map();  // remotePlayerId -> npcId they're attacking
@@ -184,6 +187,9 @@ export class GameManager {
   private isSkilling: boolean = false;
   private isIndoors: boolean = false;
   private hiddenRoofNodes: TransformNode[] = [];
+  private _lastIndoorTileX: number = -9999;
+  private _lastIndoorTileZ: number = -9999;
+  private _roofDedup: Set<TransformNode> = new Set();
   private skillingObjectId: number = -1;
 
   // UI
@@ -883,7 +889,7 @@ export class GameManager {
     }
     // Reposition local player
     if (this.localPlayer) {
-      this.localPlayer.position = new Vector3(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+      this.localPlayer.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
     }
   }
 
@@ -1105,7 +1111,7 @@ export class GameManager {
         ],
       });
       const spawnH = this.getHeight(this.playerX, this.playerZ);
-      this.localPlayer.position = new Vector3(this.playerX, spawnH, this.playerZ);
+      this.localPlayer.setPositionXYZ(this.playerX, spawnH, this.playerZ);
       this.inputManager.setPlayerY(spawnH);
       console.log(`Logged in as player ${this.localPlayerId}`);
     });
@@ -1734,7 +1740,7 @@ export class GameManager {
     this.combatTargetId = -1;
 
     if (this.localPlayer) {
-      this.localPlayer.position = new Vector3(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+      this.localPlayer.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
     }
 
     // Reposition any entities that arrived before map finished loading
@@ -2245,7 +2251,7 @@ export class GameManager {
     if (this.localPlayer) {
       this.localPlayer.stopWalking();
       const h = this.getHeight(this.playerX, this.playerZ);
-      this.localPlayer.position = new Vector3(this.playerX, h, this.playerZ);
+      this.localPlayer.setPositionXYZ(this.playerX, h, this.playerZ);
       // Face toward the object
       const objData = this.worldObjectDefs.get(objectId);
       if (objData) {
@@ -2446,6 +2452,7 @@ export class GameManager {
     this.chunkManager.updateAnimations();
 
     // Combat follow
+    this._combatPathTimer -= dt;
     if (this.combatTargetId >= 0 && this.localPlayer) {
       const npcTarget = this.npcTargets.get(this.combatTargetId);
       if (npcTarget) {
@@ -2453,7 +2460,8 @@ export class GameManager {
         const dz = npcTarget.z - this.playerZ;
         const dist = Math.hypot(dx, dz);
         if (dist > 1.5) {
-          if (this.pathIndex >= this.path.length || dist > 3) {
+          if ((this.pathIndex >= this.path.length || dist > 3) && this._combatPathTimer <= 0) {
+            this._combatPathTimer = 0.3;
             const newPath = findPath(this.playerX, this.playerZ, npcTarget.x, npcTarget.z,
               this.isTileBlocked,
               this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 200,
@@ -2488,7 +2496,7 @@ export class GameManager {
             this.localPlayer.stopWalking();
             this.playerX = Math.floor(this.playerX) + 0.5;
             this.playerZ = Math.floor(this.playerZ) + 0.5;
-            this.localPlayer!.position = new Vector3(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+            this.localPlayer!.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
           }
         }
       }
@@ -2545,7 +2553,7 @@ export class GameManager {
         }
 
         const playerH = this.getHeight(this.playerX, this.playerZ);
-        this.localPlayer.position = new Vector3(this.playerX, playerH, this.playerZ);
+        this.localPlayer.setPositionXYZ(this.playerX, playerH, this.playerZ);
         this.inputManager.setPlayerY(playerH);
       }
     }
@@ -2575,7 +2583,7 @@ export class GameManager {
         const step = Math.min(1.67 * dt, dist);
         const nx = c.x + (dx / dist) * step;
         const nz = c.z + (dz / dist) * step;
-        sprite.position = new Vector3(nx, this.getHeight(nx, nz), nz);
+        sprite.setPositionXYZ(nx, this.getHeight(nx, nz), nz);
       } else {
         if (sprite.isWalking()) sprite.stopWalking();
         // Idle — face combat target if in combat
@@ -2603,7 +2611,7 @@ export class GameManager {
         const step = Math.min(3.0 * dt, dist);
         const nx = c.x + (dx / dist) * step;
         const nz = c.z + (dz / dist) * step;
-        sprite.position = new Vector3(nx, this.getHeight(nx, nz), nz);
+        sprite.setPositionXYZ(nx, this.getHeight(nx, nz), nz);
       } else {
         if (sprite.isWalking()) sprite.stopWalking();
         // Idle — face combat target if in combat
@@ -2656,30 +2664,40 @@ export class GameManager {
     const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ, playerY);
     if (underRoof && !this.isIndoors) {
       this.isIndoors = true;
+      this._lastIndoorTileX = -9999;
+      this._lastIndoorTileZ = -9999;
       this.camera.setTargetRadius(10);
     } else if (!underRoof && this.isIndoors) {
       this.isIndoors = false;
       for (const node of this.hiddenRoofNodes) node.setEnabled(true);
       this.hiddenRoofNodes = [];
+      this._lastIndoorTileX = -9999;
+      this._lastIndoorTileZ = -9999;
       this.camera.setTargetRadius(12);
     }
-    // While indoors, continuously update which objects are hidden based on player height
+    // While indoors, update which objects are hidden — only when player tile changes
     if (this.isIndoors) {
-      // Show previously hidden nodes
-      for (const node of this.hiddenRoofNodes) node.setEnabled(true);
-      const playerY = this.localPlayer?.position.y ?? 0;
-      // Hide objects above the player's current height
-      this.hiddenRoofNodes = [
-        ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, playerY + 0.5),
-        ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, playerY + 1.5),
-      ];
-      const seen = new Set<TransformNode>();
-      this.hiddenRoofNodes = this.hiddenRoofNodes.filter(n => {
-        if (seen.has(n)) return false;
-        seen.add(n);
-        return true;
-      });
-      for (const node of this.hiddenRoofNodes) node.setEnabled(false);
+      const ptx = Math.floor(this.playerX);
+      const ptz = Math.floor(this.playerZ);
+      if (ptx !== this._lastIndoorTileX || ptz !== this._lastIndoorTileZ) {
+        this._lastIndoorTileX = ptx;
+        this._lastIndoorTileZ = ptz;
+        // Show previously hidden nodes
+        for (const node of this.hiddenRoofNodes) node.setEnabled(true);
+        const playerY = this.localPlayer?.position.y ?? 0;
+        // Hide objects above the player's current height
+        this.hiddenRoofNodes = [
+          ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, playerY + 0.5),
+          ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, playerY + 1.5),
+        ];
+        this._roofDedup.clear();
+        this.hiddenRoofNodes = this.hiddenRoofNodes.filter(n => {
+          if (this._roofDedup.has(n)) return false;
+          this._roofDedup.add(n);
+          return true;
+        });
+        for (const node of this.hiddenRoofNodes) node.setEnabled(false);
+      }
     }
 
     // Camera follows player — use sprite's actual Y position (accounts for bridges/floors)
@@ -2697,18 +2715,18 @@ export class GameManager {
 
     // Update minimap
     if (this.minimap && this.chunkManager.isLoaded()) {
-      const remotePosArr: { x: number; z: number }[] = [];
+      this._minimapRemotes.length = 0;
       for (const [, target] of this.remoteTargets) {
-        remotePosArr.push(target);
+        this._minimapRemotes.push(target);
       }
-      const npcPosArr: { x: number; z: number }[] = [];
+      this._minimapNpcs.length = 0;
       for (const [, target] of this.npcTargets) {
-        npcPosArr.push(target);
+        this._minimapNpcs.push(target);
       }
       const camAlpha = this.camera.getCamera().alpha;
       this.minimap.update(
         this.playerX, this.playerZ,
-        remotePosArr, npcPosArr,
+        this._minimapRemotes, this._minimapNpcs,
         this.chunkManager,
         camAlpha
       );

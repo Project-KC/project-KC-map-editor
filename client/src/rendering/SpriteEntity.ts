@@ -644,6 +644,19 @@ export class SpriteEntity {
     this.plane.position.z = pos.z;
   }
 
+  setPositionXYZ(x: number, y: number, z: number): void {
+    this._position.set(x, y, z);
+    this.plane.position.x = x;
+    let yScale = 1;
+    if (this.attackPlaying && this.activeAttackAnim) {
+      yScale = this.activeAttackAnim.meshScaleY;
+    } else if (this.walkPlaying && this.walkAnim) {
+      yScale = this.walkAnim.meshScaleY;
+    }
+    this.plane.position.y = y + this.yOffset * yScale;
+    this.plane.position.z = z;
+  }
+
   showHealthBar(current: number, max: number): void {
     this.currentHealth = current;
     this.maxHealth = max;

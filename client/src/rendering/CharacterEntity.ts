@@ -680,6 +680,13 @@ export class CharacterEntity {
     }
   }
 
+  setPositionXYZ(x: number, y: number, z: number): void {
+    this._position.set(x, y, z);
+    if (this.root) {
+      this.root.position.set(x, y, z);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Per-frame update
   // ---------------------------------------------------------------------------

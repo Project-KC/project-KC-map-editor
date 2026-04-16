@@ -605,141 +605,30 @@ export class GameMap {
   }
 
   findPath(startX: number, startZ: number, goalX: number, goalZ: number): { x: number; z: number }[] {
-    const sx = Math.floor(startX);
-    const sz = Math.floor(startZ);
-    const gx = Math.floor(goalX);
-    const gz = Math.floor(goalZ);
-
-    if (sx === gx && sz === gz) return [];
-    if (this.isBlocked(gx, gz)) return [];
-
-    const w = this.width;
-    const h = this.height;
-    const maxSteps = 800;
-
-    interface PNode { x: number; z: number; g: number; hv: number; f: number; parent: PNode | null; heapIdx: number }
-    const heap: PNode[] = [];
-    const openMap = new Map<number, PNode>();
-    const closed = new Set<number>();
-    const key = (x: number, z: number) => z * w + x;
-
-    const heuristic = (x: number, z: number) => {
-      const dx = Math.abs(x - gx);
-      const dz = Math.abs(z - gz);
-      return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
-    };
-
-    const bubbleUp = (i: number) => {
-      const node = heap[i];
-      while (i > 0) {
-        const pi = (i - 1) >> 1;
-        const parent = heap[pi];
-        if (node.f >= parent.f) break;
-        heap[i] = parent; parent.heapIdx = i;
-        i = pi;
-      }
-      heap[i] = node; node.heapIdx = i;
-    };
-
-    const sinkDown = (i: number) => {
-      const len = heap.length;
-      const node = heap[i];
-      while (true) {
-        let sm = i;
-        const l = 2 * i + 1, r = 2 * i + 2;
-        if (l < len && heap[l].f < heap[sm].f) sm = l;
-        if (r < len && heap[r].f < heap[sm].f) sm = r;
-        if (sm === i) break;
-        heap[i] = heap[sm]; heap[i].heapIdx = i;
-        i = sm;
-      }
-      heap[i] = node; node.heapIdx = i;
-    };
-
-    const pushNode = (n: PNode) => { n.heapIdx = heap.length; heap.push(n); bubbleUp(heap.length - 1); };
-    const popNode = (): PNode => {
-      const top = heap[0];
-      const last = heap.pop()!;
-      if (heap.length > 0) { heap[0] = last; last.heapIdx = 0; sinkDown(0); }
-      return top;
-    };
-
-    const sh = heuristic(sx, sz);
-    const startNode: PNode = { x: sx, z: sz, g: 0, hv: sh, f: sh, parent: null, heapIdx: 0 };
-    pushNode(startNode);
-    openMap.set(key(sx, sz), startNode);
-
-    let steps = 0;
-    while (heap.length > 0 && steps < maxSteps) {
-      steps++;
-      const current = popNode();
-      const ck = key(current.x, current.z);
-      openMap.delete(ck);
-
-      if (current.x === gx && current.z === gz) {
-        const path: { x: number; z: number }[] = [];
-        let node: PNode | null = current;
-        while (node && !(node.x === sx && node.z === sz)) {
-          path.unshift({ x: node.x + 0.5, z: node.z + 0.5 });
-          node = node.parent;
-        }
-        return path;
-      }
-
-      closed.add(ck);
-
-      const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-      const canW = !this.isBlocked(current.x - 1, current.z) && !this.isWallBlocked(current.x, current.z, current.x - 1, current.z);
-      const canE = !this.isBlocked(current.x + 1, current.z) && !this.isWallBlocked(current.x, current.z, current.x + 1, current.z);
-      const canN = !this.isBlocked(current.x, current.z - 1) && !this.isWallBlocked(current.x, current.z, current.x, current.z - 1);
-      const canS = !this.isBlocked(current.x, current.z + 1) && !this.isWallBlocked(current.x, current.z, current.x, current.z + 1);
-      if (canW && canN) dirs.push([-1, -1]);
-      if (canE && canN) dirs.push([1, -1]);
-      if (canW && canS) dirs.push([-1, 1]);
-      if (canE && canS) dirs.push([1, 1]);
-
-      for (const [dx, dz] of dirs) {
-        const nx = current.x + dx;
-        const nz = current.z + dz;
-        const nk = key(nx, nz);
-        if (closed.has(nk)) continue;
-        if (nx < 0 || nx >= w || nz < 0 || nz >= h) continue;
-        if (this.isBlocked(nx, nz)) continue;
-        if (this.isWallBlocked(current.x, current.z, nx, nz)) continue;
-
-        const isDiag = dx !== 0 && dz !== 0;
-        const g = current.g + (isDiag ? 1.414 : 1);
-
-        const existing = openMap.get(nk);
-        if (existing) {
-          if (g < existing.g) {
-            existing.g = g;
-            existing.f = g + existing.hv;
-            existing.parent = current;
-            bubbleUp(existing.heapIdx);
-          }
-          continue;
-        }
-
-        const nhv = heuristic(nx, nz);
-        const node: PNode = { x: nx, z: nz, g, hv: nhv, f: g + nhv, parent: current, heapIdx: 0 };
-        pushNode(node);
-        openMap.set(nk, node);
-      }
-    }
-    return [];
+    return this.findPathGeneric(startX, startZ, goalX, goalZ, this.isBlockedCb, this.isWallBlockedCb);
   }
 
   findPathOnFloor(startX: number, startZ: number, goalX: number, goalZ: number, floor: number): { x: number; z: number }[] {
     if (floor === 0) return this.findPath(startX, startZ, goalX, goalZ);
+    return this.findPathGeneric(
+      startX, startZ, goalX, goalZ,
+      (x, z) => this.isTileBlockedOnFloor(x, z, floor),
+      (fx, fz, tx, tz) => this.isWallBlockedOnFloor(fx, fz, tx, tz, floor),
+    );
+  }
 
+  private findPathGeneric(
+    startX: number, startZ: number, goalX: number, goalZ: number,
+    tileBlocked: (x: number, z: number) => boolean,
+    wallBlocked: (fx: number, fz: number, tx: number, tz: number) => boolean,
+  ): { x: number; z: number }[] {
     const sx = Math.floor(startX);
     const sz = Math.floor(startZ);
     const gx = Math.floor(goalX);
     const gz = Math.floor(goalZ);
 
     if (sx === gx && sz === gz) return [];
-    if (this.isTileBlockedOnFloor(gx, gz, floor)) return [];
+    if (tileBlocked(gx, gz)) return [];
 
     const w = this.width;
     const h = this.height;
@@ -808,22 +697,20 @@ export class GameMap {
         const path: { x: number; z: number }[] = [];
         let node: PNode | null = current;
         while (node && !(node.x === sx && node.z === sz)) {
-          path.unshift({ x: node.x + 0.5, z: node.z + 0.5 });
+          path.push({ x: node.x + 0.5, z: node.z + 0.5 });
           node = node.parent;
         }
+        path.reverse();
         return path;
       }
 
       closed.add(ck);
 
       const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-      const blocked = (x: number, z: number) => this.isTileBlockedOnFloor(x, z, floor);
-      const wallBlk = (fx: number, fz: number, tx: number, tz: number) => this.isWallBlockedOnFloor(fx, fz, tx, tz, floor);
-
-      const canW = !blocked(current.x - 1, current.z) && !wallBlk(current.x, current.z, current.x - 1, current.z);
-      const canE = !blocked(current.x + 1, current.z) && !wallBlk(current.x, current.z, current.x + 1, current.z);
-      const canN = !blocked(current.x, current.z - 1) && !wallBlk(current.x, current.z, current.x, current.z - 1);
-      const canS = !blocked(current.x, current.z + 1) && !wallBlk(current.x, current.z, current.x, current.z + 1);
+      const canW = !tileBlocked(current.x - 1, current.z) && !wallBlocked(current.x, current.z, current.x - 1, current.z);
+      const canE = !tileBlocked(current.x + 1, current.z) && !wallBlocked(current.x, current.z, current.x + 1, current.z);
+      const canN = !tileBlocked(current.x, current.z - 1) && !wallBlocked(current.x, current.z, current.x, current.z - 1);
+      const canS = !tileBlocked(current.x, current.z + 1) && !wallBlocked(current.x, current.z, current.x, current.z + 1);
       if (canW && canN) dirs.push([-1, -1]);
       if (canE && canN) dirs.push([1, -1]);
       if (canW && canS) dirs.push([-1, 1]);
@@ -835,8 +722,8 @@ export class GameMap {
         const nk = key(nx, nz);
         if (closed.has(nk)) continue;
         if (nx < 0 || nx >= w || nz < 0 || nz >= h) continue;
-        if (blocked(nx, nz)) continue;
-        if (wallBlk(current.x, current.z, nx, nz)) continue;
+        if (tileBlocked(nx, nz)) continue;
+        if (wallBlocked(current.x, current.z, nx, nz)) continue;
 
         const isDiag = dx !== 0 && dz !== 0;
         const g = current.g + (isDiag ? 1.414 : 1);

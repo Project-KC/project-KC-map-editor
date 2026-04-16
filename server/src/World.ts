@@ -433,17 +433,16 @@ export class World {
 
   /** Check if a world position is within chunk load radius of a player */
   /** Find the best tool of a given type that the player can use (checks equipped weapon + inventory) */
+  private doorEdgeMask(rotationY: number): number {
+    const degRaw = Math.round((rotationY * 180 / Math.PI) % 360 + 360) % 360;
+    return (degRaw === 0 || degRaw === 180) ? (WallEdge.N | WallEdge.S) : (WallEdge.E | WallEdge.W);
+  }
+
   /** Set wall edges for a closed door on spawn */
   private setDoorWallEdges(obj: WorldObject, map: GameMap): void {
     const tx = Math.floor(obj.x);
     const tz = Math.floor(obj.z);
-    const degRaw = Math.round((obj.rotationY * 180 / Math.PI) % 360 + 360) % 360;
-    let edgeMask: number;
-    if (degRaw === 0 || degRaw === 180) {
-      edgeMask = WallEdge.N | WallEdge.S;
-    } else {
-      edgeMask = WallEdge.E | WallEdge.W;
-    }
+    const edgeMask = this.doorEdgeMask(obj.rotationY);
     map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
   }
 
@@ -453,16 +452,8 @@ export class World {
     const tx = Math.floor(obj.x);
     const tz = Math.floor(obj.z);
 
-    // Derive wall edge from door rotation (normalize to 0-360)
-    const degRaw = Math.round((obj.rotationY * 180 / Math.PI) % 360 + 360) % 360;
-    // Map rotation to the wall edges the door blocks
-    // 0° or 360° → N/S edge, 90° or 270° → E/W edge
-    let edgeMask: number;
-    if (degRaw === 0 || degRaw === 180) {
-      edgeMask = WallEdge.N | WallEdge.S;
-    } else {
-      edgeMask = WallEdge.E | WallEdge.W;
-    }
+    // Derive wall edge from door rotation
+    const edgeMask = this.doorEdgeMask(obj.rotationY);
 
     const isOpen = obj.depleted;
 
@@ -609,6 +600,8 @@ export class World {
     this.cancelSkilling(playerId);
 
     const map = this.getPlayerMap(player);
+    // Cap path length to prevent DoS from malicious clients
+    if (path.length > 200) path.length = 200;
     const validPath: { x: number; z: number }[] = [];
     let prevX = player.position.x;
     let prevZ = player.position.y;
@@ -619,7 +612,7 @@ export class World {
         ? (map.isBlocked(step.x, step.z) || this.blockedObjectTiles.has(this.blockedKeyFor(mapId, step.x, step.z)))
         : map.isTileBlockedOnFloor(Math.floor(step.x), Math.floor(step.z), pFloor);
       // Pass player's effective height so walls below the player don't block
-      const playerEffY = map.getEffectiveHeight(prevX, prevZ, pFloor);
+      const playerEffY = map.getEffectiveHeightOnFloor(prevX, prevZ, pFloor);
       const wallBlocked = pFloor === 0
         ? map.isWallBlocked(prevX, prevZ, step.x, step.z, playerEffY)
         : map.isWallBlockedOnFloor(prevX, prevZ, step.x, step.z, pFloor);
@@ -703,17 +696,9 @@ export class World {
     const player = this.players.get(playerId);
     if (!player || quantity < 1) return;
 
-    // Find the item definition and price from shop data
-    // For now, find any shop the player could be using (simplified: check all shops)
-    let price = -1;
-    for (const [, npc] of this.npcs) {
-      if (npc.currentMapLevel !== player.currentMapLevel) continue;
-      const shop = this.data.getShop(npc.npcId);
-      if (!shop) continue;
-      const shopItem = shop.items.find(si => si.itemId === itemId);
-      if (shopItem) { price = shopItem.price; break; }
-    }
-    if (price < 0) return;
+    // Find the item price from pre-indexed shop data
+    const price = this.data.getShopPrice(itemId);
+    if (price === undefined) return;
 
     const totalCost = price * quantity;
 
@@ -748,15 +733,22 @@ export class World {
       player.inventory[coinSlot] = null;
     }
 
-    // Add items
-    for (let q = 0; q < quantity; q++) {
-      if (itemDef.stackable && existingSlot >= 0) {
-        player.inventory[existingSlot]!.quantity++;
+    // Add items (batch — avoid per-item findIndex)
+    if (itemDef.stackable) {
+      if (existingSlot >= 0) {
+        player.inventory[existingSlot]!.quantity += quantity;
       } else {
         const slot = player.inventory.findIndex(s => s === null);
         if (slot >= 0) {
-          player.inventory[slot] = { itemId, quantity: 1 };
-          if (itemDef.stackable) existingSlot = slot;
+          player.inventory[slot] = { itemId, quantity };
+        }
+      }
+    } else {
+      let added = 0;
+      for (let i = 0; i < player.inventory.length && added < quantity; i++) {
+        if (!player.inventory[i]) {
+          player.inventory[i] = { itemId, quantity: 1 };
+          added++;
         }
       }
     }
@@ -1513,8 +1505,7 @@ export class World {
           const map = this.maps.get(obj.mapLevel);
           if (map) {
             const tx = Math.floor(obj.x), tz = Math.floor(obj.z);
-            const degRaw = Math.round((obj.rotationY * 180 / Math.PI) % 360 + 360) % 360;
-            const edgeMask = (degRaw === 0 || degRaw === 180) ? (WallEdge.N | WallEdge.S) : (WallEdge.E | WallEdge.W);
+            const edgeMask = this.doorEdgeMask(obj.rotationY);
             map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
           }
           obj.def = { ...obj.def, actions: ['Open', 'Examine'] };

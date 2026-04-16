@@ -21,6 +21,7 @@ export class DataLoader {
   private items: Map<number, ItemDef> = new Map();
   private objects: Map<number, WorldObjectDef> = new Map();
   private shops: Map<number, ShopDef> = new Map();
+  private shopItemPrices: Map<number, number> = new Map();
 
   get itemDefs(): Map<number, ItemDef> {
     return this.items;
@@ -72,6 +73,13 @@ export class DataLoader {
         this.shops.set(Number(npcId), shop);
       }
       console.log(`Loaded ${this.shops.size} shop definitions`);
+      for (const shop of this.shops.values()) {
+        for (const si of shop.items) {
+          if (!this.shopItemPrices.has(si.itemId)) {
+            this.shopItemPrices.set(si.itemId, si.price);
+          }
+        }
+      }
     } catch {
       console.log('No shops.json found, skipping');
     }
@@ -79,6 +87,10 @@ export class DataLoader {
 
   getShop(npcDefId: number): ShopDef | undefined {
     return this.shops.get(npcDefId);
+  }
+
+  getShopPrice(itemId: number): number | undefined {
+    return this.shopItemPrices.get(itemId);
   }
 
   getObject(id: number): WorldObjectDef | undefined {

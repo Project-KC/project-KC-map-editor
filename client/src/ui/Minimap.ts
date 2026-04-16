@@ -1,15 +1,16 @@
 import { TileType } from '@projectrs/shared';
 import type { ChunkManager } from '../rendering/ChunkManager';
 
-const TILE_COLORS_MAP: Record<number, string> = {
-  [TileType.GRASS]: '#4a8a30',
-  [TileType.DIRT]:  '#8c6840',
-  [TileType.STONE]: '#808080',
-  [TileType.WATER]: '#3060b0',
-  [TileType.WALL]:  '#504040',
-  [TileType.SAND]:  '#c0b080',
-  [TileType.WOOD]:  '#705028',
+const TILE_COLORS_RGB: Record<number, [number, number, number]> = {
+  [TileType.GRASS]: [0x4a, 0x8a, 0x30],
+  [TileType.DIRT]:  [0x8c, 0x68, 0x40],
+  [TileType.STONE]: [0x80, 0x80, 0x80],
+  [TileType.WATER]: [0x30, 0x60, 0xb0],
+  [TileType.WALL]:  [0x50, 0x40, 0x40],
+  [TileType.SAND]:  [0xc0, 0xb0, 0x80],
+  [TileType.WOOD]:  [0x70, 0x50, 0x28],
 };
+const TILE_COLOR_DEFAULT: [number, number, number] = [0, 0, 0];
 
 // How many tiles the minimap shows in each direction from center
 // Slightly larger than visible radius to fill corners when rotated
@@ -23,6 +24,7 @@ export class Minimap {
   // Offscreen canvas for tile rendering (putImageData ignores transforms)
   private offCanvas: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
+  private imageData: ImageData;
 
   // Destination marker (world coords, null = no destination)
   private destX: number | null = null;
@@ -59,6 +61,7 @@ export class Minimap {
     this.offCanvas.width = size;
     this.offCanvas.height = size;
     this.offCtx = this.offCanvas.getContext('2d')!;
+    this.imageData = this.offCtx.createImageData(size, size);
 
     this.canvas.addEventListener('click', (e) => this.handleClick(e));
   }
@@ -122,16 +125,14 @@ export class Minimap {
     this.lastScale = scale;
     this.lastAlpha = cameraAlpha;
 
-    // Build tile image on offscreen canvas
-    const imageData = this.offCtx.createImageData(this.size, this.size);
+    // Build tile image on offscreen canvas (reuse pre-allocated ImageData)
+    const imageData = this.imageData;
+    imageData.data.fill(0);
 
     for (let dz = 0; dz < tileSize; dz++) {
       for (let dx = 0; dx < tileSize; dx++) {
         const tileType = tiles[dz * tileSize + dx];
-        const color = TILE_COLORS_MAP[tileType] || '#000';
-        const r = parseInt(color.substring(1, 3), 16);
-        const g = parseInt(color.substring(3, 5), 16);
-        const b = parseInt(color.substring(5, 7), 16);
+        const rgb = TILE_COLORS_RGB[tileType] || TILE_COLOR_DEFAULT;
 
         const px = Math.floor(dx * scale);
         const pz = Math.floor(dz * scale);
@@ -144,9 +145,9 @@ export class Minimap {
             const fz = pz + ddz;
             if (fx < this.size && fz < this.size) {
               const idx = (fz * this.size + fx) * 4;
-              imageData.data[idx] = r;
-              imageData.data[idx + 1] = g;
-              imageData.data[idx + 2] = b;
+              imageData.data[idx] = rgb[0];
+              imageData.data[idx + 1] = rgb[1];
+              imageData.data[idx + 2] = rgb[2];
               imageData.data[idx + 3] = 255;
             }
           }

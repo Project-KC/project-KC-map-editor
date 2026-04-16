@@ -114,6 +114,11 @@ export class Npc3DEntity {
 
   // --- Public API matching SpriteEntity ---
 
+  setPositionXYZ(x: number, y: number, z: number): void {
+    this._position.set(x, y, z);
+    if (this.root) this.root.position.set(x, y, z);
+  }
+
   get position(): Vector3 { return this._position; }
   set position(pos: Vector3) {
     this._position = pos;

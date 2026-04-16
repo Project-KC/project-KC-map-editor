@@ -32,6 +32,9 @@ export class Npc extends Entity {
   // Retreat interaction range: if target is this far from spawn, NPC drops combat
   static readonly RETREAT_INTERACTION_RANGE = 18;
 
+  // 8-directional wander directions (static to avoid per-call allocation)
+  private static readonly WANDER_DIRS: [number, number][] = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+
   readonly wanderRangeOverride?: number;
 
   constructor(def: NpcDef, x: number, z: number, wanderRange?: number) {
@@ -155,7 +158,7 @@ export class Npc extends Entity {
       if (this.wanderCooldown <= 0) {
         // Pick a random direction (8 directions including diagonals)
         const r = Math.floor(Math.random() * 8);
-        const dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+        const dirs = Npc.WANDER_DIRS;
         this.wanderDirX = dirs[r][0];
         this.wanderDirZ = dirs[r][1];
         // Walk 1-4 steps in this direction
@@ -182,7 +185,7 @@ export class Npc extends Entity {
     // Try diagonal
     if (sx !== 0 && sz !== 0) {
       const nx = px + sx, nz = py + sz;
-      if (!isBlocked(nx, nz) && Math.floor(nx) !== avoidTileX | Math.floor(nz) !== avoidTileZ &&
+      if (!isBlocked(nx, nz) && (Math.floor(nx) !== avoidTileX || Math.floor(nz) !== avoidTileZ) &&
           (!isWallBlocked || !isWallBlocked(px, py, nx, nz))) {
         this.position.x = nx; this.position.y = nz; return;
       }
