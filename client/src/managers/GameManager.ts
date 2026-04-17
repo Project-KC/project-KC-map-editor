@@ -1167,9 +1167,10 @@ export class GameManager {
           appearance.beltColor,
           appearance.shirtStyle,
         ));
+        const oldStyle = this.localAppearance?.shirtStyle ?? 0;
         this.localAppearance = appearance;
-        // Rebuild character if shirt style requires a different model
-        if (appearance.shirtStyle > 0) {
+        // Rebuild character if shirt style changed (different model GLB)
+        if (appearance.shirtStyle !== oldStyle) {
           this.rebuildLocalPlayer(appearance.shirtStyle);
         } else if (this.localPlayer) {
           this.localPlayer.applyAppearance(appearance);

@@ -1,7 +1,15 @@
 import { World } from '../World';
+import { ServerOpcode, encodePacket } from '@projectrs/shared';
 import type { ServerWebSocket } from 'bun';
 
 export type ChatSocketData = { type: 'chat'; playerId?: number; accountId: number; username: string };
+
+// Admin usernames (case-insensitive)
+const ADMIN_USERS = new Set(['mogn']);
+
+function isAdmin(username: string): boolean {
+  return ADMIN_USERS.has(username.toLowerCase());
+}
 
 // Keep track of all chat sockets for broadcasting
 const chatSockets: Set<ServerWebSocket<ChatSocketData>> = new Set();
@@ -191,6 +199,21 @@ function handleCommand(
         }
         world.sendInventory(player);
         ws.send(JSON.stringify({ type: 'system', message: 'Inventory cleared' }));
+      }
+      break;
+    }
+
+    case '/appearance': {
+      if (!isAdmin(from)) {
+        ws.send(JSON.stringify({ type: 'system', message: 'You do not have permission to use this command.' }));
+        return;
+      }
+      const player = findPlayerByUsername(from, world);
+      if (player) {
+        try {
+          player.ws.sendBinary(encodePacket(ServerOpcode.SHOW_CHARACTER_CREATOR, 0));
+          ws.send(JSON.stringify({ type: 'system', message: 'Opening character editor...' }));
+        } catch { /* closed */ }
       }
       break;
     }
