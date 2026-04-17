@@ -139,9 +139,9 @@ export function normalizeAppearance(a: Partial<PlayerAppearance>): PlayerAppeara
 export type AppearanceColorSlot = 'shirtColor' | 'pantsColor' | 'shoesColor' | 'hairColor' | 'beltColor';
 
 export const APPEARANCE_MATERIAL_MAP: Record<AppearanceColorSlot, string[]> = {
-  shirtColor: ['Shirt', 'shirt openings'],
+  shirtColor: ['Shirt', 'shirt openings', 'mat_4550'],
   pantsColor: ['pants'],
-  shoesColor: ['socks', 'mat_4550'],
+  shoesColor: ['socks'],
   hairColor:  ['Hair_1'],
   beltColor:  ['belt'],
 };
