@@ -2437,7 +2437,7 @@ export class GameManager {
   }
 
   private createHUD(): void {
-    this.minimap = new Minimap(200);
+    this.minimap = new Minimap(340);
     this.minimap.setClickMoveHandler((worldX, worldZ) => {
       this.handleGroundClick(worldX, worldZ);
     });

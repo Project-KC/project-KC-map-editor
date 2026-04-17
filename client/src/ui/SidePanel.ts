@@ -190,37 +190,33 @@ export class SidePanel {
     bottomTabs.style.cssText = `display: flex; gap: 1px; padding: 0 2px 2px;`;
 
     const tabStyle = `
-      flex: 1; text-align: center; padding: 5px 0;
-      cursor: pointer; font-size: 11px; font-weight: bold;
-      color: #c8a870;
-      background: url('/ui/stone-dark.png') repeat;
-      border: 2px solid #1a1410;
-      border-top-color: #2a2420;
-      border-left-color: #2a2420;
-      border-right-color: #0a0808;
-      border-bottom-color: #0a0808;
-      transition: all 0.1s;
-      text-shadow: 1px 1px 0 #000;
+      flex: 1; text-align: center; padding: 6px 0;
+      cursor: pointer; font-size: 13px;
+      color: #d8d0c0;
+      background: #4a4035;
+      border-top: 1px solid #5a5548;
+      border-left: 1px solid #5a5548;
+      border-right: 1px solid #1a1815;
+      border-bottom: 1px solid #1a1815;
+      transition: background 0.08s;
     `;
 
     const tabs: { key: string; label: string; pos: 'top' | 'bottom' }[] = [
-      { key: 'inventory', label: '\uD83C\uDF92 Inv', pos: 'top' },
-      { key: 'skills', label: '\u2694 Skills', pos: 'top' },
-      { key: 'equipment', label: '\uD83D\uDEE1 Equip', pos: 'top' },
-      { key: 'quests', label: '\uD83D\uDCDC Quests', pos: 'top' },
-      { key: 'good_magic', label: '\u2728 Good', pos: 'bottom' },
-      { key: 'evil_magic', label: '\uD83D\uDD25 Evil', pos: 'bottom' },
-      { key: 'friends', label: '\uD83D\uDC64 Friends', pos: 'bottom' },
-      { key: 'ignore', label: '\uD83D\uDEAB Ignore', pos: 'bottom' },
+      { key: 'inventory', label: '\uD83C\uDF92', pos: 'top' },
+      { key: 'skills', label: '\u2694\uFE0F', pos: 'top' },
+      { key: 'equipment', label: '\uD83D\uDEE1\uFE0F', pos: 'top' },
+      { key: 'quests', label: '\uD83D\uDCDC', pos: 'top' },
+      { key: 'good_magic', label: '\u2728', pos: 'bottom' },
+      { key: 'evil_magic', label: '\uD83D\uDD25', pos: 'bottom' },
+      { key: 'friends', label: '\uD83D\uDC64', pos: 'bottom' },
+      { key: 'ignore', label: '\uD83D\uDEAB', pos: 'bottom' },
     ];
 
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.textContent = tab.label;
       btn.dataset.tab = tab.key;
-      btn.style.cssText = tabStyle + (tab.pos === 'top'
-        ? 'border-bottom: none; border-radius: 3px 3px 0 0;'
-        : 'border-top: none; border-radius: 0 0 3px 3px;');
+      btn.style.cssText = tabStyle;
       btn.addEventListener('click', () => this.switchTab(tab.key as any));
       (tab.pos === 'top' ? topTabs : bottomTabs).appendChild(btn);
       this.tabButtons.push(btn);
@@ -231,14 +227,9 @@ export class SidePanel {
     // Tab contents
     const contentArea = document.createElement('div');
     contentArea.style.cssText = `
-      padding: 8px 6px; overflow-y: auto; height: 340px;
-      background: url('/ui/stone-dark.png') repeat;
-      box-shadow: inset 0 3px 8px rgba(0,0,0,0.4);
-      border: 2px solid #1a1410;
-      border-top-color: #0a0808;
-      border-left-color: #0a0808;
-      border-right-color: #2a2420;
-      border-bottom-color: #2a2420;
+      padding: 8px 6px; overflow-y: auto; height: 400px;
+      background: #1e1a14;
+      border: 2px inset #3a3228;
     `;
 
     // Inventory tab
@@ -374,14 +365,9 @@ export class SidePanel {
       const slot = document.createElement('div');
       slot.style.cssText = `
         width: 48px; height: 44px;
-        background: url('/ui/stone-dark.png') repeat;
-        border: 2px solid #1a1410;
-        border-top-color: #0a0808;
-        border-left-color: #0a0808;
-        border-right-color: #2a2420;
-        border-bottom-color: #2a2420;
+        background: #2a2218;
+        border: 2px outset #3a3228;
         border-radius: 2px;
-        box-shadow: inset 0 1px 4px rgba(0,0,0,0.6);
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
         cursor: pointer; font-size: 10px;
@@ -389,14 +375,12 @@ export class SidePanel {
         transition: background 0.1s;
       `;
       slot.addEventListener('mouseenter', () => {
-        slot.style.borderTopColor = '#3a3020'; slot.style.borderLeftColor = '#3a3020';
-        slot.style.borderRightColor = '#4a4030'; slot.style.borderBottomColor = '#4a4030';
-        slot.style.boxShadow = 'inset 0 1px 4px rgba(0,0,0,0.4), 0 0 4px rgba(255,200,100,0.15)';
+        slot.style.background = '#3a3228';
+        slot.style.borderStyle = 'inset';
       });
       slot.addEventListener('mouseleave', () => {
-        slot.style.borderTopColor = '#0a0808'; slot.style.borderLeftColor = '#0a0808';
-        slot.style.borderRightColor = '#2a2420'; slot.style.borderBottomColor = '#2a2420';
-        slot.style.boxShadow = 'inset 0 1px 4px rgba(0,0,0,0.6)';
+        slot.style.background = '#2a2218';
+        slot.style.borderStyle = 'outset';
       });
 
       slot.addEventListener('contextmenu', (e) => {
@@ -423,25 +407,14 @@ export class SidePanel {
       row.dataset.skill = id;
       row.style.cssText = `
         display: flex; align-items: center; padding: 3px 4px;
-        margin-bottom: 2px;
-        background: url('/ui/stone-dark.png') repeat;
-        border: 1px solid #1a1410;
-        border-top-color: #0a0808;
-        border-left-color: #0a0808;
-        border-right-color: #2a2420;
-        border-bottom-color: #2a2420;
+        margin-bottom: 1px;
+        background: #2a2218;
+        border: 1px outset #3a3228;
         border-radius: 2px;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
-        transition: all 0.1s;
+        transition: background 0.1s;
       `;
-      row.addEventListener('mouseenter', () => {
-        row.style.borderTopColor = '#2a2420'; row.style.borderLeftColor = '#2a2420';
-        row.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.3), 0 0 3px rgba(255,200,100,0.1)';
-      });
-      row.addEventListener('mouseleave', () => {
-        row.style.borderTopColor = '#0a0808'; row.style.borderLeftColor = '#0a0808';
-        row.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.5)';
-      });
+      row.addEventListener('mouseenter', () => { row.style.background = '#3a3228'; });
+      row.addEventListener('mouseleave', () => { row.style.background = '#2a2218'; });
 
       const nameEl = document.createElement('div');
       nameEl.style.cssText = `width: 72px; font-size: 11px; color: ${SKILL_COLORS[id]}; text-shadow: 1px 1px 0 #000;`;
@@ -456,10 +429,8 @@ export class SidePanel {
 
       const barBg = document.createElement('div');
       barBg.style.cssText = `
-        flex: 1; height: 10px; background: #0a0808;
-        border: 1px solid #1a1410;
-        border-top-color: #0a0808; border-left-color: #0a0808;
-        border-right-color: #2a2018; border-bottom-color: #2a2018;
+        flex: 1; height: 10px; background: #181410;
+        border: 1px inset #2a2218;
         margin-left: 4px; position: relative; border-radius: 1px;
       `;
 
@@ -571,15 +542,18 @@ export class SidePanel {
 
     for (const btn of this.tabButtons) {
       const isActive = btn.dataset.tab === tab;
-      btn.style.color = isActive ? '#fc0' : '#c8a870';
       if (isActive) {
-        btn.style.borderTopColor = '#0a0808'; btn.style.borderLeftColor = '#0a0808';
-        btn.style.borderRightColor = '#3a3020'; btn.style.borderBottomColor = '#3a3020';
-        btn.style.boxShadow = 'inset 0 1px 4px rgba(0,0,0,0.5)';
+        btn.style.background = '#3a2a22';
+        btn.style.borderTop = '1px solid #1a1815';
+        btn.style.borderLeft = '1px solid #1a1815';
+        btn.style.borderRight = '1px solid #5a5548';
+        btn.style.borderBottom = '1px solid #5a5548';
       } else {
-        btn.style.borderTopColor = '#2a2420'; btn.style.borderLeftColor = '#2a2420';
-        btn.style.borderRightColor = '#0a0808'; btn.style.borderBottomColor = '#0a0808';
-        btn.style.boxShadow = '';
+        btn.style.background = '#4a4035';
+        btn.style.borderTop = '1px solid #5a5548';
+        btn.style.borderLeft = '1px solid #5a5548';
+        btn.style.borderRight = '1px solid #1a1815';
+        btn.style.borderBottom = '1px solid #1a1815';
       }
     }
   }

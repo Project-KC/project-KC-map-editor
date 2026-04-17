@@ -47,7 +47,7 @@ export class Minimap {
     this.canvas.width = size;
     this.canvas.height = size;
     this.canvas.style.cssText = `
-      width: 100%; height: ${size}px;
+      width: 100%; height: ${Math.min(size, 200)}px;
       border-bottom: 3px solid #1a1208;
       image-rendering: pixelated; cursor: pointer;
       background: #0a0a08;
