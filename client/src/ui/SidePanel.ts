@@ -180,18 +180,24 @@ export class SidePanel {
     playerInfo.appendChild(swordIcon2);
     panel.appendChild(playerInfo);
 
-    // Tab bar above content
-    const tabBar = document.createElement('div');
-    tabBar.style.cssText = `
-      display: flex; gap: 1px; padding: 2px 4px;
-      background: rgba(0,0,0,0.15);
-      border-bottom: 1px solid rgba(0,0,0,0.3);
-    `;
+    // Tab bars — two rows like RS2
+    const tabContainer = document.createElement('div');
+    tabContainer.style.cssText = `background: rgba(0,0,0,0.15); border-bottom: 1px solid rgba(0,0,0,0.3);`;
 
-    const tabs: { key: string; label: string }[] = [
-      { key: 'inventory', label: 'Inventory' },
-      { key: 'skills', label: 'Skills' },
-      { key: 'equipment', label: 'Equip' },
+    const tabRow1 = document.createElement('div');
+    tabRow1.style.cssText = `display: flex; gap: 1px; padding: 2px 4px 0;`;
+    const tabRow2 = document.createElement('div');
+    tabRow2.style.cssText = `display: flex; gap: 1px; padding: 0 4px 2px;`;
+
+    const tabs: { key: string; label: string; row: number }[] = [
+      { key: 'inventory', label: 'Inv', row: 1 },
+      { key: 'skills', label: 'Skills', row: 1 },
+      { key: 'equipment', label: 'Equip', row: 1 },
+      { key: 'quests', label: 'Quests', row: 1 },
+      { key: 'good_magic', label: 'Good\u2728', row: 2 },
+      { key: 'evil_magic', label: 'Evil\uD83D\uDD25', row: 2 },
+      { key: 'friends', label: 'Friends', row: 2 },
+      { key: 'ignore', label: 'Ignore', row: 2 },
     ];
 
     for (const tab of tabs) {
@@ -199,22 +205,24 @@ export class SidePanel {
       btn.textContent = tab.label;
       btn.dataset.tab = tab.key;
       btn.style.cssText = `
-        flex: 1; text-align: center; padding: 6px 0 5px;
-        cursor: pointer; font-size: 11px; font-weight: bold;
-        color: #8a7a60; letter-spacing: 0.5px;
+        flex: 1; text-align: center; padding: 4px 0 3px;
+        cursor: pointer; font-size: 9px; font-weight: bold;
+        color: #8a7a60; letter-spacing: 0.3px;
         background: rgba(0,0,0,0.35);
         border: 1px solid rgba(0,0,0,0.4);
         border-bottom: none;
-        border-radius: 3px 3px 0 0;
+        border-radius: 2px 2px 0 0;
         transition: all 0.1s;
         text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
       `;
       btn.addEventListener('click', () => this.switchTab(tab.key as any));
-      tabBar.appendChild(btn);
+      (tab.row === 1 ? tabRow1 : tabRow2).appendChild(btn);
       this.tabButtons.push(btn);
     }
 
-    panel.appendChild(tabBar);
+    tabContainer.appendChild(tabRow1);
+    tabContainer.appendChild(tabRow2);
+    panel.appendChild(tabContainer);
 
     // Tab contents
     const contentArea = document.createElement('div');
@@ -247,6 +255,56 @@ export class SidePanel {
     equipWrap.style.display = 'none';
     contentArea.appendChild(equipWrap);
     this.tabContents.set('equipment', equipWrap);
+
+    // Quests tab
+    const questsWrap = document.createElement('div');
+    questsWrap.style.display = 'none';
+    questsWrap.innerHTML = `
+      <div style="color: #fc0; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Quest Journal</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">No quests yet...</div>
+    `;
+    contentArea.appendChild(questsWrap);
+    this.tabContents.set('quests', questsWrap);
+
+    // Good Magic tab
+    const goodMagicWrap = document.createElement('div');
+    goodMagicWrap.style.display = 'none';
+    goodMagicWrap.innerHTML = `
+      <div style="color: #4ae; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">\u2728 Good Magic Spellbook</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">No spells learned yet...</div>
+    `;
+    contentArea.appendChild(goodMagicWrap);
+    this.tabContents.set('good_magic', goodMagicWrap);
+
+    // Evil Magic tab
+    const evilMagicWrap = document.createElement('div');
+    evilMagicWrap.style.display = 'none';
+    evilMagicWrap.innerHTML = `
+      <div style="color: #c4a; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">\uD83D\uDD25 Evil Magic Spellbook</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">No spells learned yet...</div>
+    `;
+    contentArea.appendChild(evilMagicWrap);
+    this.tabContents.set('evil_magic', evilMagicWrap);
+
+    // Friends tab
+    const friendsWrap = document.createElement('div');
+    friendsWrap.style.display = 'none';
+    friendsWrap.innerHTML = `
+      <div style="color: #0c0; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Friends List</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">Your friends list is empty.</div>
+    `;
+    contentArea.appendChild(friendsWrap);
+    this.tabContents.set('friends', friendsWrap);
+
+    // Ignore tab
+    const ignoreWrap = document.createElement('div');
+    ignoreWrap.style.display = 'none';
+    ignoreWrap.innerHTML = `
+      <div style="color: #c44; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Ignore List</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">Your ignore list is empty.</div>
+    `;
+    contentArea.appendChild(ignoreWrap);
+    this.tabContents.set('ignore', ignoreWrap);
 
     panel.appendChild(contentArea);
 
@@ -461,7 +519,7 @@ export class SidePanel {
     return wrap;
   }
 
-  switchTab(tab: 'inventory' | 'skills' | 'equipment'): void {
+  switchTab(tab: string): void {
     this.activeTab = tab;
 
     for (const [key, el] of this.tabContents) {

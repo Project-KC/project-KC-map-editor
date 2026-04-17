@@ -97,7 +97,9 @@ export class ChatPanel {
     log.id = 'chat-log';
     log.style.cssText = `
       flex: 1; overflow-y: auto; padding: 6px 10px;
-      color: #000; line-height: 1.5;
+      color: #fc0; line-height: 1.6;
+      font-size: 13px; font-weight: bold;
+      text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
       background: url('/ui/parchment.png') repeat;
       box-shadow: inset 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 8px rgba(0,0,0,0.2),
                   2px 2px 4px rgba(0,0,0,0.3);
@@ -121,13 +123,19 @@ export class ChatPanel {
     input.placeholder = 'Press Enter to chat...';
     input.maxLength = 200;
     input.style.cssText = `
-      flex: 1; background: rgba(0,0,0,0.25);
-      border: 1px solid rgba(0,0,0,0.3); color: #fff;
-      font-family: 'Courier New', Courier, monospace; font-size: 12px;
-      padding: 4px 8px; outline: none;
+      flex: 1; background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,200,100,0.2); color: #fc0;
+      font-family: 'Courier New', Courier, monospace; font-size: 13px;
+      font-weight: bold;
+      padding: 5px 8px; outline: none;
       border-radius: 2px;
-      text-shadow: 1px 1px 1px rgba(0,0,0,0.7);
+      text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
     `;
+
+    // Style placeholder text
+    const style = document.createElement('style');
+    style.textContent = '#chat-input::placeholder { color: rgba(255,204,0,0.8); text-shadow: 1px 1px 0 #000; }';
+    panel.appendChild(style);
 
     inputBar.appendChild(input);
     panel.appendChild(inputBar);
@@ -159,7 +167,7 @@ export class ChatPanel {
     }
   }
 
-  addMessage(from: string, message: string, color: string = '#000'): void {
+  addMessage(from: string, message: string, color: string = '#fff'): void {
     const el = document.createElement('div');
     el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${this.escapeHtml(from)}:</span> ${this.escapeHtml(message)}`;
     if (this.activeTab !== 'all' && this.activeTab !== 'public') el.style.display = 'none';
@@ -168,7 +176,7 @@ export class ChatPanel {
     this.log.scrollTop = this.log.scrollHeight;
   }
 
-  addSystemMessage(message: string, color: string = '#000'): void {
+  addSystemMessage(message: string, color: string = '#fc0'): void {
     const el = document.createElement('div');
     el.innerHTML = `<span style="color: ${color};">${this.escapeHtml(message)}</span>`;
     if (this.activeTab !== 'all' && this.activeTab !== 'game') el.style.display = 'none';
