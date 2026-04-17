@@ -74,6 +74,7 @@ export class SidePanel {
       font-family: monospace; color: #ddd;
       display: flex; flex-direction: column;
       overflow: hidden;
+      justify-content: flex-start;
     `;
 
     // HP bar below minimap
@@ -180,54 +181,53 @@ export class SidePanel {
     playerInfo.appendChild(swordIcon2);
     panel.appendChild(playerInfo);
 
-    // Tab bars — two rows like RS2
-    const tabContainer = document.createElement('div');
-    tabContainer.style.cssText = `background: rgba(0,0,0,0.15); border-bottom: 1px solid rgba(0,0,0,0.3);`;
+    // Top tab row — 4 tabs above content
+    const topTabs = document.createElement('div');
+    topTabs.style.cssText = `display: flex; gap: 1px; padding: 2px 2px 0;`;
 
-    const tabRow1 = document.createElement('div');
-    tabRow1.style.cssText = `display: flex; gap: 1px; padding: 2px 4px 0;`;
-    const tabRow2 = document.createElement('div');
-    tabRow2.style.cssText = `display: flex; gap: 1px; padding: 0 4px 2px;`;
+    // Bottom tab row — 4 tabs below content (added after contentArea)
+    const bottomTabs = document.createElement('div');
+    bottomTabs.style.cssText = `display: flex; gap: 1px; padding: 0 2px 2px;`;
 
-    const tabs: { key: string; label: string; row: number }[] = [
-      { key: 'inventory', label: 'Inv', row: 1 },
-      { key: 'skills', label: 'Skills', row: 1 },
-      { key: 'equipment', label: 'Equip', row: 1 },
-      { key: 'quests', label: 'Quests', row: 1 },
-      { key: 'good_magic', label: 'Good\u2728', row: 2 },
-      { key: 'evil_magic', label: 'Evil\uD83D\uDD25', row: 2 },
-      { key: 'friends', label: 'Friends', row: 2 },
-      { key: 'ignore', label: 'Ignore', row: 2 },
+    const tabStyle = `
+      flex: 1; text-align: center; padding: 5px 0;
+      cursor: pointer; font-size: 11px; font-weight: bold;
+      color: #8a7a60;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(0,0,0,0.4);
+      transition: all 0.1s;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+    `;
+
+    const tabs: { key: string; label: string; pos: 'top' | 'bottom' }[] = [
+      { key: 'inventory', label: '\uD83C\uDF92 Inv', pos: 'top' },
+      { key: 'skills', label: '\u2694 Skills', pos: 'top' },
+      { key: 'equipment', label: '\uD83D\uDEE1 Equip', pos: 'top' },
+      { key: 'quests', label: '\uD83D\uDCDC Quests', pos: 'top' },
+      { key: 'good_magic', label: '\u2728 Good', pos: 'bottom' },
+      { key: 'evil_magic', label: '\uD83D\uDD25 Evil', pos: 'bottom' },
+      { key: 'friends', label: '\uD83D\uDC64 Friends', pos: 'bottom' },
+      { key: 'ignore', label: '\uD83D\uDEAB Ignore', pos: 'bottom' },
     ];
 
     for (const tab of tabs) {
       const btn = document.createElement('div');
       btn.textContent = tab.label;
       btn.dataset.tab = tab.key;
-      btn.style.cssText = `
-        flex: 1; text-align: center; padding: 4px 0 3px;
-        cursor: pointer; font-size: 9px; font-weight: bold;
-        color: #8a7a60; letter-spacing: 0.3px;
-        background: rgba(0,0,0,0.35);
-        border: 1px solid rgba(0,0,0,0.4);
-        border-bottom: none;
-        border-radius: 2px 2px 0 0;
-        transition: all 0.1s;
-        text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
-      `;
+      btn.style.cssText = tabStyle + (tab.pos === 'top'
+        ? 'border-bottom: none; border-radius: 3px 3px 0 0;'
+        : 'border-top: none; border-radius: 0 0 3px 3px;');
       btn.addEventListener('click', () => this.switchTab(tab.key as any));
-      (tab.row === 1 ? tabRow1 : tabRow2).appendChild(btn);
+      (tab.pos === 'top' ? topTabs : bottomTabs).appendChild(btn);
       this.tabButtons.push(btn);
     }
 
-    tabContainer.appendChild(tabRow1);
-    tabContainer.appendChild(tabRow2);
-    panel.appendChild(tabContainer);
+    panel.appendChild(topTabs);
 
     // Tab contents
     const contentArea = document.createElement('div');
     contentArea.style.cssText = `
-      padding: 8px 6px; flex: 1; overflow-y: auto; min-height: 0;
+      padding: 8px 6px; overflow-y: auto; height: 340px;
       background: rgba(0,0,0,0.4);
       box-shadow: inset 0 3px 8px rgba(0,0,0,0.5);
       border-top: 1px solid rgba(0,0,0,0.4);
@@ -307,26 +307,32 @@ export class SidePanel {
     this.tabContents.set('ignore', ignoreWrap);
 
     panel.appendChild(contentArea);
+    panel.appendChild(bottomTabs);
 
-    // Logout button below content
+    // Spacer pushes logout to the very bottom
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'flex: 1;';
+    panel.appendChild(spacer);
+
+    // Logout button at the bottom
     const logoutBtn = document.createElement('div');
     logoutBtn.textContent = 'Logout';
     logoutBtn.style.cssText = `
-      text-align: center; padding: 6px 0; margin: 6px 8px 8px;
-      background: rgba(0,0,0,0.4);
-      border: 1px solid rgba(0,0,0,0.5);
-      border-radius: 3px; color: #c8a44a; font-size: 11px;
+      text-align: center; padding: 6px 0; margin: 4px 8px 6px;
+      background: rgba(120,40,30,0.5);
+      border: 1px solid rgba(180,80,60,0.4);
+      border-radius: 3px; color: #fc0; font-size: 12px;
       cursor: pointer; font-weight: bold; letter-spacing: 1px;
       text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
       box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 1px 0 rgba(255,200,100,0.05);
     `;
     logoutBtn.addEventListener('mouseenter', () => {
-      logoutBtn.style.background = 'rgba(80,50,30,0.5)';
-      logoutBtn.style.borderColor = 'rgba(200,170,100,0.3)';
+      logoutBtn.style.background = 'rgba(160,50,30,0.6)';
+      logoutBtn.style.borderColor = 'rgba(220,100,60,0.5)';
     });
     logoutBtn.addEventListener('mouseleave', () => {
-      logoutBtn.style.background = 'rgba(0,0,0,0.4)';
-      logoutBtn.style.borderColor = 'rgba(0,0,0,0.5)';
+      logoutBtn.style.background = 'rgba(120,40,30,0.5)';
+      logoutBtn.style.borderColor = 'rgba(180,80,60,0.4)';
     });
     logoutBtn.addEventListener('click', async () => {
       try {
@@ -351,7 +357,7 @@ export class SidePanel {
   private buildInventoryContent(): HTMLDivElement {
     const grid = document.createElement('div');
     grid.style.cssText = `
-      display: grid; grid-template-columns: repeat(4, 1fr);
+      display: grid; grid-template-columns: repeat(5, 1fr);
       gap: 2px; justify-items: center;
     `;
 
@@ -359,7 +365,7 @@ export class SidePanel {
     for (let i = 0; i < INVENTORY_SIZE; i++) {
       const slot = document.createElement('div');
       slot.style.cssText = `
-        width: 52px; height: 46px;
+        width: 48px; height: 44px;
         background: rgba(0, 0, 0, 0.45);
         border: 1px solid rgba(0, 0, 0, 0.5);
         border-radius: 3px;
@@ -527,15 +533,10 @@ export class SidePanel {
     }
 
     for (const btn of this.tabButtons) {
-      if (btn.dataset.tab === tab) {
-        btn.style.color = '#fc0';
-        btn.style.background = 'rgba(0,0,0,0.5)';
-        btn.style.borderColor = 'rgba(255,200,100,0.2)';
-      } else {
-        btn.style.color = '#8a7a60';
-        btn.style.background = 'rgba(0,0,0,0.35)';
-        btn.style.borderColor = 'rgba(0,0,0,0.4)';
-      }
+      const isActive = btn.dataset.tab === tab;
+      btn.style.color = isActive ? '#fc0' : '#8a7a60';
+      btn.style.background = isActive ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.35)';
+      btn.style.borderColor = isActive ? 'rgba(255,200,100,0.25)' : 'rgba(0,0,0,0.4)';
     }
   }
 

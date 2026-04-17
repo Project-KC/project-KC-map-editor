@@ -34,7 +34,7 @@ export function handleGameSocketOpen(
     player.skills = saved.skills;
     // Pad saved inventory to 28 slots
     const inv = saved.inventory;
-    while (inv.length < 28) inv.push(null);
+    while (inv.length < 30) inv.push(null);
     player.inventory = inv;
     player.equipment = saved.equipment;
     player.stance = saved.stance;
