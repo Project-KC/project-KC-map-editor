@@ -300,7 +300,8 @@ export class GameManager {
       this.sidePanel?.setSellCallback(null);
     });
     this.smithingPanel = new SmithingPanel();
-    this.chatPanel.addSystemMessage(`Welcome, ${username}! Click to move, right-click NPCs to attack.`, '#0f0');
+    this.chatPanel.addSystemMessage(`Welcome to EvilQuest!`);
+    this.chatPanel.addSystemMessage(`You last logged in from: ${window.location.hostname}`);
 
     // Chat message handler
     this.network.onChat((data) => {

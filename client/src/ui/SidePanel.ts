@@ -80,8 +80,9 @@ export class SidePanel {
     const hpRow = document.createElement('div');
     hpRow.style.cssText = `
       display: flex; align-items: center; gap: 6px;
-      padding: 6px 8px;
-      border-bottom: 1px solid rgba(0,0,0,0.3);
+      padding: 7px 10px;
+      border-bottom: 1px solid rgba(0,0,0,0.25);
+      border-top: 1px solid rgba(255,200,100,0.06);
     `;
     const hpIcon = document.createElement('div');
     hpIcon.textContent = 'Health';
@@ -90,9 +91,10 @@ export class SidePanel {
 
     const hpBarBg = document.createElement('div');
     hpBarBg.style.cssText = `
-      flex: 1; height: 14px; background: #2a0a0a;
-      border: 1px solid #3a2020; border-radius: 2px;
+      flex: 1; height: 16px; background: #1a0808;
+      border: 1px solid #4a2020; border-radius: 3px;
       position: relative; overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,200,100,0.06);
     `;
     const hpBarFill = document.createElement('div');
     hpBarFill.id = 'side-hp-fill';
@@ -118,8 +120,8 @@ export class SidePanel {
     const magicRow = document.createElement('div');
     magicRow.style.cssText = `
       display: flex; align-items: center; gap: 6px;
-      padding: 4px 8px 6px;
-      border-bottom: 1px solid rgba(0,0,0,0.3);
+      padding: 5px 10px 7px;
+      border-bottom: 1px solid rgba(0,0,0,0.25);
     `;
     const magicIcon = document.createElement('div');
     magicIcon.textContent = 'Magic';
@@ -128,9 +130,10 @@ export class SidePanel {
 
     const magicBarBg = document.createElement('div');
     magicBarBg.style.cssText = `
-      flex: 1; height: 14px; background: #0a1a2a;
-      border: 1px solid #1a2a3a; border-radius: 2px;
+      flex: 1; height: 16px; background: #080818;
+      border: 1px solid #1a2a4a; border-radius: 3px;
       position: relative; overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,200,100,0.06);
     `;
     const magicBarFill = document.createElement('div');
     magicBarFill.id = 'side-magic-fill';
@@ -152,10 +155,35 @@ export class SidePanel {
     magicRow.appendChild(magicBarBg);
     panel.appendChild(magicRow);
 
+    // Player info strip — combat level + username
+    const playerInfo = document.createElement('div');
+    playerInfo.id = 'side-player-info';
+    playerInfo.style.cssText = `
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 6px 8px;
+      background: rgba(0,0,0,0.3);
+      border-top: 1px solid rgba(255,200,100,0.08);
+      border-bottom: 1px solid rgba(0,0,0,0.4);
+    `;
+    const swordIcon = document.createElement('span');
+    swordIcon.textContent = '\u2694';
+    swordIcon.style.cssText = `font-size: 14px; color: #c8a84a;`;
+    playerInfo.appendChild(swordIcon);
+    const combatText = document.createElement('span');
+    combatText.id = 'side-combat-level';
+    combatText.textContent = 'Combat Lv: 3';
+    combatText.style.cssText = `font-size: 11px; font-weight: bold; color: #fc0; text-shadow: 1px 1px 0 #000; letter-spacing: 0.5px;`;
+    playerInfo.appendChild(combatText);
+    const swordIcon2 = document.createElement('span');
+    swordIcon2.textContent = '\u2694';
+    swordIcon2.style.cssText = `font-size: 14px; color: #c8a84a;`;
+    playerInfo.appendChild(swordIcon2);
+    panel.appendChild(playerInfo);
+
     // Tab bar above content
     const tabBar = document.createElement('div');
     tabBar.style.cssText = `
-      display: flex; gap: 1px; padding: 0 2px;
+      display: flex; gap: 1px; padding: 2px 4px;
       background: rgba(0,0,0,0.15);
       border-bottom: 1px solid rgba(0,0,0,0.3);
     `;
@@ -171,14 +199,15 @@ export class SidePanel {
       btn.textContent = tab.label;
       btn.dataset.tab = tab.key;
       btn.style.cssText = `
-        flex: 1; text-align: center; padding: 5px 0 4px;
+        flex: 1; text-align: center; padding: 6px 0 5px;
         cursor: pointer; font-size: 11px; font-weight: bold;
         color: #8a7a60; letter-spacing: 0.5px;
-        background: linear-gradient(180deg, #3d3328 0%, #2a2018 100%);
-        border: 1px solid #4a3c2e;
+        background: rgba(0,0,0,0.35);
+        border: 1px solid rgba(0,0,0,0.4);
         border-bottom: none;
         border-radius: 3px 3px 0 0;
         transition: all 0.1s;
+        text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
       `;
       btn.addEventListener('click', () => this.switchTab(tab.key as any));
       tabBar.appendChild(btn);
@@ -190,9 +219,10 @@ export class SidePanel {
     // Tab contents
     const contentArea = document.createElement('div');
     contentArea.style.cssText = `
-      padding: 6px; flex: 1; overflow-y: auto; min-height: 0;
-      background: rgba(0,0,0,0.2);
-      box-shadow: inset 0 2px 6px rgba(0,0,0,0.4), inset 0 -1px 0 rgba(255,200,100,0.08);
+      padding: 8px 6px; flex: 1; overflow-y: auto; min-height: 0;
+      background: rgba(0,0,0,0.4);
+      box-shadow: inset 0 3px 8px rgba(0,0,0,0.5);
+      border-top: 1px solid rgba(0,0,0,0.4);
     `;
 
     // Inventory tab
@@ -224,17 +254,21 @@ export class SidePanel {
     const logoutBtn = document.createElement('div');
     logoutBtn.textContent = 'Logout';
     logoutBtn.style.cssText = `
-      text-align: center; padding: 5px 0; margin: 4px 6px 6px;
-      background: url('/ui/stone-light.png') repeat;
-      border: 1px solid #6a4a35;
-      border-radius: 3px; color: #d4a44a; font-size: 11px;
+      text-align: center; padding: 6px 0; margin: 6px 8px 8px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(0,0,0,0.5);
+      border-radius: 3px; color: #c8a44a; font-size: 11px;
       cursor: pointer; font-weight: bold; letter-spacing: 1px;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 1px 0 rgba(255,200,100,0.05);
     `;
     logoutBtn.addEventListener('mouseenter', () => {
-      logoutBtn.style.filter = 'brightness(1.3)';
+      logoutBtn.style.background = 'rgba(80,50,30,0.5)';
+      logoutBtn.style.borderColor = 'rgba(200,170,100,0.3)';
     });
     logoutBtn.addEventListener('mouseleave', () => {
-      logoutBtn.style.filter = '';
+      logoutBtn.style.background = 'rgba(0,0,0,0.4)';
+      logoutBtn.style.borderColor = 'rgba(0,0,0,0.5)';
     });
     logoutBtn.addEventListener('click', async () => {
       try {
@@ -267,18 +301,19 @@ export class SidePanel {
     for (let i = 0; i < INVENTORY_SIZE; i++) {
       const slot = document.createElement('div');
       slot.style.cssText = `
-        width: 50px; height: 44px;
-        background: rgba(60, 50, 40, 0.3);
-        border: 1px solid rgba(80, 65, 50, 0.4);
-        border-radius: 2px;
+        width: 52px; height: 46px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(0, 0, 0, 0.5);
+        border-radius: 3px;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 1px 0 rgba(255,200,100,0.05);
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
         cursor: pointer; font-size: 10px;
         position: relative;
         transition: background 0.1s;
       `;
-      slot.addEventListener('mouseenter', () => { slot.style.background = 'rgba(80, 65, 50, 0.5)'; });
-      slot.addEventListener('mouseleave', () => { slot.style.background = 'rgba(60, 50, 40, 0.3)'; });
+      slot.addEventListener('mouseenter', () => { slot.style.background = 'rgba(80, 65, 50, 0.5)'; slot.style.borderColor = 'rgba(200,170,100,0.35)'; });
+      slot.addEventListener('mouseleave', () => { slot.style.background = 'rgba(0, 0, 0, 0.45)'; slot.style.borderColor = 'rgba(0, 0, 0, 0.5)'; });
 
       slot.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -436,12 +471,12 @@ export class SidePanel {
     for (const btn of this.tabButtons) {
       if (btn.dataset.tab === tab) {
         btn.style.color = '#fc0';
-        btn.style.background = 'linear-gradient(180deg, #4d4030 0%, #3a3025 100%)';
-        btn.style.borderColor = '#6a5a45';
+        btn.style.background = 'rgba(0,0,0,0.5)';
+        btn.style.borderColor = 'rgba(255,200,100,0.2)';
       } else {
         btn.style.color = '#8a7a60';
-        btn.style.background = 'linear-gradient(180deg, #3d3328 0%, #2a2018 100%)';
-        btn.style.borderColor = '#4a3c2e';
+        btn.style.background = 'rgba(0,0,0,0.35)';
+        btn.style.borderColor = 'rgba(0,0,0,0.4)';
       }
     }
   }
@@ -671,6 +706,23 @@ export class SidePanel {
       fill.style.background = 'linear-gradient(180deg, #8a1a1a 0%, #6a0a0a 100%)';
     }
     text.textContent = `${current}/${max}`;
+  }
+
+  /** Update the combat level display (calculated from skills) */
+  updateCombatLevel(): void {
+    const acc = this.skills.get('accuracy' as SkillId)?.level ?? 1;
+    const str = this.skills.get('strength' as SkillId)?.level ?? 1;
+    const def = this.skills.get('defence' as SkillId)?.level ?? 1;
+    const hp = this.skills.get('hitpoints' as SkillId)?.level ?? 10;
+    const arch = this.skills.get('archery' as SkillId)?.level ?? 1;
+    const mag = this.skills.get('good_magic' as SkillId)?.level ?? 1;
+    const base = 0.25 * (def + hp);
+    const melee = 0.325 * (acc + str);
+    const ranged = 0.325 * (1.5 * arch);
+    const magic = 0.325 * (1.5 * mag);
+    const level = Math.floor(base + Math.max(melee, ranged, magic));
+    const el = document.getElementById('side-combat-level');
+    if (el) el.textContent = `Combat Lv: ${level}`;
   }
 
   /** Update the Good Magic bar below HP */
