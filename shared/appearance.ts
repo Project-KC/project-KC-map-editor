@@ -27,6 +27,10 @@ export const SHIRT_COLORS: [number, number, number][] = [
   [0.010, 0.010, 0.010],  // 9  black
   [0.140, 0.060, 0.010],  // 10 orange
   [0.090, 0.010, 0.050],  // 11 magenta
+  [0.500, 0.500, 0.500],  // 12 white
+  [0.060, 0.020, 0.080],  // 13 dark purple
+  [0.010, 0.040, 0.080],  // 14 navy
+  [0.120, 0.010, 0.060],  // 15 pink
 ];
 
 export const PANTS_COLORS: [number, number, number][] = [
@@ -42,6 +46,7 @@ export const PANTS_COLORS: [number, number, number][] = [
   [0.050, 0.020, 0.060],  // 9  dark purple
   [0.140, 0.140, 0.140],  // 10 silver
   [0.070, 0.050, 0.010],  // 11 olive
+  [0.500, 0.500, 0.500],  // 12 white
 ];
 
 export const SHOES_COLORS: [number, number, number][] = [
@@ -53,17 +58,23 @@ export const SHOES_COLORS: [number, number, number][] = [
   [0.020, 0.040, 0.020],  // 5  dark green
   [0.100, 0.100, 0.100],  // 6  grey
   [0.010, 0.010, 0.010],  // 7  black
+  [0.400, 0.400, 0.400],  // 8  white
 ];
 
+/** Belt color index 0 = "No Belt" (matches shirt color). Handled in applyAppearance. */
+export const BELT_NO_BELT = 0;
+
 export const BELT_COLORS: [number, number, number][] = [
-  [0.182, 0.006, 0.006],  // 0  dark red (default)
-  [0.080, 0.040, 0.015],  // 1  dark brown
-  [0.010, 0.010, 0.010],  // 2  black
-  [0.060, 0.060, 0.065],  // 3  charcoal
-  [0.110, 0.080, 0.010],  // 4  gold
-  [0.020, 0.050, 0.020],  // 5  dark green
-  [0.032, 0.052, 0.123],  // 6  dark blue
-  [0.140, 0.090, 0.050],  // 7  tan
+  [0.000, 0.000, 0.000],  // 0  No Belt (placeholder — replaced by shirt color at runtime)
+  [0.182, 0.006, 0.006],  // 1  dark red
+  [0.080, 0.040, 0.015],  // 2  dark brown
+  [0.010, 0.010, 0.010],  // 3  black
+  [0.060, 0.060, 0.065],  // 4  charcoal
+  [0.110, 0.080, 0.010],  // 5  gold
+  [0.020, 0.050, 0.020],  // 6  dark green
+  [0.032, 0.052, 0.123],  // 7  dark blue
+  [0.140, 0.090, 0.050],  // 8  tan
+  [0.500, 0.500, 0.500],  // 9  white
 ];
 
 export const HAIR_COLORS: [number, number, number][] = [
@@ -72,9 +83,11 @@ export const HAIR_COLORS: [number, number, number][] = [
   [0.010, 0.010, 0.010],  // 2  black
   [0.120, 0.030, 0.010],  // 3  auburn
   [0.200, 0.080, 0.020],  // 4  ginger
-  [0.150, 0.150, 0.150],  // 5  grey/white
+  [0.150, 0.150, 0.150],  // 5  grey
   [0.080, 0.025, 0.025],  // 6  dark red
   [0.060, 0.040, 0.020],  // 7  dark brown
+  [0.450, 0.450, 0.450],  // 8  white
+  [0.250, 0.200, 0.080],  // 9  light blonde
 ];
 
 /** Default appearance for the character creator preview */
@@ -89,7 +102,7 @@ export const DEFAULT_APPEARANCE: PlayerAppearance = {
   pantsColor: 0,
   shoesColor: 0,
   hairColor: 0,
-  beltColor: 0,
+  beltColor: 1,
   shirtStyle: 0,
 };
 

@@ -262,16 +262,19 @@ export class CharacterCreator {
 
     palette.forEach((rgb, index) => {
       const swatch = document.createElement('div');
+      const isNoBelt = slot === 'beltColor' && index === 0;
       const r = Math.round(Math.pow(rgb[0], 1 / 2.2) * 255);
       const g = Math.round(Math.pow(rgb[1], 1 / 2.2) * 255);
       const b = Math.round(Math.pow(rgb[2], 1 / 2.2) * 255);
       const isSelected = this.appearance[slot] === index;
       swatch.style.cssText = `
-        width: 28px; height: 28px; border-radius: 3px; cursor: pointer;
-        background: rgb(${r}, ${g}, ${b});
+        width: ${isNoBelt ? 'auto' : '28px'}; height: 28px; border-radius: 3px; cursor: pointer;
+        background: ${isNoBelt ? 'linear-gradient(135deg, #555, #333)' : `rgb(${r}, ${g}, ${b})`};
         border: 2px solid ${isSelected ? '#fc0' : '#555'};
         transition: border-color 0.15s, transform 0.1s;
+        ${isNoBelt ? 'padding: 0 6px; display: flex; align-items: center; font-size: 9px; color: #ccc; font-family: monospace;' : ''}
       `;
+      if (isNoBelt) swatch.textContent = 'None';
       swatch.dataset.slot = slot;
       swatch.dataset.index = String(index);
       swatch.addEventListener('mouseenter', () => {

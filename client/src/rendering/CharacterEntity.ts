@@ -12,7 +12,7 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import { type PlayerAppearance, type AppearanceColorSlot, APPEARANCE_MATERIAL_MAP, getPalette } from '@projectrs/shared';
+import { type PlayerAppearance, type AppearanceColorSlot, APPEARANCE_MATERIAL_MAP, getPalette, BELT_NO_BELT, SHIRT_COLORS } from '@projectrs/shared';
 import '@babylonjs/loaders/glTF';
 
 /** Number of keyframes to quantize animations down to (RS-style choppy look) */
@@ -969,8 +969,13 @@ export class CharacterEntity {
       const baseName = mat.name.replace(/_flat$/, '').replace(/\.\d+$/, '');
 
       for (const [slot, matNames] of Object.entries(APPEARANCE_MATERIAL_MAP)) {
-        const colorIdx = appearance[slot as AppearanceColorSlot];
-        const palette = getPalette(slot as AppearanceColorSlot);
+        let colorIdx = appearance[slot as AppearanceColorSlot];
+        let palette = getPalette(slot as AppearanceColorSlot);
+        // "No Belt" option: use shirt color instead
+        if (slot === 'beltColor' && colorIdx === BELT_NO_BELT) {
+          colorIdx = appearance.shirtColor;
+          palette = SHIRT_COLORS;
+        }
         if (colorIdx < 0 || colorIdx >= palette.length) continue;
 
         for (const target of matNames) {
