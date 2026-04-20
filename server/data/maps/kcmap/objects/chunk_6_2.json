@@ -136,7 +136,7 @@
     "assetId": "stone small pillar",
     "layerId": "layer_0",
     "position": {
-      "x": 196,
+      "x": 196.12281654032088,
       "y": -0.34164530830470063,
       "z": 83
     },
@@ -405,6 +405,367 @@
       "x": 223.04208711024742,
       "y": -2.7199999999999993,
       "z": 77.98939800901502
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 192.5,
+      "y": 0.7060537166143668,
+      "z": 94.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "oaktree",
+    "layerId": "layer_0",
+    "position": {
+      "x": 199,
+      "y": 0.032901708514980754,
+      "z": 85
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 207,
+      "y": 0,
+      "z": 95
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 208,
+      "y": 0.03859786036785273,
+      "z": 86
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 0.051600905798864005,
+      "z": 85
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 215,
+      "y": 0,
+      "z": 88
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 1.7763568394002505e-15,
+      "z": 92
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 206,
+      "y": 0,
+      "z": 93
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 201,
+      "y": 1.7763568394002505e-15,
+      "z": 92
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 200,
+      "y": -1.7763568394002505e-15,
+      "z": 94
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 203,
+      "y": 0,
+      "z": 94
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 199.5,
+      "y": 0,
+      "z": 95.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 215.5,
+      "y": 0,
+      "z": 95.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 218.5,
+      "y": 0,
+      "z": 95.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 217.5,
+      "y": 0,
+      "z": 95.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 199.5,
+      "y": 0,
+      "z": 92.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "oaktree2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 217,
+      "y": 0,
+      "z": 70
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "oaktree2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 215.5,
+      "y": 0,
+      "z": 72
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 219,
+      "y": 0,
+      "z": 73.5
     },
     "rotation": {
       "x": 0,

@@ -1,27 +1,36 @@
 import type { ObjectRecipe, ItemDef } from '@projectrs/shared';
+import { popupGeometryCss } from './popupStyle';
 
 export type SmithCallback = (recipeIndex: number) => void;
 
 /**
  * Popup panel showing available smithing recipes when interacting with an anvil.
- * Groups recipes by input bar, shows item icons, names, bar cost, and level requirement.
- * Greyed-out items are unsmithable (missing bars, level, or hammer).
+ * Only shows recipes for bar types the player currently holds. When the player
+ * holds multiple bar types, first presents a picker to choose which bar to smith.
  */
 export class SmithingPanel {
   private container: HTMLDivElement;
+  private titleEl: HTMLSpanElement;
   private gridEl: HTMLDivElement;
   private visible: boolean = false;
   private onSmith: SmithCallback | null = null;
   private onCloseCallback: (() => void) | null = null;
 
+  // Cached state for swapping between picker and recipe view
+  private allRecipes: ObjectRecipe[] = [];
+  private allInventory: ({ itemId: number; quantity: number } | null)[] = [];
+  private cachedSmithingLevel: number = 0;
+  private cachedHasHammer: boolean = false;
+  private cachedItemDefs: Map<number, ItemDef> = new Map();
+
   constructor() {
     this.container = document.createElement('div');
     this.container.style.cssText = `
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 480px; max-height: 520px;
+      ${popupGeometryCss({ widthFrac: 0.3 })}
+      display: none; flex-direction: column;
       background: url('/ui/stone-dark.png') repeat;
       border: 2px solid #5a4a35;
-      border-radius: 4px; z-index: 1001; display: none;
+      border-radius: 4px; z-index: 1001;
       font-family: monospace; color: #ddd; user-select: none;
       box-shadow: 0 4px 20px rgba(0,0,0,0.6);
     `;
@@ -35,9 +44,9 @@ export class SmithingPanel {
       border-bottom: 2px solid #1a1510;
       border-radius: 2px 2px 0 0;
     `;
-    const title = document.createElement('span');
-    title.textContent = 'Anvil — What would you like to smith?';
-    title.style.cssText = 'font-size: 13px; color: #fc0; font-weight: bold; text-shadow: 1px 1px 0 #000;';
+    this.titleEl = document.createElement('span');
+    this.titleEl.textContent = 'Anvil — What would you like to smith?';
+    this.titleEl.style.cssText = 'font-size: 13px; color: #fc0; font-weight: bold; text-shadow: 1px 1px 0 #000;';
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'X';
     closeBtn.style.cssText = `
@@ -46,13 +55,14 @@ export class SmithingPanel {
       padding: 2px 8px; border-radius: 3px; font-family: monospace; font-weight: bold;
     `;
     closeBtn.onclick = () => this.hide();
-    header.appendChild(title);
+    header.appendChild(this.titleEl);
     header.appendChild(closeBtn);
     this.container.appendChild(header);
 
-    // Recipe grid
+    // Recipe grid — flex:1 so it fills available vertical space;
+    // overflow-y:auto is a last-resort scroll only if content can't fit on very small clients
     this.gridEl = document.createElement('div');
-    this.gridEl.style.cssText = 'padding: 8px; overflow-y: auto; max-height: 440px;';
+    this.gridEl.style.cssText = 'padding: 10px; overflow-y: auto; flex: 1 1 auto; min-height: 0;';
     this.container.appendChild(this.gridEl);
 
     document.body.appendChild(this.container);
@@ -67,115 +77,230 @@ export class SmithingPanel {
     onSmith: SmithCallback,
   ): void {
     this.onSmith = onSmith;
-    this.gridEl.innerHTML = '';
+    this.allRecipes = recipes;
+    this.allInventory = inventory;
+    this.cachedSmithingLevel = smithingLevel;
+    this.cachedHasHammer = hasHammer;
+    this.cachedItemDefs = itemDefs;
 
-    // Count how many of each item the player has
-    const itemCounts = new Map<number, number>();
-    for (const slot of inventory) {
-      if (slot) itemCounts.set(slot.itemId, (itemCounts.get(slot.itemId) ?? 0) + slot.quantity);
+    // Which bar types does the player actually hold?
+    const itemCounts = this.countInventory(inventory);
+    const availableBarIds = new Set<number>();
+    for (const r of recipes) {
+      if ((itemCounts.get(r.inputItemId) ?? 0) > 0) availableBarIds.add(r.inputItemId);
     }
 
-    // Group recipes by input bar
-    const groups = new Map<number, { recipe: ObjectRecipe; index: number }[]>();
-    recipes.forEach((recipe, index) => {
-      const list = groups.get(recipe.inputItemId) ?? [];
-      list.push({ recipe, index });
-      groups.set(recipe.inputItemId, list);
-    });
+    this.container.style.display = 'flex';
+    this.visible = true;
 
-    for (const [barId, entries] of groups) {
-      const barDef = itemDefs.get(barId);
+    if (availableBarIds.size === 0) {
+      // Player has no bars at all — show empty state
+      this.renderEmptyState(hasHammer);
+    } else if (availableBarIds.size === 1) {
+      // Single bar type — skip picker, show recipes directly
+      const [barId] = availableBarIds;
+      this.renderRecipesForBar(barId);
+    } else {
+      // Multiple bar types — show picker first
+      this.renderBarPicker(availableBarIds);
+    }
+  }
+
+  private countInventory(inventory: ({ itemId: number; quantity: number } | null)[]): Map<number, number> {
+    const counts = new Map<number, number>();
+    for (const slot of inventory) {
+      if (slot) counts.set(slot.itemId, (counts.get(slot.itemId) ?? 0) + slot.quantity);
+    }
+    return counts;
+  }
+
+  private renderBarPicker(availableBarIds: Set<number>): void {
+    this.titleEl.textContent = 'Anvil — Which bar would you like to smith?';
+    this.gridEl.innerHTML = '';
+    const itemCounts = this.countInventory(this.allInventory);
+
+    for (const barId of availableBarIds) {
+      const barDef = this.cachedItemDefs.get(barId);
       const barName = barDef?.name ?? `Item ${barId}`;
       const barCount = itemCounts.get(barId) ?? 0;
 
-      // Section header
-      const sectionHeader = document.createElement('div');
-      sectionHeader.style.cssText = `
-        padding: 4px 8px; margin-top: 6px; font-size: 12px; font-weight: bold;
-        color: #aa8844; border-bottom: 1px solid #333;
+      const row = document.createElement('div');
+      row.style.cssText = `
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 10px; margin: 4px 0; border-radius: 3px;
+        background: #222; border: 1px solid #444; cursor: pointer;
+        transition: background 0.1s;
       `;
-      sectionHeader.textContent = `${barName} (${barCount} in inventory)`;
-      this.gridEl.appendChild(sectionHeader);
 
-      // Recipe rows
-      for (const { recipe, index } of entries) {
-        const outputDef = itemDefs.get(recipe.outputItemId);
-        const outputName = outputDef?.name ?? `Item ${recipe.outputItemId}`;
-        const hasLevel = smithingLevel >= recipe.levelRequired;
-        const hasBars = barCount >= recipe.inputQuantity;
-        const canSmith = hasLevel && hasBars && hasHammer;
-
-        const row = document.createElement('div');
-        row.style.cssText = `
-          display: flex; align-items: center; gap: 8px;
-          padding: 5px 8px; margin: 2px 0; border-radius: 3px;
-          background: ${canSmith ? '#222' : '#1a1a1a'};
-          border: 1px solid ${canSmith ? '#444' : '#2a2a2a'};
-          opacity: ${canSmith ? '1' : '0.45'};
-          cursor: ${canSmith ? 'pointer' : 'default'};
-          transition: background 0.1s;
-        `;
-
-        // Icon
-        const icon = document.createElement('div');
-        icon.style.cssText = 'width: 28px; height: 28px; flex-shrink: 0;';
-        const iconFile = outputDef?.sprite ?? outputDef?.icon;
-        if (iconFile) {
-          const img = document.createElement('img');
-          const folder = outputDef?.sprite ? 'sprites/items' : 'items';
-          img.src = `/${folder}/${iconFile}`;
-          img.style.cssText = 'width: 28px; height: 28px; image-rendering: pixelated;';
-          icon.appendChild(img);
-        } else {
-          icon.style.background = '#333';
-          icon.style.borderRadius = '3px';
-        }
-        row.appendChild(icon);
-
-        // Name
-        const nameEl = document.createElement('div');
-        nameEl.style.cssText = `flex: 1; font-size: 12px; color: ${canSmith ? '#ddd' : '#777'};`;
-        nameEl.textContent = outputName;
-        row.appendChild(nameEl);
-
-        // Bar cost
-        const costEl = document.createElement('div');
-        costEl.style.cssText = `font-size: 11px; color: ${hasBars ? '#8a8' : '#a55'}; white-space: nowrap;`;
-        costEl.textContent = `${recipe.inputQuantity} bar${recipe.inputQuantity > 1 ? 's' : ''}`;
-        row.appendChild(costEl);
-
-        // Level
-        const lvlEl = document.createElement('div');
-        lvlEl.style.cssText = `
-          font-size: 11px; width: 50px; text-align: right;
-          color: ${hasLevel ? '#88a' : '#a55'};
-        `;
-        lvlEl.textContent = `Lv ${recipe.levelRequired}`;
-        row.appendChild(lvlEl);
-
-        if (canSmith) {
-          row.addEventListener('mouseenter', () => { row.style.background = '#2a3a2a'; row.style.borderColor = '#5a8855'; });
-          row.addEventListener('mouseleave', () => { row.style.background = '#222'; row.style.borderColor = '#444'; });
-          row.addEventListener('click', () => {
-            this.onSmith?.(index);
-            this.hide();
-          });
-        }
-
-        this.gridEl.appendChild(row);
+      const icon = document.createElement('div');
+      icon.style.cssText = 'width: 32px; height: 32px; flex-shrink: 0;';
+      const iconFile = barDef?.sprite ?? barDef?.icon;
+      if (iconFile) {
+        const img = document.createElement('img');
+        const folder = barDef?.sprite ? 'sprites/items' : 'items';
+        img.src = `/${folder}/${iconFile}`;
+        img.style.cssText = 'width: 32px; height: 32px; image-rendering: pixelated;';
+        icon.appendChild(img);
+      } else {
+        icon.style.background = '#333';
+        icon.style.borderRadius = '3px';
       }
+      row.appendChild(icon);
+
+      const label = document.createElement('div');
+      label.style.cssText = 'flex: 1; font-size: 13px; color: #ddd;';
+      label.textContent = `${barName} — ${barCount} in inventory`;
+      row.appendChild(label);
+
+      row.addEventListener('mouseenter', () => { row.style.background = '#2a3a2a'; row.style.borderColor = '#5a8855'; });
+      row.addEventListener('mouseleave', () => { row.style.background = '#222'; row.style.borderColor = '#444'; });
+      row.addEventListener('click', () => this.renderRecipesForBar(barId));
+
+      this.gridEl.appendChild(row);
+    }
+  }
+
+  private renderRecipesForBar(barId: number): void {
+    const barDef = this.cachedItemDefs.get(barId);
+    const barName = barDef?.name ?? `Item ${barId}`;
+    const itemCounts = this.countInventory(this.allInventory);
+    const barCount = itemCounts.get(barId) ?? 0;
+
+    this.titleEl.textContent = `Anvil — ${barName}`;
+    this.gridEl.innerHTML = '';
+
+    // Back button if we came from the picker (i.e. player has multiple bar types)
+    const availableBarCount = new Set(
+      this.allRecipes
+        .map((r) => r.inputItemId)
+        .filter((id) => (itemCounts.get(id) ?? 0) > 0),
+    ).size;
+    if (availableBarCount > 1) {
+      const backBtn = document.createElement('button');
+      backBtn.textContent = '← Choose a different bar';
+      backBtn.style.cssText = `
+        background: linear-gradient(180deg, #3a2518 0%, #2a1810 100%);
+        border: 1px solid #5a4a35; color: #d4a44a; cursor: pointer;
+        padding: 4px 10px; margin-bottom: 6px; border-radius: 3px;
+        font-family: monospace; font-size: 11px;
+      `;
+      backBtn.onclick = () => {
+        const available = new Set<number>();
+        for (const r of this.allRecipes) {
+          if ((itemCounts.get(r.inputItemId) ?? 0) > 0) available.add(r.inputItemId);
+        }
+        this.renderBarPicker(available);
+      };
+      this.gridEl.appendChild(backBtn);
     }
 
-    // No-hammer warning
-    if (!hasHammer) {
+    const sectionHeader = document.createElement('div');
+    sectionHeader.style.cssText = `
+      padding: 4px 8px; margin-bottom: 8px; font-size: 12px; font-weight: bold;
+      color: #aa8844; border-bottom: 1px solid #333;
+    `;
+    sectionHeader.textContent = `${barName} (${barCount} in inventory)`;
+    this.gridEl.appendChild(sectionHeader);
+
+    // Grid: auto-fill tiles that reflow to viewport
+    const grid = document.createElement('div');
+    grid.style.cssText = `
+      display: grid; gap: 5px;
+      grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+    `;
+
+    this.allRecipes.forEach((recipe, index) => {
+      if (recipe.inputItemId !== barId) return;
+
+      const outputDef = this.cachedItemDefs.get(recipe.outputItemId);
+      const outputName = outputDef?.name ?? `Item ${recipe.outputItemId}`;
+      const hasLevel = this.cachedSmithingLevel >= recipe.levelRequired;
+      const hasBars = barCount >= recipe.inputQuantity;
+      const canSmith = hasLevel && hasBars && this.cachedHasHammer;
+
+      const tile = document.createElement('div');
+      tile.style.cssText = `
+        position: relative;
+        display: flex; flex-direction: column; align-items: center;
+        padding: 6px 4px 5px; border-radius: 3px;
+        background: ${canSmith ? '#222' : '#1a1a1a'};
+        border: 1px solid ${canSmith ? '#444' : '#2a2a2a'};
+        opacity: ${canSmith ? '1' : '0.5'};
+        cursor: ${canSmith ? 'pointer' : 'default'};
+        transition: background 0.1s, border-color 0.1s;
+      `;
+      tile.title = `${outputName} — ${recipe.inputQuantity} ${barName}${recipe.inputQuantity > 1 ? 's' : ''}, Lv ${recipe.levelRequired}`;
+
+      // Icon — 48px, readable at normal zoom
+      const iconFile = outputDef?.sprite ?? outputDef?.icon;
+      if (iconFile) {
+        const img = document.createElement('img');
+        const folder = outputDef?.sprite ? 'sprites/items' : 'items';
+        img.src = `/${folder}/${iconFile}`;
+        img.style.cssText = 'width: 48px; height: 48px; image-rendering: pixelated; margin-bottom: 3px;';
+        tile.appendChild(img);
+      }
+
+      // Short name — strip the bar-type prefix (e.g. "Bronze Dagger" → "Dagger")
+      const shortName = outputName.replace(
+        /^(Bronze|Iron|Steel|Mithril|Black Bronze|Silver|Adamant(?:ite)?|Rune|Runite)\s+/i,
+        '',
+      );
+      const nameEl = document.createElement('div');
+      nameEl.style.cssText = `
+        font-size: 11px; line-height: 1.2; text-align: center;
+        color: ${canSmith ? '#ddd' : '#777'};
+        max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      `;
+      nameEl.textContent = shortName;
+      tile.appendChild(nameEl);
+
+      // Level badge corner
+      const lvlBadge = document.createElement('div');
+      lvlBadge.style.cssText = `
+        position: absolute; top: 2px; right: 4px;
+        font-size: 10px; line-height: 1; font-weight: bold;
+        color: ${hasLevel ? '#88a' : '#c66'};
+        text-shadow: 1px 1px 0 #000;
+      `;
+      lvlBadge.textContent = `${recipe.levelRequired}`;
+      tile.appendChild(lvlBadge);
+
+      if (canSmith) {
+        tile.addEventListener('mouseenter', () => { tile.style.background = '#2a3a2a'; tile.style.borderColor = '#5a8855'; });
+        tile.addEventListener('mouseleave', () => { tile.style.background = '#222'; tile.style.borderColor = '#444'; });
+        tile.addEventListener('click', () => {
+          this.onSmith?.(index);
+          this.hide();
+        });
+      }
+
+      grid.appendChild(tile);
+    });
+
+    this.gridEl.appendChild(grid);
+
+    if (!this.cachedHasHammer) {
       const warn = document.createElement('div');
       warn.style.cssText = 'padding: 8px 12px; font-size: 12px; color: #c44; text-align: center; margin-top: 8px;';
       warn.textContent = 'You need a hammer in your inventory to smith.';
       this.gridEl.appendChild(warn);
     }
+  }
 
-    this.container.style.display = 'block';
-    this.visible = true;
+  private renderEmptyState(hasHammer: boolean): void {
+    this.titleEl.textContent = 'Anvil';
+    this.gridEl.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'padding: 24px 12px; font-size: 13px; color: #aaa; text-align: center;';
+    msg.textContent = 'You have no bars to smith.';
+    this.gridEl.appendChild(msg);
+    if (!hasHammer) {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding: 8px 12px; font-size: 12px; color: #c44; text-align: center;';
+      warn.textContent = 'You also need a hammer to smith.';
+      this.gridEl.appendChild(warn);
+    }
   }
 
   hide(): void {

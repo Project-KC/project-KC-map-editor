@@ -91,6 +91,26 @@ const EQUIP_SLOT_BONES: Record<string, { boneName: string; localPosition: { x: n
 /** Equipment slot index → slot name (matches server slot ordering) */
 const EQUIP_SLOT_NAMES = ['weapon', 'shield', 'head', 'body', 'legs', 'neck', 'ring', 'hands', 'feet', 'cape'];
 
+/**
+ * Per-item metal-tint colors for tools. Applied to the "metal" material
+ * (the non-handle part) of the shared Axe.glb / Pickaxe.glb on load.
+ * Handle stays its original wood-brown color.
+ */
+const TOOL_TIER_METAL_COLOR: Record<number, [number, number, number]> = {
+  // Axes
+  31: [0.45, 0.28, 0.12], // Bronze Axe — warm chocolate brown
+  32: [0.48, 0.48, 0.50], // Iron Axe
+  36: [0.75, 0.78, 0.82], // Steel Axe
+  37: [0.12, 0.22, 0.40], // Mithril Axe — dark navy blue
+  38: [0.05, 0.05, 0.07], // Black Axe — near-black
+  // Pickaxes
+  33: [0.45, 0.28, 0.12], // Bronze Pickaxe
+  53: [0.48, 0.48, 0.50], // Iron Pickaxe
+  54: [0.75, 0.78, 0.82], // Steel Pickaxe
+  55: [0.12, 0.22, 0.40], // Mithril Pickaxe
+  56: [0.05, 0.05, 0.07], // Black Bronze Pickaxe
+};
+
 interface GroundItemData {
   id: number;
   itemId: number;
@@ -110,6 +130,10 @@ export class GameManager {
   // Auth
   private token: string;
   private username: string;
+
+  // Resize handling — CSS grid reflows (eg. DevTools open/close) don't always fire window.resize
+  private resizeObserver: ResizeObserver | null = null;
+  private onWindowResize: (() => void) | null = null;
 
   // Local player
   private localPlayer: CharacterEntity | null = null;
@@ -221,7 +245,7 @@ export class GameManager {
     this.token = token;
     this.username = username;
 
-    this.engine = new Engine(canvas, true, { antialias: true });
+    this.engine = new Engine(canvas, true, { antialias: true, adaptToDeviceRatio: true });
     this.scene = new Scene(this.engine);
     this.scene.useRightHandedSystem = true; // Match Three.js coordinate system (KC editor)
     this.scene.clearColor = new Color4(0.4, 0.6, 0.9, 1.0);
@@ -374,6 +398,16 @@ export class GameManager {
     // Game loop
     let lastTime = performance.now();
     this.engine.runRenderLoop(() => {
+      // Belt-and-suspenders resize: if the canvas CSS size drifted from the render
+      // buffer size (e.g. ResizeObserver was throttled or the container reflowed
+      // mid-frame), fix it here before rendering.
+      const dpr = window.devicePixelRatio || 1;
+      const expectedW = Math.round(canvas.clientWidth * dpr);
+      const expectedH = Math.round(canvas.clientHeight * dpr);
+      if (canvas.width !== expectedW || canvas.height !== expectedH) {
+        this.engine.resize();
+      }
+
       const now = performance.now();
       const dt = (now - lastTime) / 1000;
       lastTime = now;
@@ -388,7 +422,14 @@ export class GameManager {
       }
     });
 
-    window.addEventListener('resize', () => this.engine.resize());
+    // Resize on window changes AND on canvas-element changes (catches CSS grid reflows
+    // like opening DevTools or panel toggles that don't fire a window.resize event).
+    this.onWindowResize = () => this.engine.resize();
+    window.addEventListener('resize', this.onWindowResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.engine.resize());
+      this.resizeObserver.observe(canvas);
+    }
   }
 
   private getHeight(x: number, z: number): number {
@@ -1072,6 +1113,7 @@ export class GameManager {
             localRotation: rot,
             scale: gearScale,
             centerOrigin: isBow || (toolTx?.center ?? false),
+            metalColor: TOOL_TIER_METAL_COLOR[itemId],
           };
           const tmpl = await loadGearTemplate(this.scene, gearDef);
           if (tmpl) {
@@ -2153,6 +2195,65 @@ export class GameManager {
       return;
     }
 
+    // Furnace: path to the tile directly in front of the red opening, not any
+    // arbitrary adjacent tile. Derive the "front" direction from the model's Y
+    // rotation. Assumes the unrotated forge GLB faces -Z.
+    if (def?.category === 'furnace') {
+      const model = this.worldObjectModels.get(objectEntityId);
+      // Extract Y rotation — world objects use rotationQuaternion (set by placeNode),
+      // so reading `.rotation.y` directly gives 0. Derive from the quaternion when
+      // present; fall back to euler otherwise.
+      let rotY = 0;
+      if (model?.rotationQuaternion) {
+        const q = model.rotationQuaternion;
+        // Y-axis angle from quaternion (atan2 form handles any orientation)
+        rotY = Math.atan2(
+          2 * (q.w * q.y + q.x * q.z),
+          1 - 2 * (q.y * q.y + q.x * q.x),
+        );
+      } else if (model) {
+        rotY = model.rotation.y;
+      }
+      // Snap to nearest cardinal: choose the dir closest to (+sinθ, +cosθ)
+      // (the forge GLB's unrotated front faces +Z)
+      const fx = Math.sin(rotY);
+      const fz = Math.cos(rotY);
+      let bestDir: [number, number] = [0, -1];
+      let bestDot = -Infinity;
+      for (const d of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+        const dot = d[0] * fx + d[1] * fz;
+        if (dot > bestDot) { bestDot = dot; bestDir = [d[0], d[1]]; }
+      }
+      const otx = Math.floor(data.x);
+      const otz = Math.floor(data.z);
+      const frontX = otx + bestDir[0];
+      const frontZ = otz + bestDir[1];
+
+      // If we're not already on the front tile, pathfind there
+      const ptx = Math.floor(this.playerX);
+      const ptz = Math.floor(this.playerZ);
+      if (ptx !== frontX || ptz !== frontZ) {
+        if (!this.isTileBlocked(frontX, frontZ)) {
+          const path = findPath(
+            this.playerX, this.playerZ,
+            frontX + 0.5, frontZ + 0.5,
+            this.isTileBlocked,
+            this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
+            this.isWallBlockedForPath,
+          );
+          if (path.length > 0) {
+            this.path = path;
+            this.pathIndex = 0;
+            this.tileProgress = 0;
+            this.tileFrom = { x: this.playerX, z: this.playerZ };
+            this.network.sendMove(path);
+          }
+        }
+      }
+      this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_INTERACT_OBJECT, objectEntityId, actionIndex));
+      return;
+    }
+
     const isHarvestable = def?.category === 'rock' || def?.category === 'tree';
     const otx = Math.floor(data.x);
     const otz = Math.floor(data.z);
@@ -2446,6 +2547,8 @@ export class GameManager {
 
   destroy(): void {
     if (this.characterCreator) { this.characterCreator.destroy(); this.characterCreator = null; }
+    if (this.resizeObserver) { this.resizeObserver.disconnect(); this.resizeObserver = null; }
+    if (this.onWindowResize) { window.removeEventListener('resize', this.onWindowResize); this.onWindowResize = null; }
     this.engine.stopRenderLoop();
     this.engine.dispose();
     this.chunkManager.disposeAll();

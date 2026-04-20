@@ -77,6 +77,9 @@ export interface GearDef {
   scale?: number;
   /** If true, keep the model's origin as-is (centered grip). Default: shift bottom to Y=0 (swords). */
   centerOrigin?: boolean;
+  /** Optional tint for the "metal" material. The tool GLBs name their metal material
+   *  `Material.002` (the handle is `Material.001`, which is left untouched). */
+  metalColor?: [number, number, number];
 }
 
 /**
@@ -1129,6 +1132,34 @@ export async function loadGearTemplate(
     for (const mesh of result.meshes) {
       if (!mesh.parent || mesh.parent.name === '__root__') {
         mesh.parent = root;
+      }
+    }
+
+    // Optional: recolor the tool's metal material (keeps handle untouched).
+    // The Axe.glb / Pickaxe.glb split metal vs handle into separate materials
+    // named "Material.002" (metal) and "Material.001" (handle).
+    if (def.metalColor) {
+      const [r, g, b] = def.metalColor;
+      const tint = new Color3(r, g, b);
+      const recolored = new Set<string>();
+      for (const mesh of result.meshes) {
+        const mat = mesh.material as any;
+        if (!mat || !mat.name) continue;
+        if (!mat.name.includes('Material.002')) continue;
+        // Clone to avoid mutating a shared template material
+        const clonedName = `${mat.name}_tint_${def.itemId}`;
+        let cloned: any;
+        if (recolored.has(clonedName)) {
+          cloned = scene.getMaterialByName(clonedName);
+        } else {
+          cloned = mat.clone(clonedName);
+          if (cloned) {
+            if ('albedoColor' in cloned) cloned.albedoColor = tint;
+            if ('diffuseColor' in cloned) cloned.diffuseColor = tint;
+            recolored.add(clonedName);
+          }
+        }
+        if (cloned) mesh.material = cloned;
       }
     }
 

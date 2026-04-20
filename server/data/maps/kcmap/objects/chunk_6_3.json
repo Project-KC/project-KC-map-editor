@@ -6211,5 +6211,727 @@
       "y": 1,
       "z": 1
     }
+  },
+  {
+    "assetId": "bush3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 194.5,
+      "y": 0,
+      "z": 105.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "oaktree",
+    "layerId": "layer_0",
+    "position": {
+      "x": 194,
+      "y": 0,
+      "z": 125
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 209,
+      "y": 0,
+      "z": 96
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 2",
+    "layerId": "layer_0",
+    "position": {
+      "x": 205,
+      "y": 0,
+      "z": 102
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 206,
+      "y": 0,
+      "z": 100
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 206,
+      "y": -1.7763568394002505e-15,
+      "z": 108
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 198,
+      "y": -1.7763568394002505e-15,
+      "z": 118
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree 1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 200,
+      "y": 0,
+      "z": 122
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 201,
+      "y": 0,
+      "z": 117
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 197,
+      "y": 0,
+      "z": 120
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 195,
+      "y": 0,
+      "z": 109
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "sTree4",
+    "layerId": "layer_0",
+    "position": {
+      "x": 202,
+      "y": 0,
+      "z": 96
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "bush1",
+    "layerId": "layer_0",
+    "position": {
+      "x": 198.5,
+      "y": 0,
+      "z": 99.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 212.5,
+      "y": 0,
+      "z": 123
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 192.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 193.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 194.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 195.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 196.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 197.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 198.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 199.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 200.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 201.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 202.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 203.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 204.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 205.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 206.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 207.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 208.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 209.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 210.5,
+      "y": 0,
+      "z": 127
+    },
+    "rotation": {
+      "x": 0,
+      "y": 1.5707963267948966,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 0,
+      "z": 126.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 3.141592653589793,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 0,
+      "z": 125.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 3.141592653589793,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 0,
+      "z": 124.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 3.141592653589793,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211,
+      "y": 0,
+      "z": 123.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 3.141592653589793,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  {
+    "assetId": "Fence3",
+    "layerId": "layer_0",
+    "position": {
+      "x": 211.5,
+      "y": 0,
+      "z": 123
+    },
+    "rotation": {
+      "x": 0,
+      "y": -1.570796326794897,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
   }
 ]

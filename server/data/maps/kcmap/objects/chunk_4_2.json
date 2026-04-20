@@ -1444,12 +1444,12 @@
     }
   },
   {
-    "assetId": "willow tree",
+    "assetId": "stree 3",
     "layerId": "layer_0",
     "position": {
-      "x": 157,
-      "y": -0.8276633820848096,
-      "z": 85
+      "x": 159,
+      "y": -0.7940917167952595,
+      "z": 84
     },
     "rotation": {
       "x": 0,
@@ -1463,12 +1463,12 @@
     }
   },
   {
-    "assetId": "willow tree",
+    "assetId": "stree 3",
     "layerId": "layer_0",
     "position": {
-      "x": 159,
-      "y": -0.6244098804275353,
-      "z": 84
+      "x": 157,
+      "y": -0.9635998217043884,
+      "z": 85
     },
     "rotation": {
       "x": 0,

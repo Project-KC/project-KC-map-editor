@@ -1,5 +1,6 @@
 import { ClientOpcode, encodePacket, type ItemDef } from '@projectrs/shared';
 import type { NetworkManager } from '../managers/NetworkManager';
+import { popupGeometryCss } from './popupStyle';
 
 export interface ShopItem {
   itemId: number;
@@ -23,9 +24,10 @@ export class ShopPanel {
 
     this.container = document.createElement('div');
     this.container.style.cssText = `
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 360px; background: #1a1a1a; border: 2px solid #aa8844;
-      border-radius: 6px; z-index: 1000; display: none;
+      ${popupGeometryCss({ widthFrac: 0.32 })}
+      display: none; flex-direction: column;
+      background: #1a1a1a; border: 2px solid #aa8844;
+      border-radius: 6px;
       font-family: monospace; color: #ddd; user-select: none;
     `;
 
@@ -52,7 +54,7 @@ export class ShopPanel {
 
     // Items grid
     this.gridEl = document.createElement('div');
-    this.gridEl.style.cssText = 'padding: 8px; max-height: 400px; overflow-y: auto;';
+    this.gridEl.style.cssText = 'padding: 8px; overflow-y: auto; flex: 1 1 auto; min-height: 0;';
     this.container.appendChild(this.gridEl);
 
     // Sell instruction
@@ -70,7 +72,7 @@ export class ShopPanel {
     this.shopNpcId = npcEntityId;
     this.items = items;
     this.visible = true;
-    this.container.style.display = 'block';
+    this.container.style.display = 'flex';
     // Update title
     if (!this.titleEl) {
       this.titleEl = this.container.querySelector('span');
