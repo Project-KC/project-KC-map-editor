@@ -511,6 +511,95 @@ function tuneModelLighting(model) {
     rebuildCollisionMeshes()
   }
 
+  // --- Biome painting (8x8 tile cells with fog overrides) ---
+
+  const BIOME_CELL_SIZE = 8
+  const biomeData = {
+    defs: [],         // { id, name, fogColor:[r,g,b] 0-1, fogStart, fogEnd }
+    cells: {}         // "cellX,cellZ" -> biome id
+  }
+  let nextBiomeId = 1
+  let selectedBiomeId = null
+  let editingBiomeId = null
+  const biomeGroup = new TransformNode('biomeGroup', scene)
+  biomeGroup.setEnabled(false)
+  let biomeOverlayMesh = null
+  let biomeOverlayDirty = false
+
+  function serializeBiomesData() {
+    return { defs: JSON.parse(JSON.stringify(biomeData.defs)), cells: { ...biomeData.cells } }
+  }
+
+  function loadBiomesData(data) {
+    biomeData.defs = (data?.defs || []).map(d => ({ ...d, fogColor: [...d.fogColor] }))
+    biomeData.cells = { ...(data?.cells || {}) }
+    nextBiomeId = biomeData.defs.reduce((m, d) => Math.max(m, d.id), 0) + 1
+    selectedBiomeId = biomeData.defs[0]?.id ?? null
+    editingBiomeId = null
+    biomeOverlayDirty = true
+    rebuildBiomeOverlay()
+    refreshBiomePalette()
+  }
+
+  function paintBiomeCell(cx, cz, id) {
+    const key = `${cx},${cz}`
+    if (id == null) {
+      if (!(key in biomeData.cells)) return false
+      delete biomeData.cells[key]
+    } else {
+      if (biomeData.cells[key] === id) return false
+      biomeData.cells[key] = id
+    }
+    biomeOverlayDirty = true
+    return true
+  }
+
+  function rebuildBiomeOverlay() {
+    if (biomeOverlayMesh) {
+      biomeOverlayMesh.dispose()
+      biomeOverlayMesh = null
+    }
+    const entries = Object.entries(biomeData.cells)
+    if (entries.length === 0) return
+
+    // Build one translucent quad per painted cell, at a high Y so it's visible.
+    const positions = []
+    const indices = []
+    const colors = []
+    const Y = 50
+    let vi = 0
+    for (const [key, id] of entries) {
+      const def = biomeData.defs.find(d => d.id === id)
+      if (!def) continue
+      const [cx, cz] = key.split(',').map(Number)
+      const x0 = cx * BIOME_CELL_SIZE
+      const z0 = cz * BIOME_CELL_SIZE
+      const x1 = x0 + BIOME_CELL_SIZE
+      const z1 = z0 + BIOME_CELL_SIZE
+      positions.push(x0, Y, z0, x1, Y, z0, x1, Y, z1, x0, Y, z1)
+      indices.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3)
+      const [r, g, b] = def.fogColor
+      for (let i = 0; i < 4; i++) colors.push(r, g, b, 0.35)
+      vi += 4
+    }
+    if (positions.length === 0) return
+    const mesh = new Mesh('biomeOverlay', scene)
+    const vd = new VertexData()
+    vd.positions = positions
+    vd.indices = indices
+    vd.colors = colors
+    vd.applyToMesh(mesh, true)
+    const mat = new StandardMaterial('biomeOverlayMat', scene)
+    mat.emissiveColor = new Color3(1, 1, 1)
+    mat.disableLighting = true
+    mat.alpha = 0.6
+    mat.backFaceCulling = false
+    mesh.material = mat
+    mesh.parent = biomeGroup
+    mesh.isPickable = false
+    biomeOverlayMesh = mesh
+  }
+
   /** Get the best display height for collision visualization at a tile.
    *  Uses the highest of: terrain, floor height, or texture plane bridge height. */
   function getCollisionDisplayHeight(x, z) {
@@ -808,6 +897,7 @@ let paintBrushRadius = 1
       <button id="toolNpcSpawn" class="tool-btn" title="NPC Spawn (6)">NPCs</button>
       <button id="toolCollision" class="tool-btn" title="Collision (7)">Collision</button>
       <button id="toolItemSpawn" class="tool-btn" title="Item Spawn (8)">Items</button>
+      <button id="toolBiome" class="tool-btn" title="Biome Paint (9)">Biome</button>
       <!-- Layers panel removed -->
       <button id="heightCullBtn" class="tool-btn" title="Height cull cycle (H)">H: Off</button>
     </div>
@@ -1014,6 +1104,32 @@ let paintBrushRadius = 1
       <div id="itemSpawnList" style="max-height:200px;overflow-y:auto;margin-top:4px;"></div>
     </div>
 
+    <div class="ctx-panel" id="ctx-biome" style="display:none">
+      <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:4px;">Paints 8x8 tile cells · Shift+Click to erase</div>
+      <div id="biomeDefList" style="margin-bottom:8px;"></div>
+      <button id="biomeAddBtn" style="width:100%;margin-bottom:8px;">+ New Biome</button>
+      <div id="biomeEditor" style="display:none;border-top:1px solid #444;padding-top:8px;">
+        <label style="font-size:11px;color:rgba(255,255,255,0.45);">Name</label>
+        <input id="biomeEditName" type="text" style="width:100%;margin-top:3px;margin-bottom:6px;" />
+        <label style="font-size:11px;color:rgba(255,255,255,0.45);">Fog Color</label>
+        <input id="biomeEditColor" type="color" style="width:100%;height:32px;margin-top:3px;margin-bottom:6px;" />
+        <div style="display:flex;gap:5px;">
+          <div style="flex:1;">
+            <label style="font-size:11px;color:rgba(255,255,255,0.45);">Fog Start <span id="biomeEditStartVal">10</span></label>
+            <input id="biomeEditStart" type="range" min="0" max="120" step="1" value="10" style="width:100%;" />
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:11px;color:rgba(255,255,255,0.45);">Fog End <span id="biomeEditEndVal">40</span></label>
+            <input id="biomeEditEnd" type="range" min="5" max="200" step="1" value="40" style="width:100%;" />
+          </div>
+        </div>
+        <div style="display:flex;gap:5px;margin-top:8px;">
+          <button id="biomeSaveBtn" style="flex:1;">Save</button>
+          <button id="biomeDeleteBtn" style="flex:1;background:#7a3030;">Delete</button>
+        </div>
+      </div>
+    </div>
+
     <div class="ctx-panel" id="ctx-collision" style="display:none">
       <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:4px;">Mode</div>
       <div style="display:flex;gap:3px;margin-bottom:8px;">
@@ -1116,7 +1232,8 @@ let paintBrushRadius = 1
     [ToolMode.TEXTURE_PLANE]: sidebar.querySelector('#toolTexturePlane'),
     [ToolMode.NPC_SPAWN]: sidebar.querySelector('#toolNpcSpawn'),
     [ToolMode.COLLISION]: sidebar.querySelector('#toolCollision'),
-    [ToolMode.ITEM_SPAWN]: sidebar.querySelector('#toolItemSpawn')
+    [ToolMode.ITEM_SPAWN]: sidebar.querySelector('#toolItemSpawn'),
+    [ToolMode.BIOME]: sidebar.querySelector('#toolBiome')
   }
 
   toolButtons[ToolMode.TERRAIN]?.addEventListener('click', () => setTool(ToolMode.TERRAIN))
@@ -1127,6 +1244,7 @@ let paintBrushRadius = 1
   toolButtons[ToolMode.NPC_SPAWN]?.addEventListener('click', () => setTool(ToolMode.NPC_SPAWN))
   toolButtons[ToolMode.COLLISION]?.addEventListener('click', () => setTool(ToolMode.COLLISION))
   toolButtons[ToolMode.ITEM_SPAWN]?.addEventListener('click', () => setTool(ToolMode.ITEM_SPAWN))
+  toolButtons[ToolMode.BIOME]?.addEventListener('click', () => setTool(ToolMode.BIOME))
 
   // --- NPC Spawn: fetch defs + wire sidebar controls (must be after sidebar is created) ---
   fetch('/data/npcs.json')
@@ -1668,8 +1786,10 @@ let paintBrushRadius = 1
       [ToolMode.NPC_SPAWN]: 'ctx-npc-spawn',
       [ToolMode.COLLISION]: 'ctx-collision',
       [ToolMode.ITEM_SPAWN]: 'ctx-item-spawn',
+      [ToolMode.BIOME]: 'ctx-biome',
     }
-    for (const id of ['ctx-terrain', 'ctx-paint', 'ctx-place', 'ctx-select', 'ctx-texture', 'ctx-npc-spawn', 'ctx-item-spawn', 'ctx-collision']) {
+    biomeGroup.setEnabled(state.tool === ToolMode.BIOME)
+    for (const id of ['ctx-terrain', 'ctx-paint', 'ctx-place', 'ctx-select', 'ctx-texture', 'ctx-npc-spawn', 'ctx-item-spawn', 'ctx-collision', 'ctx-biome']) {
       const el = sidebar.querySelector(`#${id}`)
       if (el) el.style.display = 'none'
     }
@@ -2086,6 +2206,7 @@ let paintBrushRadius = 1
     loadNpcSpawns(data.npcSpawns)
     loadItemSpawns(data.itemSpawns)
     loadCollisionData(data.collisionData)
+    loadBiomesData(data.biomesData)
 
     mapSizeLabel.textContent = `${map.width} x ${map.height}`
     worldOffsetX.value = map.worldOffset.x
@@ -4567,6 +4688,7 @@ function applyToolAtTile(tile, eventLike = null) {
       const meta = JSON.parse(data.files['meta.json'])
       const spawns = JSON.parse(data.files['spawns.json'])
       const walls = data.files['walls.json'] ? JSON.parse(data.files['walls.json']) : null
+      const biomes = data.files['biomes.json'] ? JSON.parse(data.files['biomes.json']) : null
 
       // Convert server format to editor save format
       const saveData = {
@@ -4576,7 +4698,8 @@ function applyToolAtTile(tile, eventLike = null) {
         activeLayerId: mapData.activeLayerId || 'layer_0',
         npcSpawns: (spawns.npcs || []).map((s, i) => ({ id: i + 1, npcId: s.npcId, x: s.x, z: s.z, wanderRange: s.wanderRange ?? 3 })),
         itemSpawns: (spawns.items || []).map((s, i) => ({ id: i + 1, itemId: s.itemId, x: s.x, z: s.z, quantity: s.quantity ?? 1 })),
-        collisionData: walls
+        collisionData: walls,
+        biomesData: biomes
       }
       await loadSaveData(saveData)
       statusText.textContent = `Loaded "${mapId}" from server`
@@ -4623,7 +4746,7 @@ function applyToolAtTile(tile, eventLike = null) {
       const res = await fetch(`${SERVER_API}/save-map`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mapId, meta, spawns, mapData: mapFile, walls: serializeCollisionData() })
+        body: JSON.stringify({ mapId, meta, spawns, mapData: mapFile, walls: serializeCollisionData(), biomes: serializeBiomesData() })
       })
       const data = await res.json()
       if (data.ok) {
@@ -4635,6 +4758,101 @@ function applyToolAtTile(tile, eventLike = null) {
     } catch (e) {
       statusText.textContent = `Server error: ${e.message}`
     }
+  })
+
+  // --- Biome palette UI ---
+  const biomeDefListEl = sidebar.querySelector('#biomeDefList')
+  const biomeAddBtn = sidebar.querySelector('#biomeAddBtn')
+  const biomeEditorEl = sidebar.querySelector('#biomeEditor')
+  const biomeEditName = sidebar.querySelector('#biomeEditName')
+  const biomeEditColor = sidebar.querySelector('#biomeEditColor')
+  const biomeEditStart = sidebar.querySelector('#biomeEditStart')
+  const biomeEditStartVal = sidebar.querySelector('#biomeEditStartVal')
+  const biomeEditEnd = sidebar.querySelector('#biomeEditEnd')
+  const biomeEditEndVal = sidebar.querySelector('#biomeEditEndVal')
+  const biomeSaveBtn = sidebar.querySelector('#biomeSaveBtn')
+  const biomeDeleteBtn = sidebar.querySelector('#biomeDeleteBtn')
+
+  function hexToRgb01(hex) {
+    const h = hex.replace('#', '')
+    return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255]
+  }
+  function rgb01ToHex(c) {
+    const toHex = v => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')
+    return `#${toHex(c[0])}${toHex(c[1])}${toHex(c[2])}`
+  }
+
+  function refreshBiomePalette() {
+    if (!biomeDefListEl) return
+    biomeDefListEl.innerHTML = ''
+    for (const def of biomeData.defs) {
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px;margin-bottom:3px;border-radius:3px;cursor:pointer;background:' + (def.id === selectedBiomeId ? 'rgba(45,108,223,0.3)' : 'rgba(255,255,255,0.04)')
+      const sw = document.createElement('div')
+      sw.style.cssText = `width:16px;height:16px;border-radius:2px;flex-shrink:0;background:${rgb01ToHex(def.fogColor)};border:1px solid #222;`
+      const name = document.createElement('div')
+      name.textContent = def.name
+      name.style.cssText = 'flex:1;font-size:12px;'
+      const edit = document.createElement('button')
+      edit.textContent = '⋯'
+      edit.title = 'Edit'
+      edit.style.cssText = 'width:22px;height:22px;padding:0;font-size:11px;'
+      edit.addEventListener('click', (ev) => { ev.stopPropagation(); openBiomeEditor(def.id) })
+      row.addEventListener('click', () => { selectedBiomeId = def.id; refreshBiomePalette() })
+      row.appendChild(sw)
+      row.appendChild(name)
+      row.appendChild(edit)
+      biomeDefListEl.appendChild(row)
+    }
+  }
+
+  function openBiomeEditor(id) {
+    const def = biomeData.defs.find(d => d.id === id)
+    if (!def) return
+    editingBiomeId = id
+    biomeEditName.value = def.name
+    biomeEditColor.value = rgb01ToHex(def.fogColor)
+    biomeEditStart.value = String(def.fogStart)
+    biomeEditStartVal.textContent = String(def.fogStart)
+    biomeEditEnd.value = String(def.fogEnd)
+    biomeEditEndVal.textContent = String(def.fogEnd)
+    biomeEditorEl.style.display = 'block'
+  }
+
+  biomeAddBtn?.addEventListener('click', () => {
+    const def = { id: nextBiomeId++, name: `Biome ${biomeData.defs.length + 1}`, fogColor: [0.1, 0.05, 0.15], fogStart: 8, fogEnd: 25 }
+    biomeData.defs.push(def)
+    selectedBiomeId = def.id
+    openBiomeEditor(def.id)
+    refreshBiomePalette()
+  })
+  biomeEditStart?.addEventListener('input', () => { biomeEditStartVal.textContent = biomeEditStart.value })
+  biomeEditEnd?.addEventListener('input', () => { biomeEditEndVal.textContent = biomeEditEnd.value })
+  biomeSaveBtn?.addEventListener('click', () => {
+    const def = biomeData.defs.find(d => d.id === editingBiomeId)
+    if (!def) return
+    def.name = biomeEditName.value.trim() || def.name
+    def.fogColor = hexToRgb01(biomeEditColor.value)
+    def.fogStart = parseFloat(biomeEditStart.value) || 0
+    def.fogEnd = parseFloat(biomeEditEnd.value) || 100
+    biomeOverlayDirty = true
+    rebuildBiomeOverlay()
+    refreshBiomePalette()
+  })
+  biomeDeleteBtn?.addEventListener('click', () => {
+    if (editingBiomeId == null) return
+    if (!confirm('Delete this biome def? Painted cells will be cleared.')) return
+    const id = editingBiomeId
+    biomeData.defs = biomeData.defs.filter(d => d.id !== id)
+    for (const key of Object.keys(biomeData.cells)) {
+      if (biomeData.cells[key] === id) delete biomeData.cells[key]
+    }
+    if (selectedBiomeId === id) selectedBiomeId = biomeData.defs[0]?.id ?? null
+    editingBiomeId = null
+    biomeEditorEl.style.display = 'none'
+    biomeOverlayDirty = true
+    rebuildBiomeOverlay()
+    refreshBiomePalette()
   })
 
   serverReloadBtn.addEventListener('click', async () => {
@@ -5188,6 +5406,19 @@ function applyToolAtTile(tile, eventLike = null) {
 if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode.SELECT) {
   const key = `${tile.x},${tile.z}`
 
+  if (state.tool === ToolMode.BIOME) {
+    const cx = Math.floor(tile.x / BIOME_CELL_SIZE)
+    const cz = Math.floor(tile.z / BIOME_CELL_SIZE)
+    const cellKey = `${cx},${cz}`
+    if (!state.draggedTiles.has(cellKey)) {
+      state.draggedTiles.add(cellKey)
+      if (event.shiftKey) paintBiomeCell(cx, cz, null)
+      else if (selectedBiomeId != null) paintBiomeCell(cx, cz, selectedBiomeId)
+      if (biomeOverlayDirty) rebuildBiomeOverlay()
+    }
+    return
+  }
+
   if (
     state.tool === ToolMode.TERRAIN ||
     state.tool === ToolMode.PAINT
@@ -5430,6 +5661,21 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
       addItemSpawn(itemId, tile.x + 0.5, tile.z + 0.5)
       rebuildItemSpawnMeshes()
       refreshItemSpawnList()
+      return
+    }
+
+    if (state.tool === ToolMode.BIOME) {
+      const cx = Math.floor(tile.x / BIOME_CELL_SIZE)
+      const cz = Math.floor(tile.z / BIOME_CELL_SIZE)
+      if (event.shiftKey) {
+        paintBiomeCell(cx, cz, null)
+      } else if (selectedBiomeId != null) {
+        paintBiomeCell(cx, cz, selectedBiomeId)
+      }
+      if (biomeOverlayDirty) rebuildBiomeOverlay()
+      state.isPainting = true
+      state.draggedTiles.clear()
+      state.draggedTiles.add(`${cx},${cz}`)
       return
     }
 

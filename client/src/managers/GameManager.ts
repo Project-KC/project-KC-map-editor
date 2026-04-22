@@ -26,7 +26,8 @@ import { Minimap } from '../ui/Minimap';
 import { ShopPanel, type ShopItem } from '../ui/ShopPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
 import { SmithingPanel } from '../ui/SmithingPanel';
-import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, type WorldObjectDef, type ItemDef, type PlayerAppearance, SHIRT_STYLES } from '@projectrs/shared';
+import { getExperimentalCharacterPath } from '../experimental';
+import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, BIOME_CELL_SIZE, type WorldObjectDef, type ItemDef, type PlayerAppearance, type BiomesFile, type BiomeDef, SHIRT_STYLES } from '@projectrs/shared';
 
 // NPC color palette by definition ID
 const NPC_COLORS: Record<number, Color3> = {
@@ -157,6 +158,7 @@ export class GameManager {
   private _tempVec: Vector3 = new Vector3(); // reusable temp vector to avoid per-frame allocations
   private _minimapRemotes: { x: number; z: number }[] = [];
   private _minimapNpcs: { x: number; z: number }[] = [];
+  private _minimapObjects: { x: number; z: number; category: string }[] = [];
   // NOTE: do NOT reuse a single Vector3 for entity positions — the setter stores the reference
   private _splatVp = new Viewport(0, 0, 1, 1); // reusable viewport for hit splat projection
 
@@ -202,6 +204,15 @@ export class GameManager {
   private blockedObjectTiles: Set<string> = new Set();
   private objectDefsCache: Map<number, WorldObjectDef> = new Map();
   private itemDefsCache: Map<number, ItemDef> = new Map();
+  // Biome fog overrides — loaded per map. Fog lerps toward the biome under the player.
+  private biomesFile: BiomesFile | null = null;
+  private biomeById: Map<number, BiomeDef> = new Map();
+  private fogTargetColor: Color3 = new Color3(0, 0, 0);
+  private fogTargetStart = 0;
+  private fogTargetEnd = 100;
+  private fogCurrentColor: Color3 = new Color3(0, 0, 0);
+  private fogCurrentStart = 0;
+  private fogCurrentEnd = 100;
   /** Per-defId tree model templates: { template, scale } */
   private treeModels: Map<number, { template: TransformNode; scale: number }> = new Map();
   private playerSprites: DirectionalSpriteSet | null = null;
@@ -324,7 +335,7 @@ export class GameManager {
       this.sidePanel?.setSellCallback(null);
     });
     this.smithingPanel = new SmithingPanel();
-    this.chatPanel.addSystemMessage(`Welcome to EvilQuest!`);
+    this.chatPanel.addSystemMessage(`Welcome to evilMUD!`);
     this.chatPanel.addSystemMessage(`You last logged in from: ${window.location.hostname}`);
 
     // Chat message handler
@@ -378,7 +389,8 @@ export class GameManager {
     });
 
     // Load map, then tell server we're ready for entity data
-    this.chunkManager.loadMap('kcmap').then(() => {
+    this.chunkManager.loadMap('kcmap').then(async () => {
+      await this.loadBiomes('kcmap');
       this.applyFog();
       this.network.sendRaw(encodePacket(ClientOpcode.MAP_READY));
       this.repositionWorldObjects();
@@ -441,11 +453,72 @@ export class GameManager {
     const meta = this.chunkManager.getMeta();
     if (!meta) return;
 
+    const c = new Color3(meta.fogColor[0], meta.fogColor[1], meta.fogColor[2]);
     this.scene.fogMode = Scene.FOGMODE_LINEAR;
-    this.scene.fogColor = new Color3(meta.fogColor[0], meta.fogColor[1], meta.fogColor[2]);
+    this.scene.fogColor = c.clone();
     this.scene.fogStart = meta.fogStart;
     this.scene.fogEnd = meta.fogEnd;
-    this.scene.clearColor = new Color4(meta.fogColor[0], meta.fogColor[1], meta.fogColor[2], 1.0);
+    this.scene.clearColor = new Color4(c.r, c.g, c.b, 1.0);
+    // Seed fog state so updateFog has a starting point that matches the map default.
+    this.fogTargetColor = c.clone();
+    this.fogCurrentColor = c.clone();
+    this.fogTargetStart = meta.fogStart;
+    this.fogCurrentStart = meta.fogStart;
+    this.fogTargetEnd = meta.fogEnd;
+    this.fogCurrentEnd = meta.fogEnd;
+  }
+
+  private async loadBiomes(mapId: string): Promise<void> {
+    this.biomesFile = null;
+    this.biomeById.clear();
+    try {
+      const res = await fetch(`/maps/${mapId}/biomes.json`);
+      if (!res.ok) return;
+      const file: BiomesFile = await res.json();
+      this.biomesFile = file;
+      for (const def of file.defs) this.biomeById.set(def.id, def);
+    } catch {
+      // No biomes.json → use map meta fog only
+    }
+  }
+
+  /** Lerp scene fog toward the biome under the player (or meta default). */
+  private updateFog(dt: number): void {
+    const meta = this.chunkManager.getMeta();
+    if (!meta) return;
+
+    // Pick target biome from cell under player
+    let targetColor: [number, number, number] = meta.fogColor;
+    let targetStart = meta.fogStart;
+    let targetEnd = meta.fogEnd;
+    if (this.biomesFile) {
+      const cx = Math.floor(this.playerX / BIOME_CELL_SIZE);
+      const cz = Math.floor(this.playerZ / BIOME_CELL_SIZE);
+      const id = this.biomesFile.cells[`${cx},${cz}`];
+      const biome = id != null ? this.biomeById.get(id) : undefined;
+      if (biome) {
+        targetColor = biome.fogColor;
+        targetStart = biome.fogStart;
+        targetEnd = biome.fogEnd;
+      }
+    }
+    this.fogTargetColor.set(targetColor[0], targetColor[1], targetColor[2]);
+    this.fogTargetStart = targetStart;
+    this.fogTargetEnd = targetEnd;
+
+    // Exponential approach — reaches ~99% of target in ~1 sec (k=4.6).
+    const k = 4.6;
+    const t = 1 - Math.exp(-k * dt);
+    this.fogCurrentColor.r += (this.fogTargetColor.r - this.fogCurrentColor.r) * t;
+    this.fogCurrentColor.g += (this.fogTargetColor.g - this.fogCurrentColor.g) * t;
+    this.fogCurrentColor.b += (this.fogTargetColor.b - this.fogCurrentColor.b) * t;
+    this.fogCurrentStart += (this.fogTargetStart - this.fogCurrentStart) * t;
+    this.fogCurrentEnd += (this.fogTargetEnd - this.fogCurrentEnd) * t;
+
+    this.scene.fogColor.copyFrom(this.fogCurrentColor);
+    this.scene.fogStart = this.fogCurrentStart;
+    this.scene.fogEnd = this.fogCurrentEnd;
+    this.scene.clearColor.set(this.fogCurrentColor.r, this.fogCurrentColor.g, this.fogCurrentColor.b, 1.0);
   }
 
   private async loadObjectDefs(): Promise<void> {
@@ -998,8 +1071,13 @@ export class GameManager {
       this.createDepletedModel(objectEntityId, data.defId, placedNode);
     }
 
-    // Remove any sprite that was created before the GLB loaded
+    // Remove any sprite placeholder that was created before the GLB was linked —
+    // otherwise it leaks and renders on top of the GLB.
     const sprite = this.worldObjectSprites.get(objectEntityId);
+    if (sprite) {
+      sprite.dispose();
+      this.worldObjectSprites.delete(objectEntityId);
+    }
   }
 
   /** Create a depleted model (stump/depleted rock) at the placed node's position */
@@ -1030,10 +1108,6 @@ export class GameManager {
     }
     this.worldObjectStumps.set(objectEntityId, depleted);
     return depleted;
-    if (sprite) {
-      sprite.dispose();
-      this.worldObjectSprites.delete(objectEntityId);
-    }
   }
 
   private setupKeyboard(): void {
@@ -1135,6 +1209,8 @@ export class GameManager {
 
   /** Get the character model GLB path for a given shirt style index */
   private getCharacterModelPath(shirtStyle: number = 0): string {
+    const override = getExperimentalCharacterPath();
+    if (override) return override;
     const style = SHIRT_STYLES[shirtStyle] ?? SHIRT_STYLES[0];
     return `/Character models/main character${style.glbSuffix}.glb`;
   }
@@ -1530,6 +1606,14 @@ export class GameManager {
           // Closed — set edge on door tile
           const current = this.chunkManager.getWallRawPublic(tx, tz);
           this.chunkManager.setWall(tx, tz, current | edge);
+        } else if (isDepleted && edge) {
+          // Already open at spawn — suppress wall-blocking for the door's edges
+          // so upper-floor walls don't block path through the open doorway.
+          this.chunkManager.setOpenDoorEdges(tx, tz, edge, true);
+          if (edge & WallEdge.N) this.chunkManager.setOpenDoorEdges(tx, tz - 1, WallEdge.S, true);
+          if (edge & WallEdge.S) this.chunkManager.setOpenDoorEdges(tx, tz + 1, WallEdge.N, true);
+          if (edge & WallEdge.E) this.chunkManager.setOpenDoorEdges(tx + 1, tz, WallEdge.W, true);
+          if (edge & WallEdge.W) this.chunkManager.setOpenDoorEdges(tx - 1, tz, WallEdge.E, true);
         }
         // Don't add to blockedObjectTiles — tile stays walkable
       } else if (def?.blocking && !isDepleted) {
@@ -1614,13 +1698,19 @@ export class GameManager {
           else if (fracZ > 0.85) edge = WallEdge.S;
           else edge = WallEdge.N | WallEdge.S;
 
-          if (isDepleted === 1) {
-            // Opened — clear door edge
+          const opened = isDepleted === 1;
+          if (opened) {
             this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) & ~edge);
           } else {
-            // Closed — restore door edge
             this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) | edge);
           }
+          // Mark (or unmark) the door's edges so upper-floor walls are bypassed too.
+          // Also cover neighbor tiles' opposite edges so bidirectional wall checks pass.
+          this.chunkManager.setOpenDoorEdges(tx, tz, edge, opened);
+          if (edge & WallEdge.N) this.chunkManager.setOpenDoorEdges(tx, tz - 1, WallEdge.S, opened);
+          if (edge & WallEdge.S) this.chunkManager.setOpenDoorEdges(tx, tz + 1, WallEdge.N, opened);
+          if (edge & WallEdge.E) this.chunkManager.setOpenDoorEdges(tx + 1, tz, WallEdge.W, opened);
+          if (edge & WallEdge.W) this.chunkManager.setOpenDoorEdges(tx - 1, tz, WallEdge.E, opened);
         } else if (def2?.blocking && isDepleted === 0) {
           const bx = Math.floor(data.x), bz = Math.floor(data.z);
           if (def2.category === 'tree') {
@@ -1852,7 +1942,9 @@ export class GameManager {
 
     // Load new map
     await this.chunkManager.loadMap(mapId);
+    await this.loadBiomes(mapId);
     this.applyFog();
+    this.minimap?.invalidateTileCache();
     // Tell server we're ready to receive entity data — SYNCs will link trees via the handler
     this.network.sendRaw(encodePacket(ClientOpcode.MAP_READY));
 
@@ -2684,6 +2776,7 @@ export class GameManager {
     // Update chunks around player
     this.chunkManager.updatePlayerPosition(this.playerX, this.playerZ);
     this.chunkManager.updateAnimations();
+    this.updateFog(dt);
 
     // Combat follow
     this._combatPathTimer -= dt;
@@ -2957,12 +3050,22 @@ export class GameManager {
       for (const [, target] of this.npcTargets) {
         this._minimapNpcs.push(target);
       }
+      // Rebuild world-object list for the minimap. Hidden dots for depleted
+      // resources would flicker, so skip them.
+      this._minimapObjects.length = 0;
+      for (const [, data] of this.worldObjectDefs) {
+        if (data.depleted) continue;
+        const def = this.objectDefsCache.get(data.defId);
+        if (!def) continue;
+        this._minimapObjects.push({ x: data.x, z: data.z, category: def.category });
+      }
       const camAlpha = this.camera.getCamera().alpha;
       this.minimap.update(
         this.playerX, this.playerZ,
         this._minimapRemotes, this._minimapNpcs,
         this.chunkManager,
-        camAlpha
+        camAlpha,
+        this._minimapObjects,
       );
     }
   }

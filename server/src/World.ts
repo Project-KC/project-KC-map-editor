@@ -468,10 +468,12 @@ export class World {
     if (isOpen) {
       // Close door — restore door edges
       map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
+      map.setOpenDoorEdges(tx, tz, edgeMask, false);
       for (const ep of edgePairs) {
         const nx = tx + ep.dx, nz = tz + ep.dz;
         if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
           map.setWall(nx, nz, map.getWall(nx, nz) | ep.neighborEdge);
+          map.setOpenDoorEdges(nx, nz, ep.neighborEdge, false);
         }
       }
       obj.depleted = false;
@@ -479,10 +481,12 @@ export class World {
     } else {
       // Open door — clear ALL edges on door tile + neighbor edges pointing at door
       map.setWall(tx, tz, 0);
+      map.setOpenDoorEdges(tx, tz, edgeMask, true);
       for (const ep of edgePairs) {
         const nx = tx + ep.dx, nz = tz + ep.dz;
         if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
           map.setWall(nx, nz, map.getWall(nx, nz) & ~ep.neighborEdge);
+          map.setOpenDoorEdges(nx, nz, ep.neighborEdge, true);
         }
       }
       obj.depleted = true;
@@ -870,17 +874,20 @@ export class World {
         map.setWall(dtx, dtz, 0);
         // Also clear neighbor edges pointing at the door
         const edgeMask = this.doorEdgeMask(obj.rotationY);
-        const savedNeighbors: { x: number; z: number; wall: number }[] = [];
-        if (edgeMask & WallEdge.N) { const w = map.getWall(dtx, dtz - 1); savedNeighbors.push({ x: dtx, z: dtz - 1, wall: w }); map.setWall(dtx, dtz - 1, w & ~WallEdge.S); }
-        if (edgeMask & WallEdge.S) { const w = map.getWall(dtx, dtz + 1); savedNeighbors.push({ x: dtx, z: dtz + 1, wall: w }); map.setWall(dtx, dtz + 1, w & ~WallEdge.N); }
-        if (edgeMask & WallEdge.E) { const w = map.getWall(dtx + 1, dtz); savedNeighbors.push({ x: dtx + 1, z: dtz, wall: w }); map.setWall(dtx + 1, dtz, w & ~WallEdge.W); }
-        if (edgeMask & WallEdge.W) { const w = map.getWall(dtx - 1, dtz); savedNeighbors.push({ x: dtx - 1, z: dtz, wall: w }); map.setWall(dtx - 1, dtz, w & ~WallEdge.E); }
+        const savedNeighbors: { x: number; z: number; wall: number; neighborEdge: number }[] = [];
+        // Mark the door's edges as "temporarily open" so pathfinding also ignores upper-floor walls
+        map.setOpenDoorEdges(dtx, dtz, edgeMask, true);
+        if (edgeMask & WallEdge.N) { const w = map.getWall(dtx, dtz - 1); savedNeighbors.push({ x: dtx, z: dtz - 1, wall: w, neighborEdge: WallEdge.S }); map.setWall(dtx, dtz - 1, w & ~WallEdge.S); map.setOpenDoorEdges(dtx, dtz - 1, WallEdge.S, true); }
+        if (edgeMask & WallEdge.S) { const w = map.getWall(dtx, dtz + 1); savedNeighbors.push({ x: dtx, z: dtz + 1, wall: w, neighborEdge: WallEdge.N }); map.setWall(dtx, dtz + 1, w & ~WallEdge.N); map.setOpenDoorEdges(dtx, dtz + 1, WallEdge.N, true); }
+        if (edgeMask & WallEdge.E) { const w = map.getWall(dtx + 1, dtz); savedNeighbors.push({ x: dtx + 1, z: dtz, wall: w, neighborEdge: WallEdge.W }); map.setWall(dtx + 1, dtz, w & ~WallEdge.W); map.setOpenDoorEdges(dtx + 1, dtz, WallEdge.W, true); }
+        if (edgeMask & WallEdge.W) { const w = map.getWall(dtx - 1, dtz); savedNeighbors.push({ x: dtx - 1, z: dtz, wall: w, neighborEdge: WallEdge.E }); map.setWall(dtx - 1, dtz, w & ~WallEdge.E); map.setOpenDoorEdges(dtx - 1, dtz, WallEdge.E, true); }
 
         const path = map.findPathOnFloor(player.position.x, player.position.y, dtx + 0.5, dtz + 0.5, player.currentFloor);
 
-        // Restore wall edges
+        // Restore wall edges + clear the temporary open-door marks
         map.setWall(dtx, dtz, savedWall);
-        for (const n of savedNeighbors) map.setWall(n.x, n.z, n.wall);
+        map.setOpenDoorEdges(dtx, dtz, edgeMask, false);
+        for (const n of savedNeighbors) { map.setWall(n.x, n.z, n.wall); map.setOpenDoorEdges(n.x, n.z, n.neighborEdge, false); }
 
         if (path.length > 0) {
           player.moveQueue = path;

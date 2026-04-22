@@ -11,7 +11,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
-import { CHUNK_SIZE, CHUNK_LOAD_RADIUS, TILE_SIZE, TileType, BLOCKING_TILES, WallEdge, DEFAULT_WALL_HEIGHT, groundTypeToTileType, shouldTileRenderWater } from '@projectrs/shared';
+import { CHUNK_SIZE, CHUNK_LOAD_RADIUS, TILE_SIZE, TileType, BLOCKING_TILES, WallEdge, DEFAULT_WALL_HEIGHT, groundTypeToTileType, shouldTileRenderWater, classifyTileType } from '@projectrs/shared';
 import { ASSET_TO_OBJECT_DEF, STAIR_ASSET_CONFIG, rotateStairDirection } from '@projectrs/shared';
 import type { MapMeta, WallsFile, StairData, RoofData, FloorLayerData, KCMapFile, KCMapData, KCTile, GroundType, PlacedObject, TexturePlane } from '@projectrs/shared';
 
@@ -133,6 +133,10 @@ export class ChunkManager {
   private roofData: Map<number, RoofData> = new Map();
   private holeTiles: Set<number> = new Set();
   private texturePlaneFloorTiles: Set<number> = new Set(); // floors from texture planes (don't render floor mesh)
+  /** Edge bits currently suppressed by open doors. Bypasses wall-blocking on any
+   *  floor layer so an open door clears the path even when an upper-floor wall
+   *  is painted on the same tile/edge. */
+  private openDoorEdges: Map<number, number> = new Map();
 
   // Multi-floor layer data (floor 1+)
   private floorLayerData: Map<number, FloorLayerClientData> = new Map();
@@ -255,11 +259,7 @@ export class ChunkManager {
           if (!tile) { this.tileTypes[z * this.mapWidth + x] = TileType.GRASS; continue; }
           const corners = this.getTileCornerHeights(x, z);
           const wl = this.getChunkWaterLevel(x, z);
-          if (shouldTileRenderWater(tile, corners, wl)) {
-            this.tileTypes[z * this.mapWidth + x] = TileType.WATER;
-          } else {
-            this.tileTypes[z * this.mapWidth + x] = groundTypeToTileType(tile.ground);
-          }
+          this.tileTypes[z * this.mapWidth + x] = classifyTileType(tile, corners, wl);
         }
       }
     } else {
@@ -764,11 +764,7 @@ export class ChunkManager {
           if (!tile) { this.tileTypes![z * this.mapWidth + x] = TileType.GRASS; continue; }
           const corners = this.getTileCornerHeights(x, z);
           const wl = this.getChunkWaterLevel(x, z);
-          if (shouldTileRenderWater(tile, corners, wl)) {
-            this.tileTypes![z * this.mapWidth + x] = TileType.WATER;
-          } else {
-            this.tileTypes![z * this.mapWidth + x] = groundTypeToTileType(tile.ground);
-          }
+          this.tileTypes![z * this.mapWidth + x] = classifyTileType(tile, corners, wl);
         }
       }
 
@@ -1914,6 +1910,16 @@ export class ChunkManager {
     this.walls[z * this.mapWidth + x] = mask;
   }
 
+  /** Mark edge bits on (x,z) as open by a door — overrides wall-blocking on every floor. */
+  setOpenDoorEdges(x: number, z: number, edgeMask: number, open: boolean): void {
+    if (x < 0 || x >= this.mapWidth || z < 0 || z >= this.mapHeight) return;
+    const idx = z * this.mapWidth + x;
+    const cur = this.openDoorEdges.get(idx) ?? 0;
+    const next = open ? (cur | edgeMask) : (cur & ~edgeMask);
+    if (next === 0) this.openDoorEdges.delete(idx);
+    else this.openDoorEdges.set(idx, next);
+  }
+
   /** Clear neighbor wall edges pointing toward the given tile (used by door open) */
   clearNeighborWallsToward(tx: number, tz: number): void {
     if (!this.walls) return;
@@ -1996,14 +2002,23 @@ export class ChunkManager {
     return false;
   }
 
-  /** Check if a wall edge blocks at a given player height */
+  /** Check if a wall edge blocks at a given player height.
+   *  Walls on floor 0 use the tile's elevation; walls on upper floor layers
+   *  block regardless of player Y (editor-authored walls always count as solid). */
   private wallEdgeBlocksAtHeight(x: number, z: number, edge: number, playerY?: number): boolean {
-    if ((this.getWallRaw(x, z) & edge) === 0) return false;
-    if (playerY == null) return true;
     const idx = z * this.mapWidth + x;
-    const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
-    const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
-    return playerY < floorH + wallH; // below wall top = blocked
+    if (((this.openDoorEdges.get(idx) ?? 0) & edge) !== 0) return false;
+    if ((this.getWallRaw(x, z) & edge) !== 0) {
+      if (playerY == null) return true;
+      const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
+      const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
+      if (playerY < floorH + wallH) return true;
+    }
+    for (const layer of this.floorLayerData.values()) {
+      const bits = layer.walls.get(idx);
+      if (bits != null && (bits & edge) !== 0) return true;
+    }
+    return false;
   }
 
   isWallBlocked(fromX: number, fromZ: number, toX: number, toZ: number, playerY?: number): boolean {
@@ -2043,17 +2058,26 @@ export class ChunkManager {
     return false;
   }
 
-  getTilesForMinimap(centerX: number, centerZ: number, radius: number): { tiles: Uint8Array; size: number; startX: number; startZ: number } {
+  getTilesForMinimap(centerX: number, centerZ: number, radius: number): { tiles: Uint8Array; walls: Uint8Array; roofs: Uint8Array; size: number; startX: number; startZ: number } {
     const size = radius * 2;
     const startX = Math.floor(centerX) - radius;
     const startZ = Math.floor(centerZ) - radius;
-    const result = new Uint8Array(size * size);
+    const tiles = new Uint8Array(size * size);
+    const walls = new Uint8Array(size * size);
+    const roofs = new Uint8Array(size * size);
     for (let dz = 0; dz < size; dz++) {
       for (let dx = 0; dx < size; dx++) {
-        result[dz * size + dx] = this.getTileTypeRaw(startX + dx, startZ + dz);
+        const idx = dz * size + dx;
+        const tx = startX + dx;
+        const tz = startZ + dz;
+        tiles[idx] = this.getTileTypeRaw(tx, tz);
+        walls[idx] = this.getWallRaw(tx, tz);
+        if (tx >= 0 && tz >= 0 && tx < this.mapWidth && tz < this.mapHeight) {
+          if (this.roofData.has(tz * this.mapWidth + tx)) roofs[idx] = 1;
+        }
       }
     }
-    return { tiles: result, size, startX, startZ };
+    return { tiles, walls, roofs, size, startX, startZ };
   }
 
   isGroundMesh(meshName: string): boolean {

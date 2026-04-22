@@ -15,6 +15,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { CharacterEntity } from '../rendering/CharacterEntity';
+import { getExperimentalCharacterPath } from '../experimental';
 
 export type CharacterCreatorCallback = (appearance: PlayerAppearance) => void;
 
@@ -185,6 +186,8 @@ export class CharacterCreator {
   }
 
   private getModelPath(): string {
+    const override = getExperimentalCharacterPath();
+    if (override) return override;
     const style = SHIRT_STYLES[this.appearance.shirtStyle] ?? SHIRT_STYLES[0];
     return `/Character models/main character${style.glbSuffix}.glb`;
   }

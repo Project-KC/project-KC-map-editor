@@ -101,6 +101,7 @@ export enum TileType {
   WALL = 4,  // blocking
   SAND = 5,
   WOOD = 6,  // floor
+  MUD = 7,   // walkable; distinct from WATER so the minimap can tint it brown
 }
 
 export const BLOCKING_TILES = new Set([TileType.WATER, TileType.WALL]);
@@ -240,6 +241,26 @@ export interface SpawnsFile {
   objects?: ObjectSpawnEntry[];
 }
 
+// --- Biomes ---
+
+/** Biome cells are painted in 8x8 tile blocks. */
+export const BIOME_CELL_SIZE = 8;
+
+export interface BiomeDef {
+  id: number;
+  name: string;
+  fogColor: [number, number, number]; // RGB 0-1
+  fogStart: number;
+  fogEnd: number;
+}
+
+/** On-disk format for biomes.json — per-map biome defs + sparse cell grid. */
+export interface BiomesFile {
+  defs: BiomeDef[];
+  /** "cellX,cellZ" -> biome id. Missing cells fall back to map meta fog. */
+  cells: Record<string, number>;
+}
+
 // --- KC Map Editor format types ---
 
 export type GroundType = 'grass' | 'dirt' | 'sand' | 'path' | 'road' | 'water' | 'desert' | 'sandstone' | 'rock' | 'drysand';
@@ -336,13 +357,35 @@ export function groundTypeToTileType(ground: GroundType): TileType {
     case 'sand':  return TileType.SAND;
     case 'path':  return TileType.DIRT;
     case 'road':      return TileType.STONE;
-    case 'water':     return TileType.WATER;
+    // The editor exposes 'water' GroundType as the "Mud" swatch — actual water
+    // surfaces use waterPainted / waterSurface / heightmap-below-waterLevel
+    // and get TileType.WATER via shouldTileRenderWater() before this fallback.
+    case 'water':     return TileType.MUD;
     case 'desert':    return TileType.SAND;
     case 'sandstone': return TileType.STONE;
     case 'rock':      return TileType.STONE;
     case 'drysand':   return TileType.SAND;
     default:          return TileType.GRASS;
   }
+}
+
+/**
+ * Classify a KC tile into a game-side TileType (used for collision + minimap).
+ *
+ * The editor's overworld "Mud" swatch sets `waterPainted = true` while leaving
+ * `ground` unchanged, so we must NOT treat every `waterPainted` tile as real
+ * water. Only heightmap-submerged tiles (terrain ≤ waterLevel) are real water;
+ * everything else painted as water is mud.
+ */
+export function classifyTileType(
+  tile: KCTile,
+  cornerHeights: { tl: number; tr: number; bl: number; br: number },
+  waterLevel: number,
+): TileType {
+  const minH = Math.min(cornerHeights.tl, cornerHeights.tr, cornerHeights.bl, cornerHeights.br);
+  if (minH <= waterLevel) return TileType.WATER;
+  if (tile.waterPainted) return TileType.MUD;
+  return groundTypeToTileType(tile.ground);
 }
 
 /** Check if a KC tile should render water (height-based or painted) */

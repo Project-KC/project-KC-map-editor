@@ -65,11 +65,10 @@ async function main() {
     process.exit(1)
   }
 
-  const sharedTexDir = join(OUT_ROOT, 'textures')
-  await mkdir(sharedTexDir, { recursive: true })
-
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
-  const writtenTextures = new Map<string, string>() // source path -> shared filename
+  // Dedup per category: the Khronos glTF validator rejects `..` in URIs, so
+  // texture files must live beside (or below) each .gltf — shared textures
+  // are copied into each category's own folder instead of a pack-level dir.
   let processed = 0
   let skipped = 0
   let totalOut = 0
@@ -83,6 +82,9 @@ async function main() {
       continue
     }
     await mkdir(catOut, { recursive: true })
+
+    // Per-category dedup map: source texture path -> local hashed filename
+    const writtenTextures = new Map<string, string>()
 
     const glbFiles = (await readdir(glbDir))
       .filter((f) => f.toLowerCase().endsWith('.glb'))
@@ -101,13 +103,13 @@ async function main() {
 
       const texPath = join(texDir, texName)
 
-      // Dedup: hash texture content -> shared filename
+      // Dedup: hash texture content -> local filename (same folder as .gltf)
       if (!writtenTextures.has(texPath)) {
         const data = await readFile(texPath)
         const hash = createHash('md5').update(data).digest('hex').slice(0, 16)
         const sharedName = `${hash}.png`
         writtenTextures.set(texPath, sharedName)
-        const sharedPath = join(sharedTexDir, sharedName)
+        const sharedPath = join(catOut, sharedName)
         if (!existsSync(sharedPath)) await writeFile(sharedPath, data)
       }
       const sharedName = writtenTextures.get(texPath)!
@@ -126,7 +128,7 @@ async function main() {
       const texture = doc
         .createTexture(basename(texName, '.png'))
         .setMimeType('image/png')
-        .setURI(`../textures/${sharedName}`)
+        .setURI(sharedName)
       // gltf-transform's writer drops the URI unless image bytes are set.
       // An empty buffer is enough to signal "real" image data.
       texture.setImage(new Uint8Array(0))
@@ -172,7 +174,7 @@ async function main() {
   }
 
   console.log(
-    `\nDone. Textured ${processed} GLBs, skipped ${skipped}, ${writtenTextures.size} shared textures -> ${OUT_ROOT}`
+    `\nDone. Textured ${processed} GLBs, skipped ${skipped} -> ${OUT_ROOT}`
   )
 }
 

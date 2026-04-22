@@ -78,7 +78,7 @@ export async function loadDirectionalSprites(scene: Scene, basePath: string, nam
   const textures: (Texture | null)[] = await Promise.all(
     allFiles.map((file) => new Promise<Texture | null>((resolve) => {
       const tex = new Texture(
-        `${basePath}/${file}`, scene, false, true, Texture.NEAREST_SAMPLINGMODE,
+        `${basePath}/${file}`, scene, true, true, Texture.NEAREST_SAMPLINGMODE,
         () => { tex.hasAlpha = true; resolve(tex); },  // onLoad
         () => { resolve(null); }                         // onError
       );
@@ -120,6 +120,7 @@ export async function loadDirectionalSprites(scene: Scene, basePath: string, nam
   // Only mirror if using fallback textures (no explicit sprite for that direction)
   const mirrored = [false, false, false, false, false, !texNW, !texW, !texSW];
 
+  for (const m of materials) m.freeze();
   return { materials, mirrored };
 }
 
@@ -142,7 +143,7 @@ export async function loadAnimationSprites(
       const filePath = `${basePath}/${dirs[d]}/frame_${frameStr}.png`;
       const mat = await new Promise<StandardMaterial>((resolve) => {
         const tex = new Texture(
-          filePath, scene, false, true, Texture.NEAREST_SAMPLINGMODE,
+          filePath, scene, true, true, Texture.NEAREST_SAMPLINGMODE,
           () => { tex.hasAlpha = true; resolve(makeMat()); },
           () => { resolve(makeMat()); } // fallback: material with no texture
         );
@@ -171,6 +172,7 @@ export async function loadAnimationSprites(
     mirrorW = true;
   }
 
+  for (const dirMats of materials) for (const m of dirMats) m.freeze();
   return { materials, frameCount, mirrorW, meshScaleX: 1, meshScaleY: 1 };
 }
 
@@ -194,7 +196,7 @@ export async function load8DirAnimationSprites(
       const filePath = `${basePath}/${dirNames[d]}/frame_${frameStr}.png`;
       const mat = await new Promise<StandardMaterial>((resolve) => {
         const tex = new Texture(
-          filePath, scene, false, true, Texture.NEAREST_SAMPLINGMODE,
+          filePath, scene, true, true, Texture.NEAREST_SAMPLINGMODE,
           () => { tex.hasAlpha = true; dirLoaded = true; resolve(makeMat()); },
           () => { resolve(makeMat()); }
         );
@@ -223,6 +225,14 @@ export async function load8DirAnimationSprites(
   if (!loaded[DIR_SW]) { materials[DIR_SW] = materials[DIR_SE]; mirrored8[DIR_SW] = true; }
   if (!loaded[DIR_N] && loaded[DIR_NE]) { materials[DIR_N] = materials[DIR_NE]; }
 
+  // Freeze all materials — they never change after load, so Babylon can skip uniform rebinds.
+  // Use a Set to avoid freezing aliased arrays twice (mirrored dirs share the source array).
+  const frozen = new Set<StandardMaterial>();
+  for (const dirMats of materials) {
+    for (const m of dirMats) {
+      if (!frozen.has(m)) { m.freeze(); frozen.add(m); }
+    }
+  }
   return { materials, frameCount, mirrorW: false, meshScaleX: 1, meshScaleY: 1, mirrored8 };
 }
 
@@ -307,6 +317,9 @@ export class SpriteEntity {
   private _position: Vector3 = Vector3.Zero();
   private yOffset: number; // half-height, so feet sit on ground
   private baseScaleX: number = 1; // original X scale (for mirroring)
+  /** Material + texture owned by this sprite (only for iconUrl / fallback rect paths — pooled sprite sets are NOT owned). */
+  private ownedMaterial: StandardMaterial | null = null;
+  private ownedTexture: DynamicTexture | null = null;
 
   // Directional sprites
   private dirSprites: DirectionalSpriteSet | null = null;
@@ -396,6 +409,8 @@ export class SpriteEntity {
       mat.transparencyMode = 1;
 
       this.plane.material = mat;
+      this.ownedMaterial = mat;
+      this.ownedTexture = texture;
     } else {
       // Fallback: colored rectangle with label (original behavior)
       const texSize = 128;
@@ -427,6 +442,8 @@ export class SpriteEntity {
       mat.transparencyMode = 1;
 
       this.plane.material = mat;
+      this.ownedMaterial = mat;
+      this.ownedTexture = texture;
     }
   }
 
@@ -796,6 +813,14 @@ export class SpriteEntity {
     this.hideChatBubble();
     this.hideHealthBar();
     this.plane.dispose();
+    if (this.ownedMaterial) {
+      this.ownedMaterial.dispose();
+      this.ownedMaterial = null;
+    }
+    if (this.ownedTexture) {
+      this.ownedTexture.dispose();
+      this.ownedTexture = null;
+    }
   }
 
   getMesh(): Mesh {

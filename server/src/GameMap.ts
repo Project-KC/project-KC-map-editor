@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { CHUNK_SIZE, TileType, BLOCKING_TILES, groundTypeToTileType, shouldTileRenderWater, WallEdge, DEFAULT_WALL_HEIGHT, STAIR_ASSET_CONFIG, rotateStairDirection, defaultKCTile } from '@projectrs/shared';
+import { CHUNK_SIZE, TileType, BLOCKING_TILES, groundTypeToTileType, shouldTileRenderWater, classifyTileType, WallEdge, DEFAULT_WALL_HEIGHT, STAIR_ASSET_CONFIG, rotateStairDirection, defaultKCTile } from '@projectrs/shared';
 import type { MapMeta, MapTransition, WallsFile, StairData, RoofData, FloorLayerData, KCMapFile, KCMapData, KCTile, GroundType } from '@projectrs/shared';
 
 const MAPS_DIR = resolve(import.meta.dir, '../data/maps');
@@ -41,6 +41,9 @@ export class GameMap {
   private roofs: Map<number, RoofData> = new Map();
   /** Terrain holes (sparse) */
   private holes: Set<number> = new Set();
+  /** Edge bits currently suppressed by open doors (tileIdx → edge bitmask). Bypasses
+   *  wall-blocking on any floor so a door on floor 0 can open through an upper-floor wall. */
+  private openDoorEdges: Map<number, number> = new Map();
 
   /** Hashed transition lookup: tileKey -> MapTransition */
   private transitionMap: Map<number, MapTransition> = new Map();
@@ -142,11 +145,7 @@ export class GameMap {
         const chunkKey = `${chunkX},${chunkZ}`;
         const waterLevel = this.mapData.chunkWaterLevels[chunkKey] ?? this.mapData.waterLevel;
 
-        if (shouldTileRenderWater(tile, corners, waterLevel)) {
-          this.tileTypes[z * this.width + x] = TileType.WATER;
-        } else {
-          this.tileTypes[z * this.width + x] = groundTypeToTileType(tile.ground);
-        }
+        this.tileTypes[z * this.width + x] = classifyTileType(tile, corners, waterLevel);
       }
     }
 
@@ -448,6 +447,16 @@ export class GameMap {
     this.walls[z * this.width + x] = mask;
   }
 
+  /** Mark edge bits on (x,z) as open by a door — overrides wall-blocking on every floor. */
+  setOpenDoorEdges(x: number, z: number, edgeMask: number, open: boolean): void {
+    if (x < 0 || x >= this.width || z < 0 || z >= this.height) return;
+    const idx = z * this.width + x;
+    const cur = this.openDoorEdges.get(idx) ?? 0;
+    const next = open ? (cur | edgeMask) : (cur & ~edgeMask);
+    if (next === 0) this.openDoorEdges.delete(idx);
+    else this.openDoorEdges.set(idx, next);
+  }
+
   getWallHeight(x: number, z: number): number {
     const idx = z * this.width + x;
     return this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
@@ -515,15 +524,24 @@ export class GameMap {
   }
 
   /** Check if a wall at tile (x,z) actually blocks at the given player height.
-   *  If the player is above the wall top, the wall doesn't block. */
+   *  Walls on floor 0 use the tile's floor-0 elevation; walls on upper floor layers
+   *  block regardless of player Y (editor-authored walls always count as solid). */
   private wallBlocksAtHeight(x: number, z: number, edge: number, playerY?: number): boolean {
-    if ((this.getWall(x, z) & edge) === 0) return false;
-    if (playerY == null) return true;
     const idx = z * this.width + x;
-    const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
-    const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
-    const wallTop = floorH + wallH;
-    return playerY < wallTop; // player below wall top = blocked
+    // Open-door edges bypass wall-blocking on every floor, so doors work even when
+    // an editor-painted upper-floor wall sits on the same tile/edge.
+    if (((this.openDoorEdges.get(idx) ?? 0) & edge) !== 0) return false;
+    if ((this.getWall(x, z) & edge) !== 0) {
+      if (playerY == null) return true;
+      const wallH = this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
+      const floorH = this.floorHeights.get(idx) ?? this.getInterpolatedHeight(x + 0.5, z + 0.5);
+      if (playerY < floorH + wallH) return true;
+    }
+    for (const layer of this.floorLayers.values()) {
+      const bits = layer.walls.get(idx);
+      if (bits != null && (bits & edge) !== 0) return true;
+    }
+    return false;
   }
 
   /** Check if movement from (fromX,fromZ) to (toX,toZ) is blocked by a wall edge.

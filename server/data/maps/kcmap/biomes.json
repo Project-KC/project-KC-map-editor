@@ -1,0 +1,19 @@
+{
+  "defs": [
+    {
+      "id": 1,
+      "name": "Graveyard",
+      "fogColor": [
+        0.05,
+        0.02,
+        0.1
+      ],
+      "fogStart": 5,
+      "fogEnd": 20
+    }
+  ],
+  "cells": {
+    "16,16": 1,
+    "16,17": 1
+  }
+}

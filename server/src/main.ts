@@ -1,7 +1,7 @@
 import { SERVER_PORT, GAME_WS_PATH, CHAT_WS_PATH, CHUNK_SIZE } from '@projectrs/shared';
 import { resolve } from 'path';
 import { statSync, readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
-import type { KCMapFile, KCMapData, KCTile, MapMeta, WallsFile, SpawnsFile, PlacedObject } from '@projectrs/shared';
+import type { KCMapFile, KCMapData, KCTile, MapMeta, WallsFile, SpawnsFile, PlacedObject, BiomesFile } from '@projectrs/shared';
 import { defaultKCTile } from '@projectrs/shared';
 import { World } from './World';
 
@@ -500,8 +500,9 @@ const server = Bun.serve<SocketData>({
           spawns: SpawnsFile;
           mapData: KCMapFile;
           walls?: WallsFile;
+          biomes?: BiomesFile;
         };
-        const { mapId, meta, spawns, mapData, walls } = body;
+        const { mapId, meta, spawns, mapData, walls, biomes } = body;
         if (!mapId || !meta || !mapData) {
           return jsonResponse({ ok: false, error: 'Missing fields' }, 400);
         }
@@ -554,8 +555,16 @@ const server = Bun.serve<SocketData>({
           saveChunkedHeights(mapDir, mapData.map.heights, mapWidth, mapHeight);
         }
 
-        // Save map.json WITHOUT placedObjects, tiles, or heights (they're in chunk files now)
+        // Save map.json WITHOUT placedObjects, tiles, or heights (they're in chunk files now).
+        // Preserve existing texturePlanes if editor didn't include the field (partial-payload protection).
         const { placedObjects: _, ...mapDataWithoutObjects } = mapData;
+        let preservedTexturePlanes = mapDataWithoutObjects.map?.texturePlanes;
+        if (preservedTexturePlanes === undefined) {
+          try {
+            const existingMap: KCMapFile = JSON.parse(readFileSync(mapJsonPath, 'utf-8'));
+            preservedTexturePlanes = existingMap.map?.texturePlanes ?? [];
+          } catch { preservedTexturePlanes = []; }
+        }
         const mapFileToSave = {
           ...mapDataWithoutObjects,
           placedObjects: [],
@@ -563,10 +572,33 @@ const server = Bun.serve<SocketData>({
             ...mapDataWithoutObjects.map,
             tiles: [],    // stripped — stored in tiles/ chunks
             heights: [],  // stripped — stored in heights/ chunks
+            texturePlanes: preservedTexturePlanes,
           },
         };
         writeFileSync(mapJsonPath, JSON.stringify(mapFileToSave, null, 2));
-        writeFileSync(resolve(mapDir, 'walls.json'), JSON.stringify(walls ?? { walls: {} }, null, 2));
+        // Walls — preserve existing if editor didn't include the field (partial-payload protection).
+        const wallsPath = resolve(mapDir, 'walls.json');
+        let wallsToSave = walls;
+        if (wallsToSave === undefined) {
+          try {
+            wallsToSave = JSON.parse(readFileSync(wallsPath, 'utf-8')) as WallsFile;
+          } catch {
+            wallsToSave = { walls: {} };
+          }
+        }
+        writeFileSync(wallsPath, JSON.stringify(wallsToSave, null, 2));
+
+        // Biomes — preserve existing if editor didn't include the field (partial-payload protection).
+        const biomesPath = resolve(mapDir, 'biomes.json');
+        let biomesToSave: BiomesFile | undefined = biomes;
+        if (biomesToSave === undefined) {
+          try {
+            biomesToSave = JSON.parse(readFileSync(biomesPath, 'utf-8')) as BiomesFile;
+          } catch {
+            biomesToSave = { defs: [], cells: {} };
+          }
+        }
+        writeFileSync(biomesPath, JSON.stringify(biomesToSave, null, 2));
 
         return jsonResponse({ ok: true });
       } catch (e: any) {
@@ -627,6 +659,7 @@ const server = Bun.serve<SocketData>({
         writeFileSync(resolve(mapDir, 'spawns.json'), JSON.stringify({ npcs: [], objects: [] }, null, 2));
         writeFileSync(resolve(mapDir, 'map.json'), JSON.stringify(mapData, null, 2));
         writeFileSync(resolve(mapDir, 'walls.json'), JSON.stringify({ walls: {} }, null, 2));
+        writeFileSync(resolve(mapDir, 'biomes.json'), JSON.stringify({ defs: [], cells: {} }, null, 2));
 
         return jsonResponse({ ok: true, meta });
       } catch (e: any) {
@@ -677,6 +710,10 @@ const server = Bun.serve<SocketData>({
         if (existsSync(wallsPath)) {
           exportFiles['walls.json'] = readFileSync(wallsPath, 'utf-8');
         }
+        const biomesPath = resolve(mapDir, 'biomes.json');
+        if (existsSync(biomesPath)) {
+          exportFiles['biomes.json'] = readFileSync(biomesPath, 'utf-8');
+        }
         const exported = { ok: true, mapId, files: exportFiles };
         return new Response(JSON.stringify(exported), {
           headers: {
@@ -707,6 +744,9 @@ const server = Bun.serve<SocketData>({
         writeFileSync(resolve(mapDir, 'spawns.json'), data.files['spawns.json']);
         if (data.files['walls.json']) {
           writeFileSync(resolve(mapDir, 'walls.json'), data.files['walls.json']);
+        }
+        if (data.files['biomes.json']) {
+          writeFileSync(resolve(mapDir, 'biomes.json'), data.files['biomes.json']);
         }
 
         // Parse imported map.json, split tiles/heights into chunks, then write metadata-only map.json
