@@ -19,25 +19,66 @@ A multiplayer browser MMORPG inspired by RuneScape Classic. Built with Bun, Type
 - **Protocol:** Binary WebSocket (opcode + int16 values)
 - **Maps:** PNG-based (heightmap grayscale + tilemap RGB) + walls.json for building data
 
+## Windows Setup
+
+### 1. Install Bun
+
+Open PowerShell and run:
+
+```powershell
+irm bun.sh/install.ps1 | iex
+```
+
+Close and reopen your terminal, then verify:
+
+```powershell
+bun --version
+```
+
+If `bun` is not recognized, add it to your PATH manually:
+- Press `Win + R`, type `sysdm.cpl`, go to **Advanced > Environment Variables**
+- Under **User variables**, edit `Path` and add `%USERPROFILE%\.bun\bin`
+- Restart your terminal
+
+### 2. Install Git
+
+Download from https://git-scm.com/download/win and install with default settings.
+
+### 3. Clone and Install
+
+```powershell
+git clone git@github.com:Project-KC/Project-KC-EvilQuest.git
+cd Project-KC-EvilQuest
+bun install
+```
+
+### 4. Editor Symlinks (Windows only)
+
+The editor shares assets with the client via symlinks. On Windows you need **Developer Mode** enabled:
+
+1. Open **Settings > Update & Security > For developers**
+2. Enable **Developer Mode**
+3. Re-run `bun install` or manually create the symlink:
+
+```powershell
+mklink /D editor\public\data client\public\assets
+```
+
 ## Quick Start
 
 ```bash
-# Install dependencies
-bun install
-
-# Generate map files
-bun tools/generate-maps.ts
-
 # Build client
 cd client && bunx vite build && cd ..
 
-# Start server
+# Start server (serves built client on :4000)
 bun server/src/main.ts
 
 # Open http://localhost:4000
 ```
 
 ### Development (hot reload)
+
+Open three separate terminals in the project root:
 
 ```bash
 # Terminal 1: Server
@@ -49,6 +90,21 @@ bun run dev:client
 # Terminal 3: Editor (vite dev server on :5174)
 bun run dev:editor
 ```
+
+### First Login
+
+1. Open the game in your browser
+2. Click **Sign Up** and create an account (password must be 8+ characters)
+3. Log in -- you will spawn in the default map
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `bun: command not found` | Add `%USERPROFILE%\.bun\bin` to your PATH, restart terminal |
+| Blank screen after server restart | Refresh the browser or restart `bun run dev:client` |
+| Port 4000 already in use | `netstat -ano \| findstr :4000` then `taskkill /PID <pid> /F` |
+| SQLite errors | Make sure only one server instance is running |
 
 ## Building System
 
