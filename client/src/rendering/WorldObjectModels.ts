@@ -1,0 +1,252 @@
+import { Scene } from '@babylonjs/core/scene';
+import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import type { WorldObjectDef } from '@projectrs/shared';
+
+interface ModelTemplate { template: TransformNode; scale: number; }
+
+const TREE_MODEL_CONFIG: { defId: number; files: string[]; targetHeight: number; stumpFile: string }[] = [
+  { defId: 1, files: ['sTree_1.glb', 'sTree_2.glb', 'stree_3.glb', 'sTree4.glb', 'stree_autumn.glb'], targetHeight: 3.45, stumpFile: 'stump1.glb' },
+  { defId: 2, files: ['oaktree2.glb'], targetHeight: 4.3, stumpFile: 'oakstump.glb' },
+  { defId: 9, files: ['willow_tree.glb'], targetHeight: 4.6, stumpFile: 'willowstump.glb' },
+  { defId: 10, files: ['DeadTreeLam.glb'], targetHeight: 2.875, stumpFile: 'stump2.glb' },
+];
+
+export class WorldObjectModels {
+  private scene: Scene;
+  private getHeight: (x: number, z: number) => number;
+  private objectDefsCache: Map<number, WorldObjectDef>;
+
+  private treeModels: Map<number, ModelTemplate> = new Map();
+  private treeModelVariants: Map<number, ModelTemplate[]> = new Map();
+  private stumpModels: Map<number, ModelTemplate> = new Map();
+  private stumpModelsByName: Map<string, ModelTemplate> = new Map();
+  private depletedRockModel: ModelTemplate | null = null;
+
+  private stumps: Map<number, TransformNode> = new Map();
+
+  constructor(scene: Scene, getHeight: (x: number, z: number) => number, objectDefsCache: Map<number, WorldObjectDef>) {
+    this.scene = scene;
+    this.getHeight = getHeight;
+    this.objectDefsCache = objectDefsCache;
+  }
+
+  hasTreeModel(defId: number): boolean {
+    return this.treeModels.has(defId);
+  }
+
+  getStump(objectEntityId: number): TransformNode | undefined {
+    return this.stumps.get(objectEntityId);
+  }
+
+  hasStump(objectEntityId: number): boolean {
+    return this.stumps.has(objectEntityId);
+  }
+
+  deleteStump(objectEntityId: number): void {
+    const stump = this.stumps.get(objectEntityId);
+    if (stump) {
+      stump.dispose();
+      this.stumps.delete(objectEntityId);
+    }
+  }
+
+  async loadAll(): Promise<void> {
+    await Promise.all([this.loadTreeModels(), this.loadDepletedRockModel()]);
+  }
+
+  private async loadTreeModels(): Promise<void> {
+    const loads = TREE_MODEL_CONFIG.map(async (cfg) => {
+      const templates: ModelTemplate[] = [];
+      for (const file of cfg.files) {
+        try {
+          const result = await SceneLoader.ImportMeshAsync('', '/models/', file, this.scene);
+          let minY = Infinity, maxY = -Infinity;
+          for (const mesh of result.meshes) {
+            if (mesh.getTotalVertices() === 0) continue;
+            mesh.computeWorldMatrix(true);
+            const bb = mesh.getBoundingInfo().boundingBox;
+            if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+            if (bb.maximumWorld.y > maxY) maxY = bb.maximumWorld.y;
+          }
+          const modelHeight = maxY - minY;
+          const scale = modelHeight > 0 ? cfg.targetHeight / modelHeight : 1;
+          const root = new TransformNode(`treeTemplate_${cfg.defId}_${file}`, this.scene);
+          for (const mesh of result.meshes) {
+            if (!mesh.parent) mesh.parent = root;
+          }
+          for (const child of root.getChildren()) {
+            (child as TransformNode).position.y -= minY;
+          }
+          root.setEnabled(false);
+          templates.push({ template: root, scale });
+          console.log(`Tree model '${file}' loaded for defId=${cfg.defId} (height=${modelHeight.toFixed(2)}, scale=${scale.toFixed(3)})`);
+        } catch (e) {
+          console.warn(`Failed to load tree model '${file}':`, e);
+        }
+      }
+      if (templates.length > 0) {
+        this.treeModels.set(cfg.defId, templates[0]);
+        this.treeModelVariants.set(cfg.defId, templates);
+      }
+    });
+
+    await Promise.all(loads);
+
+    const uniqueStumps = [...new Set(TREE_MODEL_CONFIG.map(c => c.stumpFile))];
+    const stumpLoads = uniqueStumps.map(async (stumpFile) => {
+      try {
+        const result = await SceneLoader.ImportMeshAsync('', '/models/', stumpFile, this.scene);
+        let minY = Infinity, maxY = -Infinity;
+        for (const mesh of result.meshes) {
+          if (mesh.getTotalVertices() === 0) continue;
+          mesh.computeWorldMatrix(true);
+          const bb = mesh.getBoundingInfo().boundingBox;
+          if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+          if (bb.maximumWorld.y > maxY) maxY = bb.maximumWorld.y;
+        }
+        const modelHeight = maxY - minY;
+        const root = new TransformNode(`stumpTemplate_${stumpFile}`, this.scene);
+        for (const mesh of result.meshes) {
+          if (!mesh.parent) mesh.parent = root;
+        }
+        for (const child of root.getChildren()) {
+          (child as TransformNode).position.y -= minY;
+        }
+        root.setEnabled(false);
+        this.stumpModelsByName.set(stumpFile, { template: root, scale: 1 });
+        console.log(`Stump model '${stumpFile}' loaded (height=${modelHeight.toFixed(3)}, minY=${minY.toFixed(3)})`);
+      } catch (e) {
+        console.warn(`Failed to load stump model '${stumpFile}':`, e);
+      }
+    });
+    await Promise.all(stumpLoads);
+
+    for (const cfg of TREE_MODEL_CONFIG) {
+      const stump = this.stumpModelsByName.get(cfg.stumpFile);
+      if (stump) this.stumpModels.set(cfg.defId, stump);
+    }
+  }
+
+  private async loadDepletedRockModel(): Promise<void> {
+    try {
+      const result = await SceneLoader.ImportMeshAsync('', '/models/', 'depleted_rock.glb', this.scene);
+      let minY = Infinity;
+      for (const mesh of result.meshes) {
+        if (mesh.getTotalVertices() === 0) continue;
+        mesh.computeWorldMatrix(true);
+        const bb = mesh.getBoundingInfo().boundingBox;
+        if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+      }
+      const root = new TransformNode('depletedRockTemplate', this.scene);
+      for (const mesh of result.meshes) {
+        if (!mesh.parent) mesh.parent = root;
+      }
+      for (const child of root.getChildren()) {
+        (child as TransformNode).position.y -= minY;
+      }
+      root.setEnabled(false);
+      this.depletedRockModel = { template: root, scale: 1 };
+      console.log('Depleted rock model loaded');
+    } catch (e) {
+      console.warn('Failed to load depleted rock model:', e);
+    }
+  }
+
+  createTreeModel(objectEntityId: number, objectDefId: number, x: number, z: number, isDepleted: boolean): TransformNode | null {
+    const variants = this.treeModelVariants.get(objectDefId);
+    const model = variants ? variants[objectEntityId % variants.length] : this.treeModels.get(objectDefId);
+    if (!model) return null;
+
+    const clone = model.template.instantiateHierarchy(null, undefined, (source, cloned) => {
+      cloned.name = source.name + `_${objectEntityId}`;
+    })!;
+    clone.setEnabled(!isDepleted);
+    for (const child of clone.getChildMeshes()) {
+      child.setEnabled(true);
+      child.metadata = { objectEntityId };
+      const mat = child.material as any;
+      if (mat) {
+        if (mat.transparencyMode !== undefined) mat.transparencyMode = 1;
+        mat.alpha = 1;
+      }
+    }
+    const s = model.scale;
+    clone.scaling.set(s, s, s);
+    const cx = Math.floor(x) + 0.5;
+    const cz = Math.floor(z) + 0.5;
+    const terrainY = this.getHeight(cx, cz);
+    clone.position.set(cx, terrainY, cz);
+
+    const stumpModel = this.stumpModels.get(objectDefId);
+    if (stumpModel) {
+      const stump = stumpModel.template.instantiateHierarchy(null, undefined, (source, cloned) => {
+        cloned.name = source.name + `_stump_${objectEntityId}`;
+      })!;
+      stump.setEnabled(isDepleted);
+      for (const child of stump.getChildMeshes()) {
+        child.setEnabled(true);
+        const mat = child.material as any;
+        if (mat) {
+          if (mat.transparencyMode !== undefined) mat.transparencyMode = 1;
+          mat.alpha = 1;
+        }
+      }
+      const ss = stumpModel.scale;
+      stump.scaling.set(ss, ss, ss);
+      stump.position.set(cx, terrainY, cz);
+      this.stumps.set(objectEntityId, stump);
+    }
+
+    return clone;
+  }
+
+  createDepletedModel(objectEntityId: number, defId: number, placedNode: TransformNode): TransformNode | undefined {
+    if (this.stumps.has(objectEntityId)) return this.stumps.get(objectEntityId)!;
+    const def = this.objectDefsCache.get(defId);
+    let depletedModel: ModelTemplate | null = null;
+    if (def?.category === 'tree') {
+      depletedModel = this.stumpModels.get(defId) ?? null;
+    } else if (def?.category === 'rock') {
+      depletedModel = this.depletedRockModel;
+    }
+    if (!depletedModel) return undefined;
+    const depleted = depletedModel.template.instantiateHierarchy(null, undefined, (source, cloned) => {
+      cloned.name = source.name + `_depleted_${objectEntityId}`;
+    })!;
+    depleted.setEnabled(true);
+    for (const child of depleted.getChildMeshes()) {
+      child.setEnabled(true);
+      const mat = child.material as any;
+      if (mat && mat.transparencyMode !== undefined) mat.transparencyMode = 1;
+    }
+    depleted.scaling.copyFrom(placedNode.scaling);
+    depleted.position.set(placedNode.position.x, placedNode.position.y, placedNode.position.z);
+    if (placedNode.rotationQuaternion) {
+      depleted.rotationQuaternion = placedNode.rotationQuaternion.clone();
+      depleted.rotation.set(0, 0, 0);
+    } else {
+      depleted.rotationQuaternion = null;
+      depleted.rotation.copyFrom(placedNode.rotation);
+    }
+    this.stumps.set(objectEntityId, depleted);
+    return depleted;
+  }
+
+  disposeStumps(): void {
+    for (const [, stump] of this.stumps) stump.dispose();
+    this.stumps.clear();
+  }
+
+  dispose(): void {
+    for (const [, m] of this.treeModels) m.template.dispose();
+    this.treeModels.clear();
+    this.treeModelVariants.clear();
+    for (const [, m] of this.stumpModels) m.template.dispose();
+    this.stumpModels.clear();
+    this.stumpModelsByName.clear();
+    if (this.depletedRockModel) this.depletedRockModel.template.dispose();
+    this.depletedRockModel = null;
+    this.disposeStumps();
+  }
+}

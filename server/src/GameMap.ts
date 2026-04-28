@@ -105,8 +105,8 @@ export class GameMap {
     }));
 
     // Load active chunks from editor data
-    if (Array.isArray((mapFile.map as any).activeChunks)) {
-      this.activeChunks = new Set((mapFile.map as any).activeChunks as string[]);
+    if (Array.isArray(mapFile.map.activeChunks)) {
+      this.activeChunks = new Set(mapFile.map.activeChunks);
     }
 
     // Build height cache (flat Float32Array for fast access)

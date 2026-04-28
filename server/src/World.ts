@@ -141,7 +141,7 @@ export class World {
     for (const placed of gameMap.placedObjects) {
       const defId = ASSET_TO_OBJECT_DEF[placed.assetId];
       if (defId != null) {
-        objectSpawns.push({ objectId: defId, x: placed.position.x, z: placed.position.z, rotY: placed.rotation?.y, trigger: (placed as any).trigger });
+        objectSpawns.push({ objectId: defId, x: placed.position.x, z: placed.position.z, rotY: placed.rotation?.y, trigger: placed.trigger });
       }
     }
     // Fallback: sprite-only objects from spawns.json
@@ -177,7 +177,7 @@ export class World {
     for (const [id, item] of this.groundItems) {
       if (item.mapLevel === mapId) this.groundItems.delete(id);
     }
-    for (const item of (spawns as any).items ?? []) {
+    for (const item of spawns.items ?? []) {
       const groundItem: GroundItem = {
         id: nextGroundItemId++,
         itemId: item.itemId,
@@ -319,7 +319,7 @@ export class World {
     let itemCount = 0;
     for (const [mapId] of this.maps) {
       const spawns = this.data.loadSpawns(mapId);
-      for (const item of (spawns as any).items ?? []) {
+      for (const item of spawns.items ?? []) {
         const groundItem: GroundItem = {
           id: nextGroundItemId++,
           itemId: item.itemId,
@@ -504,14 +504,14 @@ export class World {
     let best: ItemDef | null = null;
     const check = (itemId: number) => {
       const def = this.data.getItem(itemId);
-      if (!def || (def as any).toolType !== toolType) return;
-      const toolLvl = (def as any).toolLevel ?? 1;
+      if (!def || def.toolType !== toolType) return;
+      const toolLvl = def.toolLevel ?? 1;
       if (toolLvl > playerSkillLevel) return;
-      const bonus = (def as any).toolBonus ?? 0;
-      if (!best || bonus > ((best as any).toolBonus ?? 0)) best = def;
+      const bonus = def.toolBonus ?? 0;
+      if (!best || bonus > (best.toolBonus ?? 0)) best = def;
     };
     // Check equipped weapon
-    const weaponId = player.equipment.get('weapon' as EquipSlot);
+    const weaponId = player.equipment.get('weapon');
     if (weaponId) check(weaponId);
     // Check inventory
     for (const slot of player.inventory) {
@@ -1177,25 +1177,45 @@ export class World {
     const tickStart = performance.now();
     this.currentTick++;
 
-    // Process player movement + update chunk tracking + pending pickups
+    this.tickPlayerMovement();
+    this.tickNpcAI();
+    this.tickPlayerCombat();
+    this.tickNpcCombat();
+    if (this.currentTick % 10 === 0) this.tickHealthRegen();
+    this.tickSkillingActions();
+    this.tickObjectRespawns();
+    this.tickItemDespawns();
+    this.tickTransitions();
+    this.broadcastSync();
+
+    const tickDuration = performance.now() - tickStart;
+    if (tickDuration > TICK_RATE * 0.8) {
+      this.tickOverrunCount++;
+      const now = Date.now();
+      if (now - this.lastTickWarnTime > 10_000) {
+        this.lastTickWarnTime = now;
+        console.warn(`[perf] Tick ${this.currentTick} took ${tickDuration.toFixed(1)}ms (budget: ${TICK_RATE}ms), ` +
+          `${this.tickOverrunCount} slow ticks, ${this.players.size} players, ${this.npcs.size} NPCs`);
+        this.tickOverrunCount = 0;
+      }
+    }
+  }
+
+  private tickPlayerMovement(): void {
     for (const [playerId, player] of this.players) {
       player.processMovement();
       this.updateEntityChunk(player);
-      // Check pending pickup after movement
       if (player.pendingPickup >= 0 && player.moveQueue.length === 0) {
         const pickupId = player.pendingPickup;
         player.pendingPickup = -1;
         this.handlePlayerPickup(playerId, pickupId);
       }
-      // Check pending object interaction after movement — execute directly (player already walked)
       if (player.pendingInteraction && player.moveQueue.length === 0) {
         const { objectEntityId, actionIndex } = player.pendingInteraction;
         player.pendingInteraction = null;
         const obj = this.worldObjects.get(objectEntityId);
         if (obj && obj.mapLevel === player.currentMapLevel) {
-          // Check range — player should be adjacent to the door
           if (this.isAdjacentToObject(player, obj)) {
-            // Execute the action directly
             player.moveQueue = [];
             player.attackTarget = null;
             this.clearCombatTarget(playerId);
@@ -1209,12 +1229,12 @@ export class World {
         }
       }
     }
+  }
 
-    // Process NPC AI
+  private tickNpcAI(): void {
     for (const [, npc] of this.npcs) {
       if (npc.dead) {
         if (npc.tickRespawn()) {
-          // Respawned — notify nearby players
           this.forEachPlayerNear(npc.currentMapLevel, npc.position.x, npc.position.y, p => this.sendNpcUpdate(p, npc));
         }
         continue;
@@ -1222,12 +1242,11 @@ export class World {
 
       const map = this.getMap(npc.currentMapLevel);
 
-      // Aggressive NPC targeting — use chunk manager to find nearby players (zero-allocation)
       if (npc.def.aggressive && !npc.combatTarget) {
         const cm = this.chunkManagers.get(npc.currentMapLevel);
         if (cm) {
           cm.forEachPlayerNear(npc.position.x, npc.position.y, (pid) => {
-            if (npc.combatTarget) return; // already found a target
+            if (npc.combatTarget) return;
             const player = this.players.get(pid);
             if (!player) return;
             const dx = Math.abs(npc.position.x - player.position.x);
@@ -1244,12 +1263,12 @@ export class World {
         map.isBlocked(x, z) || this.blockedObjectTiles.has(this.blockedKeyFor(mapId, x, z));
       npc.processAI(npcBlocked, map.isWallBlockedCb);
 
-      // Update NPC chunk position
       const cm = this.chunkManagers.get(npc.currentMapLevel);
       if (cm) cm.updateEntity(npc.id, npc.position.x, npc.position.y);
     }
+  }
 
-    // Process combat — chase phase
+  private tickPlayerCombat(): void {
     const itemDefs = this.data.itemDefs;
 
     for (const [playerId, npcId] of this.playerCombatTargets) {
@@ -1270,7 +1289,6 @@ export class World {
       const cdz = npc.position.y - player.position.y;
       const combatDist = Math.sqrt(cdx * cdx + cdz * cdz);
       if (combatDist > attackDist) {
-        // Chase — ranged players stop when in range, melee players walk adjacent
         player.moveQueue = [];
         const sx = cdx !== 0 ? Math.sign(cdx) : 0;
         const sz = cdz !== 0 ? Math.sign(cdz) : 0;
@@ -1291,7 +1309,6 @@ export class World {
         }
       }
 
-      // Process combat — ranged or melee
       let result: any = null;
       if (isRanged) {
         const ammo = player.findAmmo(itemDefs);
@@ -1299,14 +1316,11 @@ export class World {
           const arrowStr = ammo.itemDef.rangedStrength ?? 0;
           result = processPlayerRangedCombat(player, npc, itemDefs, arrowStr);
           if (result) {
-            // Consume 1 arrow
             player.removeItemFromSlot(ammo.slotIndex, 1);
             this.sendInventory(player);
-            // Send projectile visual
             this.broadcastProjectile(player.id, npc.id, 1, player.currentMapLevel, player.position.x, player.position.y);
           }
         } else {
-          // No ammo — cancel combat
           this.clearCombatTarget(playerId);
           this.sendChatSystem(player, 'You have no arrows left.');
           continue;
@@ -1340,10 +1354,8 @@ export class World {
           npc.die();
           this.clearCombatTarget(playerId);
 
-          // Notify nearby players of NPC death
           this.broadcastNearby(npc.currentMapLevel, npc.position.x, npc.position.y, ServerOpcode.ENTITY_DEATH, npc.id);
 
-          // Drop loot
           const loot = rollLoot(npc);
           for (const drop of loot) {
             const groundItem: GroundItem = {
@@ -1364,8 +1376,11 @@ export class World {
         }
       }
     }
+  }
 
-    // Process NPC combat (NPCs attacking players)
+  private tickNpcCombat(): void {
+    const itemDefs = this.data.itemDefs;
+
     for (const [, npc] of this.npcs) {
       if (npc.dead || !npc.combatTarget) continue;
       const target = npc.combatTarget as Player;
@@ -1398,40 +1413,38 @@ export class World {
           this.sendToPlayer(target, ServerOpcode.PLAYER_STATS,
             target.health, target.maxHealth
           );
-          this.sendSkills(target);  // Full sync on respawn
+          this.sendSkills(target);
         }
       }
     }
+  }
 
-    // NPC health regeneration — use npcTargetedBy reverse map for O(1) combat check
-    if (this.currentTick % 10 === 0) {
-      for (const [, npc] of this.npcs) {
-        if (npc.dead || npc.health >= npc.maxHealth) continue;
-        if (npc.combatTarget) continue;
-        if (this.npcTargetedBy.has(npc.id)) continue;
-        npc.heal(1);
-      }
-
-      // Player health regeneration — only regen if not in combat (attacking or being attacked)
-      // playersUnderNpcAttack is rebuilt only every 10 ticks (same frequency as regen)
-      this._playersUnderNpcAttack.clear();
-      for (const [, npc] of this.npcs) {
-        if (!npc.dead && npc.combatTarget) {
-          this._playersUnderNpcAttack.add((npc.combatTarget as Player).id);
-        }
-      }
-      for (const [playerId, player] of this.players) {
-        if (!player.alive || player.health >= player.maxHealth) continue;
-        if (this.playerCombatTargets.has(playerId)) continue;
-        if (this._playersUnderNpcAttack.has(playerId)) continue;
-        player.heal(1);
-        player.skills.hitpoints.currentLevel = player.health;
-        this.sendToPlayer(player, ServerOpcode.PLAYER_STATS, player.health, player.maxHealth);
-        this.sendSingleSkill(player, HITPOINTS_SKILL_INDEX);
-      }
+  private tickHealthRegen(): void {
+    for (const [, npc] of this.npcs) {
+      if (npc.dead || npc.health >= npc.maxHealth) continue;
+      if (npc.combatTarget) continue;
+      if (this.npcTargetedBy.has(npc.id)) continue;
+      npc.heal(1);
     }
 
-    // Process skilling actions
+    this._playersUnderNpcAttack.clear();
+    for (const [, npc] of this.npcs) {
+      if (!npc.dead && npc.combatTarget) {
+        this._playersUnderNpcAttack.add((npc.combatTarget as Player).id);
+      }
+    }
+    for (const [playerId, player] of this.players) {
+      if (!player.alive || player.health >= player.maxHealth) continue;
+      if (this.playerCombatTargets.has(playerId)) continue;
+      if (this._playersUnderNpcAttack.has(playerId)) continue;
+      player.heal(1);
+      player.skills.hitpoints.currentLevel = player.health;
+      this.sendToPlayer(player, ServerOpcode.PLAYER_STATS, player.health, player.maxHealth);
+      this.sendSingleSkill(player, HITPOINTS_SKILL_INDEX);
+    }
+  }
+
+  private tickSkillingActions(): void {
     for (const [playerId, action] of this.skillingActions) {
       const player = this.players.get(playerId);
       if (!player) {
@@ -1446,7 +1459,6 @@ export class World {
         continue;
       }
 
-      // Check still adjacent
       if (!this.isAdjacentToObject(player, obj)) {
         this.skillingActions.delete(playerId);
         this.sendToPlayer(player, ServerOpcode.SKILLING_STOP, 0);
@@ -1458,31 +1470,26 @@ export class World {
         const skillId = obj.def.skill as SkillId;
         const cycleTime = obj.def.harvestTime ?? 4;
 
-        // Probability-based harvesting: roll success per cycle
         if (obj.def.successChances) {
           const chances = action.toolItemId != null ? obj.def.successChances[String(action.toolItemId)] : null;
           if (!chances) {
-            // No valid axe for this tree — shouldn't happen, but stop gracefully
             this.skillingActions.delete(playerId);
             this.sendToPlayer(player, ServerOpcode.SKILLING_STOP, 0);
             continue;
           }
           const playerLevel = player.skills[skillId]?.level ?? 1;
           if (!statRandom(playerLevel, chances[0], chances[1])) {
-            // Failed roll — reset cycle and try again
             action.ticksLeft = cycleTime;
             continue;
           }
         }
 
-        // Success! Give item and XP
         const itemId = obj.def.harvestItemId!;
         const qty = obj.def.harvestQuantity ?? 1;
         const xpReward = obj.def.xpReward ?? 0;
 
         const addedToInv = player.addItem(itemId, qty, this.data.itemDefs);
         if (!addedToInv && obj.def.category === 'rock') {
-          // RSC-style: mining with full inventory drops ore on the ground
           const groundItem: GroundItem = {
             id: nextGroundItemId++,
             itemId,
@@ -1498,13 +1505,11 @@ export class World {
           if (dropCm) dropCm.addEntity(groundItem.id, groundItem.x, groundItem.z);
           this.forEachPlayerNear(groundItem.mapLevel, groundItem.x, groundItem.z, p => this.sendGroundItemUpdate(p, groundItem));
         } else if (!addedToInv) {
-          // Non-rock: inventory full — stop skilling
           this.skillingActions.delete(playerId);
           this.sendToPlayer(player, ServerOpcode.SKILLING_STOP, 0);
           continue;
         }
 
-        // Award XP
         if (xpReward > 0) {
           const result = addXp(player.skills, skillId, xpReward);
           const skillIdx = ALL_SKILLS.indexOf(skillId);
@@ -1520,7 +1525,6 @@ export class World {
         const harvestSkillIdx = ALL_SKILLS.indexOf(skillId);
         if (harvestSkillIdx >= 0) this.sendSingleSkill(player, harvestSkillIdx);
 
-        // Roll depletion
         if (obj.def.depletionChance && Math.random() < obj.def.depletionChance) {
           obj.deplete();
           this.depletedObjectIds.add(obj.id);
@@ -1538,13 +1542,13 @@ export class World {
           this.skillingActions.delete(playerId);
           this.sendToPlayer(player, ServerOpcode.SKILLING_STOP, 0);
         } else {
-          // Reset cycle for next harvest attempt
           action.ticksLeft = cycleTime;
         }
       }
     }
+  }
 
-    // Tick world object respawns — only iterate depleted objects
+  private tickObjectRespawns(): void {
     for (const objId of this.depletedObjectIds) {
       const obj = this.worldObjects.get(objId);
       if (!obj) { this.depletedObjectIds.delete(objId); continue; }
@@ -1560,7 +1564,6 @@ export class World {
             this.blockedObjectTiles.add(this.blockedKeyFor(obj.mapLevel, obj.x, obj.z));
           }
         }
-        // Door auto-close: restore wall collision and action text
         if (obj.def.category === 'door') {
           const map = this.maps.get(obj.mapLevel);
           if (map) {
@@ -1570,12 +1573,12 @@ export class World {
           }
           obj.def = { ...obj.def, actions: ['Open', 'Examine'] };
         }
-        // Respawned — notify nearby players
         this.broadcastNearby(obj.mapLevel, obj.x, obj.z, ServerOpcode.WORLD_OBJECT_DEPLETED, obj.id, 0);
       }
     }
+  }
 
-    // Despawn ground items — only iterate items with active timers
+  private tickItemDespawns(): void {
     for (const id of this.despawningItemIds) {
       const item = this.groundItems.get(id);
       if (!item) { this.despawningItemIds.delete(id); continue; }
@@ -1588,8 +1591,9 @@ export class World {
         this.broadcastNearby(item.mapLevel, item.x, item.z, ServerOpcode.GROUND_ITEM_SYNC, id, 0, 0, 0, 0);
       }
     }
+  }
 
-    // Check transitions
+  private tickTransitions(): void {
     for (const [, player] of this.players) {
       const map = this.getPlayerMap(player);
       const transition = map.getTransitionAt(player.position.x, player.position.y);
@@ -1598,19 +1602,16 @@ export class World {
         continue;
       }
 
-      // Check stair floor transitions
       const tx = Math.floor(player.position.x);
       const tz = Math.floor(player.position.y);
       const oldFloor = player.currentFloor;
       const stair = map.getStairOnFloor(tx, tz, player.currentFloor);
       if (stair) {
-        // Check if there's a corresponding stair on the floor above
         const upperStair = map.getStairOnFloor(tx, tz, player.currentFloor + 1);
         if (upperStair) {
           player.currentFloor += 1;
         }
       } else if (player.currentFloor > 0) {
-        // Check if standing on a stair from the floor below (descend)
         const lowerStair = map.getStairOnFloor(tx, tz, player.currentFloor - 1);
         if (lowerStair) {
           player.currentFloor -= 1;
@@ -1618,23 +1619,6 @@ export class World {
       }
       if (player.currentFloor !== oldFloor) {
         this.sendToPlayer(player, ServerOpcode.FLOOR_CHANGE, player.currentFloor);
-      }
-    }
-
-    // Broadcast positions (chunk-filtered)
-    this.broadcastSync();
-
-    // Tick performance monitoring
-    const tickDuration = performance.now() - tickStart;
-    if (tickDuration > TICK_RATE * 0.8) {
-      this.tickOverrunCount++;
-      const now = Date.now();
-      // Log at most once every 10 seconds to avoid spam
-      if (now - this.lastTickWarnTime > 10_000) {
-        this.lastTickWarnTime = now;
-        console.warn(`[perf] Tick ${this.currentTick} took ${tickDuration.toFixed(1)}ms (budget: ${TICK_RATE}ms), ` +
-          `${this.tickOverrunCount} slow ticks, ${this.players.size} players, ${this.npcs.size} NPCs`);
-        this.tickOverrunCount = 0;
       }
     }
   }

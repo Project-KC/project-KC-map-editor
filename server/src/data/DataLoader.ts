@@ -39,30 +39,45 @@ export class DataLoader {
   }
 
   private loadNpcs(): void {
-    const raw = readFileSync(resolve(DATA_DIR, 'npcs.json'), 'utf-8');
-    const defs: NpcDef[] = JSON.parse(raw);
-    for (const def of defs) {
-      this.npcs.set(def.id, def);
+    const path = resolve(DATA_DIR, 'npcs.json');
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const defs: NpcDef[] = JSON.parse(raw);
+      for (const def of defs) {
+        this.npcs.set(def.id, def);
+      }
+      console.log(`Loaded ${this.npcs.size} NPC definitions`);
+    } catch (e) {
+      throw new Error(`Failed to load ${path}: ${e instanceof Error ? e.message : e}`);
     }
-    console.log(`Loaded ${this.npcs.size} NPC definitions`);
   }
 
   private loadItems(): void {
-    const raw = readFileSync(resolve(DATA_DIR, 'items.json'), 'utf-8');
-    const defs: ItemDef[] = JSON.parse(raw);
-    for (const def of defs) {
-      this.items.set(def.id, def);
+    const path = resolve(DATA_DIR, 'items.json');
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const defs: ItemDef[] = JSON.parse(raw);
+      for (const def of defs) {
+        this.items.set(def.id, def);
+      }
+      console.log(`Loaded ${this.items.size} item definitions`);
+    } catch (e) {
+      throw new Error(`Failed to load ${path}: ${e instanceof Error ? e.message : e}`);
     }
-    console.log(`Loaded ${this.items.size} item definitions`);
   }
 
   private loadObjects(): void {
-    const raw = readFileSync(resolve(DATA_DIR, 'objects.json'), 'utf-8');
-    const defs: WorldObjectDef[] = JSON.parse(raw);
-    for (const def of defs) {
-      this.objects.set(def.id, def);
+    const path = resolve(DATA_DIR, 'objects.json');
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const defs: WorldObjectDef[] = JSON.parse(raw);
+      for (const def of defs) {
+        this.objects.set(def.id, def);
+      }
+      console.log(`Loaded ${this.objects.size} object definitions`);
+    } catch (e) {
+      throw new Error(`Failed to load ${path}: ${e instanceof Error ? e.message : e}`);
     }
-    console.log(`Loaded ${this.objects.size} object definitions`);
   }
 
   private loadShops(): void {
@@ -98,8 +113,14 @@ export class DataLoader {
   }
 
   loadSpawns(mapId: string): SpawnsFile {
-    const raw = readFileSync(resolve(MAPS_DIR, mapId, 'spawns.json'), 'utf-8');
-    return JSON.parse(raw) as SpawnsFile;
+    const path = resolve(MAPS_DIR, mapId, 'spawns.json');
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      return JSON.parse(raw) as SpawnsFile;
+    } catch (e) {
+      console.warn(`Failed to load ${path}: ${e instanceof Error ? e.message : e}`);
+      return { npcs: [], objects: [] };
+    }
   }
 
   getNpc(id: number): NpcDef | undefined {

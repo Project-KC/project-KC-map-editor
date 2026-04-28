@@ -16,7 +16,12 @@ export interface PlayerSyncData {
 }
 
 export type MessageHandler = (opcode: ServerOpcode, values: number[]) => void;
-export type ChatHandler = (data: { type: string; from?: string; to?: string; message: string }) => void;
+export type ChatMessage =
+  | { type: 'chat'; from?: string; to?: string; message: string }
+  | { type: 'system'; message: string }
+  | { type: 'player_info'; entityId: number; name: string; message: string }
+  | { type: string; from?: string; to?: string; message: string; entityId?: number; name?: string };
+export type ChatHandler = (data: ChatMessage) => void;
 export type RawMessageHandler = (data: ArrayBuffer) => void;
 
 export class NetworkManager {

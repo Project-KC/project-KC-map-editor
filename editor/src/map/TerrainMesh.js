@@ -6,48 +6,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { Texture } from '@babylonjs/core/Materials/Textures/texture'
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value))
-}
-
-function sampleNoise(x, z, scaleA = 1, scaleB = 1) {
-  return (
-    Math.sin(x * scaleA + z * scaleB) +
-    Math.cos(x * (scaleB * 0.73) - z * (scaleA * 0.81))
-  ) * 0.5
-}
-
-// Exposed cliff color for desert slope blending
-const CLIFF_R = 0.38, CLIFF_G = 0.28, CLIFF_B = 0.18
-const DESERT_SLOPE_TYPES = new Set(['desert', 'sand', 'sandstone', 'drysand'])
-
-// Returns plain {r, g, b} object (no engine dependency)
-function groundColor(type, shade) {
-  let r, g, b
-  if (type === 'dirt')              { r = 0.45; g = 0.31; b = 0.14 }
-  else if (type === 'sand')         { r = 0.72; g = 0.60; b = 0.24 }
-  else if (type === 'path')         { r = 0.42; g = 0.30; b = 0.13 }
-  else if (type === 'road')         { r = 0.47; g = 0.46; b = 0.43 }
-  else if (type === 'water')        { r = 0.40; g = 0.47; b = 0.66 }
-  else if (type === 'desert')       { r = 0.82; g = 0.72; b = 0.50 }
-  else if (type === 'sandstone')    { r = 0.68; g = 0.48; b = 0.28 }
-  else if (type === 'rock')         { r = 0.42; g = 0.40; b = 0.36 }
-  else if (type === 'drysand')      { r = 0.62; g = 0.42; b = 0.22 }
-  else if (type === 'dungeon-floor') { r = 0.22; g = 0.17; b = 0.11 }
-  else if (type === 'dungeon-rock') { r = 0.28; g = 0.20; b = 0.12 }
-  else                              { r = 0.13; g = 0.43; b = 0.07 } // grass
-
-  // Desert-family types: steep slopes blend toward exposed cliff rock
-  if (DESERT_SLOPE_TYPES.has(type) && shade < 0.85) {
-    const t = Math.min(1.0, (0.85 - shade) * 2.5)
-    r = r * (1 - t) + CLIFF_R * t
-    g = g * (1 - t) + CLIFF_G * t
-    b = b * (1 - t) + CLIFF_B * t
-  }
-
-  return { r: r * shade, g: g * shade, b: b * shade }
-}
+import { clamp, sampleNoise, groundColor, getNoiseExtra, getSlopeShade, getTileAverageHeight, CLIFF_R, CLIFF_G, CLIFF_B } from '@projectrs/shared'
 
 function colorMultiplyScalar(c, s) {
   c.r *= s; c.g *= s; c.b *= s
@@ -57,22 +16,6 @@ function pushVertex(vertices, colors, uvs, x, y, z, color, u, v) {
   vertices.push(x, y, z)
   colors.push(color.r, color.g, color.b, 1.0) // RGBA for Babylon.js
   uvs.push(u, v)
-}
-
-function getSlopeShade(h) {
-  const dx = ((h.tr + h.br) - (h.tl + h.bl)) * 0.5
-  const dz = ((h.bl + h.br) - (h.tl + h.tr)) * 0.5
-  const steepness = Math.abs(dx) + Math.abs(dz)
-
-  let shade = 1.0 - steepness * 0.22
-  const directional = (-dx * 0.18) + (-dz * 0.12)
-  shade += directional
-
-  return clamp(shade, 0.46, 1.04)
-}
-
-function getTileAverageHeight(h) {
-  return (h.tl + h.tr + h.bl + h.br) / 4
 }
 
 function countAdjacentGround(map, x, z, groundType) {
@@ -125,26 +68,6 @@ function getVertexCliffStrength(map, vx, vz) {
     if (diff > maxDiff) maxDiff = diff
   }
   return clamp((maxDiff - 0.9) / 1.1, 0, 1)
-}
-
-function getNoiseExtra(type, vx, vz) {
-  if (type === 'grass') {
-    const bigPatch = sampleNoise(vx * 0.18, vz * 0.18, 1.0, 1.2) * 0.10
-    const midPatch = sampleNoise(vx * 0.42, vz * 0.42, 0.8, 1.0) * 0.038
-    const tinyDither = sampleNoise(vx * 2.4, vz * 2.4, 1.5, 1.9) * 0.014
-    return bigPatch + midPatch + tinyDither
-  } else if (type === 'path') {
-    const bigPatch = sampleNoise(vx * 0.22, vz * 0.22, 1.0, 1.1) * 0.04
-    const tinyDither = sampleNoise(vx * 1.8, vz * 1.8, 1.3, 1.7) * 0.012
-    return bigPatch + tinyDither
-  } else if (type === 'road') {
-    const smallVar = sampleNoise(vx * 1.2, vz * 1.2, 1.5, 0.9) * 0.025
-    const tiny = sampleNoise(vx * 3.0, vz * 3.0, 2.0, 1.5) * 0.01
-    return smallVar + tiny
-  } else if (type === 'dirt' || type === 'sand') {
-    return sampleNoise(vx * 0.5, vz * 0.5, 0.8, 1.1) * 0.02
-  }
-  return 0
 }
 
 function getVertexSlopeShade(map, vx, vz) {

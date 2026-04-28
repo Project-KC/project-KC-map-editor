@@ -238,9 +238,17 @@ export interface ObjectSpawnEntry {
   z: number;
 }
 
+export interface SpawnedItem {
+  itemId: number;
+  quantity?: number;
+  x: number;
+  z: number;
+}
+
 export interface SpawnsFile {
   npcs: SpawnEntry[];
   objects?: ObjectSpawnEntry[];
+  items?: SpawnedItem[];
 }
 
 // --- Biomes ---
@@ -265,7 +273,7 @@ export interface BiomesFile {
 
 // --- KC Map Editor format types ---
 
-export type GroundType = 'grass' | 'dirt' | 'sand' | 'path' | 'road' | 'water' | 'desert' | 'sandstone' | 'rock' | 'drysand';
+export type GroundType = 'grass' | 'dirt' | 'sand' | 'path' | 'road' | 'water' | 'desert' | 'sandstone' | 'rock' | 'drysand' | 'dungeon-floor' | 'dungeon-rock';
 export type SplitDirection = 'forward' | 'back';
 
 export interface KCTile {
@@ -324,6 +332,7 @@ export interface KCMapData {
   texturePlanes: TexturePlane[];
   tiles: KCTile[][];       // [z][x]
   heights: number[][];     // [z][x] vertex heights, (height+1) x (width+1)
+  activeChunks?: string[];
 }
 
 /** Full map.json file format (KC editor save) */

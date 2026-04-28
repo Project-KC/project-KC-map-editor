@@ -580,7 +580,7 @@ const server = Bun.serve<SocketData>({
         const mergedSpawns = {
           npcs: spawns?.npcs ?? [],
           objects: spawns?.objects ?? [],
-          items: (spawns as any)?.items ?? [],
+          items: spawns?.items ?? [],
         };
         writeFileSync(spawnsPath, JSON.stringify(mergedSpawns, null, 2));
 

@@ -6,14 +6,15 @@ import { Vector3, Color3, Color4, Matrix, Quaternion } from '@babylonjs/core/Mat
 import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import '@babylonjs/loaders/glTF';
 import { ChunkManager } from '../rendering/ChunkManager';
 import { GameCamera } from '../rendering/Camera';
 import { SpriteEntity, loadDirectionalSprites, loadAnimationSprites, load8DirAnimationSprites, type DirectionalSpriteSet, type AnimationSpriteSet } from '../rendering/SpriteEntity';
 import { CharacterEntity, loadGearTemplate, type GearDef } from '../rendering/CharacterEntity';
 import { Npc3DEntity } from '../rendering/Npc3DEntity';
+import { WorldObjectModels } from '../rendering/WorldObjectModels';
 import { loadRecoloredDirectionalSprites, loadRecolored8DirAnimationSprites, loadRecoloredAnimationSprites, type RecolorConfig } from '../rendering/SpriteRecolor';
 import { InputManager } from './InputManager';
 import { NetworkManager } from './NetworkManager';
@@ -21,98 +22,17 @@ import { findPath } from '../rendering/Pathfinding';
 import { SidePanel } from '../ui/SidePanel';
 import { ChatPanel } from '../ui/ChatPanel';
 import { GearDebugPanel } from '../ui/GearDebugPanel';
+import { BoneDebugPanel } from '../ui/BoneDebugPanel';
+import { ArmorBrowserPanel } from '../ui/ArmorBrowserPanel';
 import { Minimap } from '../ui/Minimap';
 // StatsPanel removed — HP now shown in side panel
 import { ShopPanel, type ShopItem } from '../ui/ShopPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
 import { SmithingPanel } from '../ui/SmithingPanel';
 import { getExperimentalCharacterPath } from '../experimental';
+import { NPC_COLORS, NPC_NAMES, NPC_SIZES, NPC_3D_MODELS } from '../data/NpcConfig';
+import { EQUIP_SLOT_BONES, EQUIP_SLOT_NAMES, TOOL_TIER_METAL_COLOR } from '../data/EquipmentConfig';
 import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, BIOME_CELL_SIZE, type WorldObjectDef, type ItemDef, type PlayerAppearance, type BiomesFile, type BiomeDef, SHIRT_STYLES } from '@projectrs/shared';
-
-// NPC color palette by definition ID
-const NPC_COLORS: Record<number, Color3> = {
-  1: new Color3(0.9, 0.9, 0.8),   // Chicken — white
-  2: new Color3(0.5, 0.4, 0.3),   // Rat — brown
-  3: new Color3(0.3, 0.5, 0.2),   // Goblin — green
-  4: new Color3(0.5, 0.5, 0.5),   // Wolf — grey
-  5: new Color3(0.85, 0.85, 0.8), // Skeleton — bone white
-  6: new Color3(0.3, 0.2, 0.1),   // Spider — dark brown
-  7: new Color3(0.6, 0.6, 0.65),  // Guard — silver
-  8: new Color3(0.7, 0.5, 0.2),   // Shopkeeper — gold
-  9: new Color3(0.15, 0.1, 0.2),  // Dark Knight — dark purple
-  10: new Color3(0.6, 0.4, 0.2),  // Cow — brown
-  11: new Color3(0.6, 0.2, 0.15), // Weapon Smith — dark red
-  12: new Color3(0.4, 0.4, 0.45), // Armorer — steel grey
-  13: new Color3(0.45, 0.35, 0.25), // Leg Armorer — brown
-  14: new Color3(0.3, 0.35, 0.5),  // Shield Smith — blue-grey
-};
-
-const NPC_NAMES: Record<number, string> = {
-  1: 'Chicken', 2: 'Rat', 3: 'Goblin', 4: 'Wolf',
-  5: 'Skeleton', 6: 'Spider', 7: 'Guard', 8: 'Shopkeeper',
-  9: 'Dark Knight', 10: 'Cow',
-  11: 'Weapon Smith', 12: 'Armorer', 13: 'Leg Armorer', 14: 'Shield Smith',
-};
-
-const NPC_SIZES: Record<number, { w: number; h: number }> = {
-  1: { w: 0.7, h: 0.85 },  // Chicken (small, ~half player height)
-  2: { w: 0.5, h: 0.7 },   // Rat (small)
-  6: { w: 0.6, h: 0.5 },   // Spider (wide, short)
-  9: { w: 1.0, h: 1.8 },   // Dark Knight (big)
-  10: { w: 1.6, h: 1.4 },  // Cow (wide, slightly shorter than player)
-};
-
-/** 3D model config for NPCs. npcDefId → GLB path + scale + animation name mappings.
- *  NPCs without an entry here fall back to a 2D sprite. */
-const NPC_3D_MODELS: Record<number, { file: string; scale: number; anims: { idle: string; walk?: string; attack?: string; death?: string } }> = {
-  // 1 (Chicken) intentionally has no entry — there's no chicken.glb yet, so it
-  // falls back to a sprite. Don't reuse cow.glb as a placeholder.
-  2:  { file: '/models/npcs/rat.glb', scale: 0.2, anims: { idle: 'RatArmature|RatArmature|Rat_Idle', walk: 'RatArmature|RatArmature|Rat_Walk', attack: 'RatArmature|RatArmature|Rat_Attack', death: 'RatArmature|RatArmature|Rat_Death' } },
-  6:  { file: '/models/npcs/spider.glb', scale: 0.2, anims: { idle: 'SpiderArmature|SpiderArmature|Spider_Idle', walk: 'SpiderArmature|SpiderArmature|Spider_Walk', attack: 'SpiderArmature|SpiderArmature|Spider_Attack', death: 'SpiderArmature|SpiderArmature|Spider_Death' } },
-  10: { file: '/models/npcs/cow.glb', scale: 0.2, anims: { idle: 'Armature|Armature|Idle', walk: 'Armature|Armature|WalkSlow', death: 'Armature|Armature|Death' } },
-  15: { file: '/models/npcs/Camel.glb', scale: 1.0, anims: { idle: 'ready', walk: 'walk', attack: 'attack', death: 'death' } },
-};
-
-/**
- * Equipment slot → bone attachment config.
- * Each slot maps to a bone on the character skeleton + default transform.
- * Gear GLBs go in /gear/{slot}/{itemId}.glb
- */
-const EQUIP_SLOT_BONES: Record<string, { boneName: string; localPosition: { x: number; y: number; z: number }; localRotation: { x: number; y: number; z: number }; scale: number }> = {
-  weapon:  { boneName: 'hand_r',    localPosition: { x: -0.05, y: 0.08, z: -0.2 },    localRotation: { x: Math.PI / 2, y: 0, z: 0 }, scale: 0.9 },
-  shield:  { boneName: 'lowerarm_l', localPosition: { x: -0.08, y: -0.15, z: 0 },    localRotation: { x: 0, y: Math.PI, z: 0 }, scale: 0.85 },
-  head:    { boneName: 'Head',      localPosition: { x: 0, y: 0.08, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  body:    { boneName: 'spine_02',  localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  legs:    { boneName: 'pelvis',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  feet:    { boneName: 'foot_r',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  hands:   { boneName: 'hand_r',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  neck:    { boneName: 'neck_01',   localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  ring:    { boneName: 'hand_l',    localPosition: { x: 0, y: 0, z: 0 },    localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-  cape:    { boneName: 'spine_03',  localPosition: { x: 0, y: -0.1, z: -0.1 }, localRotation: { x: 0, y: 0, z: 0 }, scale: 1 },
-};
-
-/** Equipment slot index → slot name (matches server slot ordering) */
-const EQUIP_SLOT_NAMES = ['weapon', 'shield', 'head', 'body', 'legs', 'neck', 'ring', 'hands', 'feet', 'cape'];
-
-/**
- * Per-item metal-tint colors for tools. Applied to the "metal" material
- * (the non-handle part) of the shared Axe.glb / Pickaxe.glb on load.
- * Handle stays its original wood-brown color.
- */
-const TOOL_TIER_METAL_COLOR: Record<number, [number, number, number]> = {
-  // Axes
-  31: [0.45, 0.28, 0.12], // Bronze Axe — warm chocolate brown
-  32: [0.48, 0.48, 0.50], // Iron Axe
-  36: [0.75, 0.78, 0.82], // Steel Axe
-  37: [0.12, 0.22, 0.40], // Mithril Axe — dark navy blue
-  38: [0.05, 0.05, 0.07], // Black Axe — near-black
-  // Pickaxes
-  33: [0.45, 0.28, 0.12], // Bronze Pickaxe
-  53: [0.48, 0.48, 0.50], // Iron Pickaxe
-  54: [0.75, 0.78, 0.82], // Steel Pickaxe
-  55: [0.12, 0.22, 0.40], // Mithril Pickaxe
-  56: [0.05, 0.05, 0.07], // Black Bronze Pickaxe
-};
 
 interface GroundItemData {
   id: number;
@@ -215,8 +135,7 @@ export class GameManager {
   private fogCurrentColor: Color3 = new Color3(0, 0, 0);
   private fogCurrentStart = 0;
   private fogCurrentEnd = 100;
-  /** Per-defId tree model templates: { template, scale } */
-  private treeModels: Map<number, { template: TransformNode; scale: number }> = new Map();
+  private objectModels!: WorldObjectModels;
   private playerSprites: DirectionalSpriteSet | null = null;
   private playerWalkAnim: AnimationSpriteSet | null = null;
   private playerPunchAnim: AnimationSpriteSet | null = null;
@@ -249,6 +168,10 @@ export class GameManager {
   private chatPanel: ChatPanel | null = null;
   private minimap: Minimap | null = null;
   private gearDebugPanel: GearDebugPanel | null = null;
+  private boneDebugPanel: BoneDebugPanel | null = null;
+  private armorBrowser: ArmorBrowserPanel | null = null;
+  private armorPreviewNodes: Map<string, TransformNode> = new Map();
+  private armorSkeletons: Map<string, Skeleton> = new Map();
   private statsPanel: any = null; // removed — HP shown in side panel
   private shopPanel: ShopPanel | null = null;
   private smithingPanel: SmithingPanel | null = null;
@@ -339,10 +262,79 @@ export class GameManager {
     this.chatPanel = new ChatPanel();
     this.chatPanel.setSendHandler((msg) => {
       if (msg === '/geardebug') {
-        if (!this.gearDebugPanel) this.gearDebugPanel = new GearDebugPanel();
-        // Find currently equipped weapon node
-        const weaponGear = this.localPlayer?.getGearNode?.('weapon');
-        this.gearDebugPanel.toggle(weaponGear);
+        if (!this.gearDebugPanel) {
+          this.gearDebugPanel = new GearDebugPanel();
+          this.gearDebugPanel.setSlotGetter((slot) => this.localPlayer?.getGearNode?.(slot) ?? null);
+          this.gearDebugPanel.setSlotBoneGetter((slot) => EQUIP_SLOT_BONES[slot]?.boneName ?? '');
+          this.gearDebugPanel.setItemInfoGetter((slot) => {
+            const itemId = this.localPlayer?.getGearItemId(slot) ?? -1;
+            if (itemId < 0) return null;
+            const def = this.itemDefsCache.get(itemId);
+            return { id: itemId, name: def?.name ?? `item ${itemId}`, toolType: def?.toolType };
+          });
+        }
+        this.gearDebugPanel.toggle();
+        if (this.gearDebugPanel.isVisible) {
+          this.camera.enterDebugZoom();
+        } else {
+          this.camera.exitDebugZoom();
+        }
+        return;
+      }
+      if (msg === '/bonedebug') {
+        if (!this.boneDebugPanel) {
+          this.boneDebugPanel = new BoneDebugPanel();
+          this.boneDebugPanel.setSkeletonGetter(() => this.localPlayer?.getSkeleton?.() ?? null);
+        }
+        this.boneDebugPanel.toggle();
+        if (this.boneDebugPanel.isVisible) {
+          this.camera.enterDebugZoom();
+        } else {
+          this.camera.exitDebugZoom();
+        }
+        return;
+      }
+      if (msg === '/armor') {
+        if (!this.armorBrowser) {
+          this.armorBrowser = new ArmorBrowserPanel();
+          this.armorBrowser.setScene(this.scene);
+          this.armorBrowser.setEquipCallback((category, item, root, armorSkeleton) => {
+            const prev = this.armorPreviewNodes.get(category);
+            if (prev) prev.dispose();
+            const prevSkel = this.armorSkeletons.get(category);
+            if (prevSkel) prevSkel.dispose();
+            this.armorSkeletons.delete(category);
+
+            const charRoot = this.localPlayer?.getRoot?.();
+            if (charRoot) {
+              root.parent = charRoot;
+              root.rotationQuaternion = null;
+              root.position.set(0, 0, 0);
+              root.rotation.set(0, 0, 0);
+              root.scaling.set(1, 1, 1);
+            }
+            this.armorPreviewNodes.set(category, root);
+            if (armorSkeleton) this.armorSkeletons.set(category, armorSkeleton);
+          });
+          this.armorBrowser.setUnequipCallback((category) => {
+            const node = this.armorPreviewNodes.get(category);
+            if (node) {
+              node.dispose();
+              this.armorPreviewNodes.delete(category);
+            }
+            const skel = this.armorSkeletons.get(category);
+            if (skel) {
+              skel.dispose();
+              this.armorSkeletons.delete(category);
+            }
+          });
+        }
+        this.armorBrowser.toggle();
+        if (this.armorBrowser.isVisible) {
+          this.camera.enterDebugZoom();
+        } else {
+          this.camera.exitDebugZoom();
+        }
         return;
       }
       this.network.sendChat(msg);
@@ -359,8 +351,8 @@ export class GameManager {
     this.network.onChat((data) => {
       switch (data.type) {
         case 'player_info': {
-          const entityId = (data as any).entityId as number;
-          const name = (data as any).name as string;
+          const entityId = data.entityId!;
+          const name = data.name!;
           this.playerNames.set(entityId, name);
           this.nameToEntityId.set(name.toLowerCase(), entityId);
           const existing = this.remotePlayers.get(entityId);
@@ -413,8 +405,8 @@ export class GameManager {
       this.repositionWorldObjects();
     });
     this.loadObjectDefs();
-    this.loadTreeModels();
-    this.loadDepletedRockModel();
+    this.objectModels = new WorldObjectModels(this.scene, (x, z) => this.getHeight(x, z), this.objectDefsCache);
+    this.objectModels.loadAll();
     this.loadPlayerSprites();
     this.loadNpcSprites();
 
@@ -583,179 +575,7 @@ export class GameManager {
     }
   }
 
-  /** Tree model config: defId → GLB files + target height + stump file */
-  private static readonly TREE_MODEL_CONFIG: { defId: number; files: string[]; targetHeight: number; stumpFile: string }[] = [
-    { defId: 1, files: ['sTree_1.glb', 'sTree_2.glb', 'stree_3.glb', 'sTree4.glb', 'stree_autumn.glb'], targetHeight: 3.45, stumpFile: 'stump1.glb' },
-    { defId: 2, files: ['oaktree2.glb'], targetHeight: 4.3, stumpFile: 'oakstump.glb' },
-    { defId: 9, files: ['willow_tree.glb'], targetHeight: 4.6, stumpFile: 'willowstump.glb' },
-    { defId: 10, files: ['DeadTreeLam.glb'], targetHeight: 2.875, stumpFile: 'stump2.glb' },
-  ];
-  private treeModelVariants: Map<number, { template: TransformNode; scale: number }[]> = new Map();
-  private stumpModels: Map<number, { template: TransformNode; scale: number }> = new Map();
-  private stumpModelsByName: Map<string, { template: TransformNode; scale: number }> = new Map();
-
-  /** Depleted models for objects (stumps for trees, depleted rock for rocks) */
-  private worldObjectStumps: Map<number, TransformNode> = new Map();
-  private depletedRockModel: { template: TransformNode; scale: number } | null = null;
   private thinkingBubble: HTMLDivElement | null = null;
-
-  private async loadTreeModels(): Promise<void> {
-    const loads = GameManager.TREE_MODEL_CONFIG.map(async (cfg) => {
-      const templates: { template: TransformNode; scale: number }[] = [];
-      for (const file of cfg.files) {
-        try {
-          const result = await SceneLoader.ImportMeshAsync('', '/models/', file, this.scene);
-          let minY = Infinity, maxY = -Infinity;
-          for (const mesh of result.meshes) {
-            if (mesh.getTotalVertices() === 0) continue;
-            mesh.computeWorldMatrix(true);
-            const bb = mesh.getBoundingInfo().boundingBox;
-            if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
-            if (bb.maximumWorld.y > maxY) maxY = bb.maximumWorld.y;
-          }
-          const modelHeight = maxY - minY;
-          const scale = modelHeight > 0 ? cfg.targetHeight / modelHeight : 1;
-          const root = new TransformNode(`treeTemplate_${cfg.defId}_${file}`, this.scene);
-          for (const mesh of result.meshes) {
-            if (!mesh.parent) mesh.parent = root;
-          }
-          for (const child of root.getChildren()) {
-            (child as TransformNode).position.y -= minY;
-          }
-          root.setEnabled(false);
-          templates.push({ template: root, scale });
-          console.log(`Tree model '${file}' loaded for defId=${cfg.defId} (height=${modelHeight.toFixed(2)}, scale=${scale.toFixed(3)})`);
-        } catch (e) {
-          console.warn(`Failed to load tree model '${file}':`, e);
-        }
-      }
-      if (templates.length > 0) {
-        // Store first as default, keep all for random picking
-        this.treeModels.set(cfg.defId, templates[0]);
-        this.treeModelVariants.set(cfg.defId, templates);
-      }
-    });
-
-    await Promise.all(loads);
-
-    // Load stump models — one per unique stump file from TREE_MODEL_CONFIG
-    const uniqueStumps = [...new Set(GameManager.TREE_MODEL_CONFIG.map(c => c.stumpFile))];
-    const stumpLoads = uniqueStumps.map(async (stumpFile) => {
-      const cfg = GameManager.TREE_MODEL_CONFIG.find(c => c.stumpFile === stumpFile)!;
-      try {
-        const result = await SceneLoader.ImportMeshAsync('', '/models/', stumpFile, this.scene);
-        let minY = Infinity, maxY = -Infinity;
-        for (const mesh of result.meshes) {
-          if (mesh.getTotalVertices() === 0) continue;
-          mesh.computeWorldMatrix(true);
-          const bb = mesh.getBoundingInfo().boundingBox;
-          if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
-          if (bb.maximumWorld.y > maxY) maxY = bb.maximumWorld.y;
-        }
-        const modelHeight = maxY - minY;
-        const root = new TransformNode(`stumpTemplate_${stumpFile}`, this.scene);
-        for (const mesh of result.meshes) {
-          if (!mesh.parent) mesh.parent = root;
-        }
-        for (const child of root.getChildren()) {
-          (child as TransformNode).position.y -= minY;
-        }
-        root.setEnabled(false);
-        this.stumpModelsByName.set(stumpFile, { template: root, scale: 1 });
-        console.log(`Stump model '${stumpFile}' loaded (height=${modelHeight.toFixed(3)}, minY=${minY.toFixed(3)})`);
-      } catch (e) {
-        console.warn(`Failed to load stump model '${stumpFile}':`, e);
-      }
-    });
-    await Promise.all(stumpLoads);
-
-    // Populate stumpModels by defId from TREE_MODEL_CONFIG
-    for (const cfg of GameManager.TREE_MODEL_CONFIG) {
-      const stump = this.stumpModelsByName.get(cfg.stumpFile);
-      if (stump) this.stumpModels.set(cfg.defId, stump);
-    }
-  }
-
-  private async loadDepletedRockModel(): Promise<void> {
-    try {
-      const result = await SceneLoader.ImportMeshAsync('', '/models/', 'depleted_rock.glb', this.scene);
-      let minY = Infinity;
-      for (const mesh of result.meshes) {
-        if (mesh.getTotalVertices() === 0) continue;
-        mesh.computeWorldMatrix(true);
-        const bb = mesh.getBoundingInfo().boundingBox;
-        if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
-      }
-      const root = new TransformNode('depletedRockTemplate', this.scene);
-      for (const mesh of result.meshes) {
-        if (!mesh.parent) mesh.parent = root;
-      }
-      for (const child of root.getChildren()) {
-        (child as TransformNode).position.y -= minY;
-      }
-      root.setEnabled(false);
-      this.depletedRockModel = { template: root, scale: 1 };
-      console.log('Depleted rock model loaded');
-    } catch (e) {
-      console.warn('Failed to load depleted rock model:', e);
-    }
-  }
-
-  private createTreeModel(objectEntityId: number, objectDefId: number, x: number, z: number, isDepleted: boolean): void {
-    // Pick a random variant if available
-    const variants = this.treeModelVariants.get(objectDefId);
-    const model = variants ? variants[objectEntityId % variants.length] : this.treeModels.get(objectDefId);
-    if (!model) return;
-
-    const clone = model.template.instantiateHierarchy(null, undefined, (source, cloned) => {
-      cloned.name = source.name + `_${objectEntityId}`;
-    })!;
-    clone.setEnabled(!isDepleted);
-    for (const child of clone.getChildMeshes()) {
-      child.setEnabled(true);
-      child.metadata = { objectEntityId };
-      // Use alpha-test cutout — avoids depth-sorting bleed on foliage while
-      // still discarding transparent (black) pixels in leaf textures.
-      const mat = child.material as any;
-      if (mat) {
-        if (mat.transparencyMode !== undefined) mat.transparencyMode = 1; // ALPHATEST
-        mat.alpha = 1;
-      }
-    }
-    const s = model.scale;
-    clone.scaling.set(s, s, s);
-    const cx = Math.floor(x) + 0.5;
-    const cz = Math.floor(z) + 0.5;
-    const terrainY = this.getHeight(cx, cz);
-    clone.position.set(cx, terrainY, cz);
-    this.worldObjectModels.set(objectEntityId, clone);
-
-    // Create stump model (hidden until tree is depleted)
-    const stumpModel = this.stumpModels.get(objectDefId);
-    if (stumpModel) {
-      const stump = stumpModel.template.instantiateHierarchy(null, undefined, (source, cloned) => {
-        cloned.name = source.name + `_stump_${objectEntityId}`;
-      })!;
-      stump.setEnabled(isDepleted);
-      for (const child of stump.getChildMeshes()) {
-        child.setEnabled(true);
-        const mat = child.material as any;
-        if (mat) {
-          if (mat.transparencyMode !== undefined) mat.transparencyMode = 1;
-          mat.alpha = 1;
-        }
-      }
-      const ss = stumpModel.scale;
-      stump.scaling.set(ss, ss, ss);
-      stump.position.set(cx, terrainY, cz);
-      this.worldObjectStumps.set(objectEntityId, stump);
-    }
-  }
-
-  private upgradeTreeSpritesToModels(): void {
-    // Trees now use placed GLB objects from the editor — no GameManager models needed
-  }
-
 
   private async loadPlayerSprites(): Promise<void> {
     try {
@@ -1042,11 +862,7 @@ export class GameManager {
       if (node.isDisposed()) {
         this.worldObjectModels.delete(entityId);
         // Also dispose stump/depleted model
-        const stump = this.worldObjectStumps.get(entityId);
-        if (stump) {
-          stump.dispose();
-          this.worldObjectStumps.delete(entityId);
-        }
+        this.objectModels.deleteStump(entityId);
       }
     }
   }
@@ -1087,7 +903,7 @@ export class GameManager {
 
     // Create depleted model only if already depleted (lazy — otherwise created on first depletion event)
     if (data.depleted) {
-      this.createDepletedModel(objectEntityId, data.defId, placedNode);
+      this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
     }
 
     // Remove any sprite placeholder that was created before the GLB was linked —
@@ -1100,43 +916,6 @@ export class GameManager {
   }
 
   /** Create a depleted model (stump/depleted rock) at the placed node's position */
-  private createDepletedModel(objectEntityId: number, defId: number, placedNode: TransformNode): TransformNode | undefined {
-    if (this.worldObjectStumps.has(objectEntityId)) return this.worldObjectStumps.get(objectEntityId)!;
-    const def = this.objectDefsCache.get(defId);
-    let depletedModel: { template: TransformNode; scale: number } | null = null;
-    if (def?.category === 'tree') {
-      depletedModel = this.stumpModels.get(defId) ?? null;
-    } else if (def?.category === 'rock') {
-      depletedModel = this.depletedRockModel;
-    }
-    if (!depletedModel) return undefined;
-    const depleted = depletedModel.template.instantiateHierarchy(null, undefined, (source, cloned) => {
-      cloned.name = source.name + `_depleted_${objectEntityId}`;
-    })!;
-    depleted.setEnabled(true);
-    for (const child of depleted.getChildMeshes()) {
-      child.setEnabled(true);
-      const mat = child.material as any;
-      if (mat && mat.transparencyMode !== undefined) mat.transparencyMode = 1;
-    }
-    // Match the placed node's scale so depleted model fits the same footprint
-    depleted.scaling.copyFrom(placedNode.scaling);
-    depleted.position.set(placedNode.position.x, placedNode.position.y, placedNode.position.z);
-    // Copy rotation in whichever form the placed node uses. Editor-placed
-    // objects use Euler rotation (no quaternion), so falling back only to
-    // rotationQuaternion left depleted rocks at identity rotation — they
-    // appeared offset/oriented differently from the rock they replaced.
-    if (placedNode.rotationQuaternion) {
-      depleted.rotationQuaternion = placedNode.rotationQuaternion.clone();
-      depleted.rotation.set(0, 0, 0);
-    } else {
-      depleted.rotationQuaternion = null;
-      depleted.rotation.copyFrom(placedNode.rotation);
-    }
-    this.worldObjectStumps.set(objectEntityId, depleted);
-    return depleted;
-  }
-
   private setupKeyboard(): void {
     window.addEventListener('keydown', (e) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
@@ -1170,9 +949,7 @@ export class GameManager {
     const boneConfig = EQUIP_SLOT_BONES[slotName];
     if (!boneConfig) return;
 
-    // Check if this is a bow/crossbow — needs different grip transform
     const itemDef = this.itemDefsCache.get(itemId);
-    const isBow = itemDef?.weaponStyle === 'bow' || itemDef?.weaponStyle === 'crossbow';
 
     // Clear cache for this item so rotation changes take effect immediately
     this.gearTemplateCache.delete(cacheKey);
@@ -1190,30 +967,21 @@ export class GameManager {
             axe: '/assets/equipment/Tools/Axe.glb',
             pickaxe: '/assets/equipment/Tools/Pickaxe.glb',
           };
-          // Tool-specific transforms (grip position, rotation, scale)
-          const toolTransforms: Record<string, { pos: { x: number; y: number; z: number }; rot: { x: number; y: number; z: number }; scale: number; center: boolean }> = {
-            axe:     { pos: { x: -0.06, y: 0.09, z: -0.12 }, rot: { x: -1.65, y: 0.2, z: -3.15 }, scale: 0.6, center: false },
-            pickaxe: { pos: { x: -0.01, y: 0.54, z: 0.25 }, rot: { x: 2.7, y: 0.1, z: 0.1 }, scale: 0.9, center: false },
+          const pickaxeTransform = {
+            pos: { x: 0.445, y: 0.15, z: 0.01 },
+            rot: { x: -2.8, y: 1.65, z: -0.15 },
+            scale: 0.65,
           };
-          const toolTx = toolType ? toolTransforms[toolType] : null;
-          const pos = isBow
-            ? { x: -0.04, y: 0, z: 0 }
-            : toolTx ? toolTx.pos
-            : boneConfig.localPosition;
-          const rot = isBow
-            ? { x: Math.PI / 2, y: 0, z: 0 }
-            : toolTx ? toolTx.rot
-            : boneConfig.localRotation;
-          const gearScale = isBow ? 0.9 : toolTx ? toolTx.scale : boneConfig.scale;
+          const isPickaxe = toolType === 'pickaxe';
           const gearFile = (toolType && toolModelMap[toolType]) || `/gear/${slotName}/${itemId}.glb`;
           const gearDef: GearDef = {
             itemId,
             file: gearFile,
             boneName: boneConfig.boneName,
-            localPosition: pos,
-            localRotation: rot,
-            scale: gearScale,
-            centerOrigin: isBow || (toolTx?.center ?? false),
+            localPosition: isPickaxe ? pickaxeTransform.pos : boneConfig.localPosition,
+            localRotation: isPickaxe ? pickaxeTransform.rot : boneConfig.localRotation,
+            scale: isPickaxe ? pickaxeTransform.scale : boneConfig.scale,
+            centerOrigin: false,
             metalColor: TOOL_TIER_METAL_COLOR[itemId],
           };
           const tmpl = await loadGearTemplate(this.scene, gearDef);
@@ -1264,20 +1032,27 @@ export class GameManager {
       label: this.username,
       labelColor: '#00ff00',
       additionalAnimations: [
-        { name: 'idle', path: '/Character models/animations/idle.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Idle_Loop' } },
-        { name: 'walk', path: '/Character models/animations/walk.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Walk_Loop' } },
-        { name: 'attack', path: '/Character models/animations/attack.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' } },
-        { name: 'attack_slash', path: '/Character models/animations/attack_slash.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Sword_Attack' } },
-        { name: 'attack_punch', path: '/Character models/animations/attack_punch.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Punch_Cross' } },
-        { name: 'chop', path: '/Character models/animations/chop.glb', fallback: { path: '/Character models/Universal Animation Library 2[Source]/Unreal-Godot/UAL2.glb', animName: 'TreeChopping_Loop' } },
-        { name: 'mine', path: '/Character models/animations/mine.glb', fallback: { path: '/Character models/Universal Animation Library 2[Source]/Unreal-Godot/UAL2.glb', animName: 'Mining_Loop' } },
-        { name: 'bow_attack', path: '/Character models/animations/bow_attack.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Spell_Simple_Shoot' } },
-        { name: 'death', path: '/Character models/animations/death.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Death01' } },
+        { name: 'idle', path: '/Character models/animations/idle.glb' },
+        { name: 'walk', path: '/Character models/animations/walk.glb' },
+        { name: 'attack', path: '/Character models/animations/attack.glb' },
+        { name: 'attack_slash', path: '/Character models/animations/attack_slash.glb' },
+        { name: 'attack_punch', path: '/Character models/animations/attack_punch.glb' },
+        { name: 'chop', path: '/Character models/animations/chop.glb' },
+        { name: 'mine', path: '/Character models/animations/mine.glb' },
       ],
     });
   }
 
   private setupNetworkHandlers(): void {
+    this.setupAuthHandlers();
+    this.setupEntitySyncHandlers();
+    this.setupCombatHandlers();
+    this.setupWorldObjectHandlers();
+    this.setupPlayerStateHandlers();
+    this.setupMapHandlers();
+  }
+
+  private setupAuthHandlers(): void {
     this.network.on(ServerOpcode.LOGIN_OK, (_op, v) => {
       this.localPlayerId = v[0];
       this.playerX = v[1] / 10;
@@ -1290,7 +1065,6 @@ export class GameManager {
       this.inputManager.setPlayerY(spawnH);
       console.log(`Logged in as player ${this.localPlayerId}`);
 
-      // Apply appearance once model is loaded
       this.localPlayer.whenReady().then(() => {
         if (this.localAppearance && this.localPlayer) {
           this.localPlayer.applyAppearance(this.localAppearance);
@@ -1298,11 +1072,9 @@ export class GameManager {
       });
     });
 
-    // Character creator — shown for new accounts that haven't set appearance
     this.network.on(ServerOpcode.SHOW_CHARACTER_CREATOR, () => {
       if (this.characterCreator) return;
       this.characterCreator = new CharacterCreator(this.scene, (appearance) => {
-        // Send appearance to server
         this.network.sendRaw(encodePacket(
           ClientOpcode.SET_APPEARANCE,
           appearance.shirtColor,
@@ -1314,18 +1086,18 @@ export class GameManager {
         ));
         const oldStyle = this.localAppearance?.shirtStyle ?? 0;
         this.localAppearance = appearance;
-        // Rebuild character if shirt style changed (different model GLB)
         if (appearance.shirtStyle !== oldStyle) {
           this.rebuildLocalPlayer(appearance.shirtStyle);
         } else if (this.localPlayer) {
           this.localPlayer.applyAppearance(appearance);
         }
-        // Destroy the creator UI
         this.characterCreator!.destroy();
         this.characterCreator = null;
       });
     });
+  }
 
+  private setupEntitySyncHandlers(): void {
     this.network.on(ServerOpcode.PLAYER_SYNC, (_op, v) => {
       const [entityId, x10, z10, health, maxHealth] = v;
       const x = x10 / 10;
@@ -1506,7 +1278,9 @@ export class GameManager {
         this.npcDefs.delete(entityId);
       }
     });
+  }
 
+  private setupCombatHandlers(): void {
     this.network.on(ServerOpcode.COMBAT_HIT, (_op, v) => {
       const [attackerId, targetId, damage, targetHp, targetMaxHp] = v;
       const targetSprite = this.npcSprites.get(targetId) || this.remotePlayers.get(targetId);
@@ -1581,7 +1355,9 @@ export class GameManager {
         this.spawnProjectile(fromPos, toPos);
       }
     });
+  }
 
+  private setupWorldObjectHandlers(): void {
     this.network.on(ServerOpcode.SHOP_OPEN, (_op, v) => {
       const npcEntityId = v[0];
       const itemCount = v[1];
@@ -1771,9 +1547,9 @@ export class GameManager {
           placedNode.setEnabled(isDepleted === 0);
 
           // Create or toggle depleted model (stump / depleted rock)
-          let depleted = this.worldObjectStumps.get(objectEntityId);
+          let depleted = this.objectModels.getStump(objectEntityId);
           if (!depleted && isDepleted === 1) {
-            depleted = this.createDepletedModel(objectEntityId, data.defId, placedNode);
+            depleted = this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
           }
           if (depleted) depleted.setEnabled(isDepleted === 1);
         }
@@ -1815,7 +1591,9 @@ export class GameManager {
       this.hideThinkingBubble();
       this.localPlayer?.stopSkillAnimation();
     });
+  }
 
+  private setupPlayerStateHandlers(): void {
     this.network.on(ServerOpcode.PLAYER_STATS, (_op, v) => {
       this.playerHealth = v[0];
       this.playerMaxHealth = v[1];
@@ -1911,8 +1689,9 @@ export class GameManager {
         }
       }
     });
+  }
 
-    // Handle FLOOR_CHANGE
+  private setupMapHandlers(): void {
     this.network.on(ServerOpcode.FLOOR_CHANGE, (_op, values) => {
       const newFloor = values[0];
       this.currentFloor = newFloor;
@@ -1927,7 +1706,6 @@ export class GameManager {
       }
     });
 
-    // Handle MAP_CHANGE as a raw binary handler
     this.network.onRawMessage((data: ArrayBuffer) => {
       const view = new DataView(data);
       const opcode = view.getUint8(0);
@@ -1965,8 +1743,7 @@ export class GameManager {
       if (!this.chunkManager.isPlacedObjectNode(model)) model.dispose();
     }
     this.worldObjectModels.clear();
-    for (const [, stump] of this.worldObjectStumps) stump.dispose();
-    this.worldObjectStumps.clear();
+    this.objectModels.disposeStumps();
     this.worldObjectDefs.clear();
     this.blockedObjectTiles.clear();
 
@@ -2258,7 +2035,7 @@ export class GameManager {
   private showSmithingUI(objectEntityId: number, def: any): void {
     if (!this.smithingPanel || !this.sidePanel) return;
     const inventory = this.sidePanel.getInventory();
-    const smithingLevel = this.sidePanel.getSkillLevel('smithing' as any);
+    const smithingLevel = this.sidePanel.getSkillLevel('smithing');
     const itemDefs = this.sidePanel.getItemDefs();
     const toolType = def.recipes[0].requiresTool;
     const hasTool = inventory.some((slot: any) => slot && itemDefs.get(slot.itemId)?.toolType === toolType);
@@ -2738,8 +2515,7 @@ export class GameManager {
     this.worldObjectSprites.clear();
     for (const [, model] of this.worldObjectModels) model.dispose();
     this.worldObjectModels.clear();
-    for (const [, m] of this.treeModels) m.template.dispose();
-    this.treeModels.clear();
+    this.objectModels.dispose();
     document.getElementById('chat-panel')?.remove();
     document.getElementById('side-panel')?.remove();
     for (const splat of this.hitSplats) splat.el.remove();
@@ -2840,6 +2616,28 @@ export class GameManager {
     this.thinkingBubble.style.top = `${screenPos.y - 48}px`;
   }
 
+  private syncArmorBones(): void {
+    const charSkeleton = this.localPlayer?.getSkeleton?.();
+    if (!charSkeleton) return;
+    for (const armorSkeleton of this.armorSkeletons.values()) {
+      for (const armorBone of armorSkeleton.bones) {
+        const charBone = charSkeleton.bones.find(b => b.name === armorBone.name);
+        if (!charBone) continue;
+        const charTN = charBone.getTransformNode();
+        const armorTN = armorBone.getTransformNode();
+        if (!charTN || !armorTN) continue;
+        if (charTN.rotationQuaternion) {
+          if (!armorTN.rotationQuaternion) {
+            armorTN.rotationQuaternion = charTN.rotationQuaternion.clone();
+          } else {
+            armorTN.rotationQuaternion.copyFrom(charTN.rotationQuaternion);
+          }
+        }
+        armorTN.position.copyFrom(charTN.position);
+      }
+    }
+  }
+
   private update(dt: number): void {
     // WASD camera rotation
     const camSpeed = 2.0 * dt;
@@ -2859,6 +2657,8 @@ export class GameManager {
     if (this.localPlayer) this.localPlayer.updateAnimation(dt);
     for (const [, sprite] of this.remotePlayers) sprite.updateAnimation(dt);
     for (const [, sprite] of this.npcSprites) sprite.updateAnimation(dt);
+
+    if (this.armorSkeletons.size > 0) this.syncArmorBones();
 
     // Cache camera position for this frame
     const camPos = this.scene.activeCamera?.position ?? null;

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",
-    "@babylonjs/loaders": "^7.0.0"
+    "@babylonjs/loaders": "^7.0.0",
+    "@projectrs/shared": "workspace:*"
   }
 }

@@ -253,7 +253,7 @@ export class SidePanel {
       btn.textContent = tab.label;
       btn.dataset.tab = tab.key;
       btn.style.cssText = tabStyle;
-      btn.addEventListener('click', () => this.switchTab(tab.key as any));
+      btn.addEventListener('click', () => this.switchTab(tab.key));
       (tab.pos === 'top' ? topTabs : bottomTabs).appendChild(btn);
       this.tabButtons.push(btn);
     }
