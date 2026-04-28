@@ -175,7 +175,7 @@ export class CharacterCreator {
       modelPath: this.getModelPath(),
       targetHeight: 1.53,
       additionalAnimations: [
-        { name: 'idle', path: '/Character models/animations/idle.glb', fallback: { path: '/Character models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb', animName: 'Idle_Loop' } },
+        { name: 'idle', path: '/Character models/animations/idle.glb' },
       ],
     });
     this.previewCharacter.whenReady().then(() => {

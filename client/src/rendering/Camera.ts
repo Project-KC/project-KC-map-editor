@@ -86,6 +86,24 @@ export class GameCamera {
     this.targetBeta = beta;
   }
 
+  enterDebugZoom(): void {
+    this.camera.lowerRadiusLimit = 1.5;
+    this.camera.upperRadiusLimit = 20;
+    this.camera.wheelPrecision = 20;
+    this.camera.lowerBetaLimit = 0.1;
+    this.camera.upperBetaLimit = Math.PI / 1.8;
+  }
+
+  exitDebugZoom(): void {
+    this.camera.lowerRadiusLimit = 12;
+    this.camera.upperRadiusLimit = 12;
+    this.camera.wheelPrecision = 99999;
+    this.camera.lowerBetaLimit = 0.4;
+    this.camera.upperBetaLimit = Math.PI / 2.2;
+    this.setTargetRadius(12);
+    this.setTargetBeta(Math.PI / 3.2);
+  }
+
   getCamera(): ArcRotateCamera {
     return this.camera;
   }

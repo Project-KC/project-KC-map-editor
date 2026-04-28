@@ -18,6 +18,14 @@ import '@babylonjs/loaders/glTF';
 /** Number of keyframes to quantize animations down to (RS-style choppy look) */
 const QUANTIZE_FRAMES = 8;
 
+/**
+ * Constant rotation offsets applied to specific bones during retargeting.
+ * Values are Euler angles (radians) converted to a quaternion and post-multiplied
+ * onto every keyframe for that bone. Use /bonedebug in-game to find values,
+ * then paste them here.
+ */
+const BONE_ROTATION_OFFSETS: Record<string, { x: number; y: number; z: number }> = {};
+
 /** Target durations in seconds — tuned so each pose holds long enough to read */
 const ANIM_DURATIONS: Record<string, number> = {
   idle: 3.6,          // 6 ticks — slow gentle sway, ~450ms per pose
@@ -93,8 +101,6 @@ export interface AdditionalAnimation {
   path: string;
   /** If the GLB contains multiple animations, pick this one by name. If omitted, uses the first. */
   animName?: string;
-  /** Fallback if the primary path doesn't exist (e.g. UAL library placeholder) */
-  fallback?: { path: string; animName?: string };
 }
 
 export interface CharacterEntityOptions {
@@ -142,6 +148,7 @@ export class CharacterEntity {
 
   // Gear — per equipment slot
   private gearAttachments: Map<string, GearAttachment> = new Map(); // slot name → attachment
+  private boneRestRotations: Map<string, Quaternion> = new Map();
 
   // Health bar (HTML overlay — same pattern as SpriteEntity)
   private healthBarEl: HTMLDivElement | null = null;
@@ -199,6 +206,15 @@ export class CharacterEntity {
 
       this.meshes = result.meshes.filter(m => m.getTotalVertices() > 0);
       this.skeleton = result.skeletons.length > 0 ? result.skeletons[0] : null;
+
+      if (this.skeleton) {
+        for (const bone of this.skeleton.bones) {
+          const tn = bone.getTransformNode();
+          if (tn?.rotationQuaternion) {
+            this.boneRestRotations.set(bone.name, tn.rotationQuaternion.clone());
+          }
+        }
+      }
 
       // Compute model bounds for scaling
       let minY = Infinity, maxY = -Infinity;
@@ -296,18 +312,32 @@ export class CharacterEntity {
   }
 
   /**
-   * Load animations from separate GLB files and retarget them onto this character's skeleton.
-   * Each GLB should have the same armature bone names. The meshes are discarded.
+   * Load Mixamo animations from separate GLB files and retarget onto this skeleton.
+   *
+   * Only rotation tracks are transferred — position/scale tracks are discarded
+   * because FBX→GLB exports use centimeter units that don't match our model.
+   *
+   * Rest-pose correction: FBX→GLB conversion can leave axis-compensation rotations
+   * on bones (especially Hips). For each bone, if the source rest rotation differs
+   * from ours, every keyframe is corrected:
+   *   corrected = ourRest * inverse(srcRest) * keyframe
+   * This removes the source rest orientation and applies ours, so animations play
+   * in the correct orientation regardless of how the GLB was exported.
    */
   private async loadAdditionalAnimations(anims: AdditionalAnimation[]): Promise<void> {
-    // Build a name→TransformNode map for our character's bone nodes (once)
+    // Map bone names → our TransformNodes + their rest rotations
     const ourNodesByName = new Map<string, TransformNode>();
+    const ourRestRotations = new Map<string, Quaternion>();
+
     if (this.skeleton) {
       for (const bone of this.skeleton.bones) {
         const tn = bone.getTransformNode();
         if (tn) {
           ourNodesByName.set(bone.name, tn);
           ourNodesByName.set(tn.name, tn);
+          const rest = tn.rotationQuaternion?.clone() ?? Quaternion.Identity();
+          ourRestRotations.set(bone.name, rest);
+          ourRestRotations.set(tn.name, rest);
         }
       }
     }
@@ -319,54 +349,54 @@ export class CharacterEntity {
       }
     }
 
-    // Cache loaded GLBs so the same file isn't loaded multiple times
-    const loadedFiles = new Map<string, { animationGroups: AnimationGroup[]; skeletons: Skeleton[]; meshes: AbstractMesh[] }>();
+    interface LoadedFile {
+      animationGroups: AnimationGroup[];
+      skeletons: Skeleton[];
+      meshes: AbstractMesh[];
+      srcRestRotations: Map<string, Quaternion>;
+    }
+    const loadedFiles = new Map<string, LoadedFile>();
 
     for (const anim of anims) {
       try {
-        // Resolve path: try primary, fall back if 404
-        let activePath = anim.path;
-        let activeAnimName = anim.animName;
-
-        let result = loadedFiles.get(activePath);
+        let result = loadedFiles.get(anim.path);
         if (!result) {
           try {
-            const lastSlash = activePath.lastIndexOf('/');
-            const dir = activePath.substring(0, lastSlash + 1);
-            const file = activePath.substring(lastSlash + 1);
+            const lastSlash = anim.path.lastIndexOf('/');
+            const dir = anim.path.substring(0, lastSlash + 1);
+            const file = anim.path.substring(lastSlash + 1);
             const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
-            result = { animationGroups: imported.animationGroups, skeletons: imported.skeletons, meshes: imported.meshes };
-            loadedFiles.set(activePath, result);
-            for (const g of result.animationGroups) g.stop();
-            console.log(`[CharacterEntity] Custom animation '${anim.name}' loaded from ${activePath}`);
-          } catch {
-            // Primary path failed — try fallback
-            if (anim.fallback) {
-              activePath = anim.fallback.path;
-              activeAnimName = anim.fallback.animName;
-              result = loadedFiles.get(activePath);
-              if (!result) {
-                const lastSlash = activePath.lastIndexOf('/');
-                const dir = activePath.substring(0, lastSlash + 1);
-                const file = activePath.substring(lastSlash + 1);
-                const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
-                result = { animationGroups: imported.animationGroups, skeletons: imported.skeletons, meshes: imported.meshes };
-                loadedFiles.set(activePath, result);
-                for (const g of result.animationGroups) g.stop();
+
+            // Capture source bone rest rotations from TransformNodes
+            // (animation GLBs have no Skeleton — bones are just TransformNodes)
+            const srcRestRotations = new Map<string, Quaternion>();
+            for (const tn of imported.transformNodes) {
+              if (tn.rotationQuaternion) {
+                srcRestRotations.set(tn.name, tn.rotationQuaternion.clone());
               }
-            } else {
-              console.warn(`[CharacterEntity] Failed to load animation '${anim.name}' from ${activePath}, no fallback`);
-              continue;
             }
+
+            result = {
+              animationGroups: imported.animationGroups,
+              skeletons: imported.skeletons,
+              meshes: imported.meshes,
+              srcRestRotations,
+            };
+            loadedFiles.set(anim.path, result);
+            for (const g of result.animationGroups) g.stop();
+            console.log(`[CharacterEntity] Animation '${anim.name}' loaded from ${anim.path}`);
+          } catch {
+            console.warn(`[CharacterEntity] Failed to load animation '${anim.name}' from ${anim.path}`);
+            continue;
           }
         }
 
-        // Find the specific animation group (by animName, or first one)
+        // Find the animation group (by name, or first)
         let group: AnimationGroup | undefined;
-        if (activeAnimName) {
-          group = result.animationGroups.find(g => g.name === activeAnimName);
+        if (anim.animName) {
+          group = result.animationGroups.find(g => g.name === anim.animName);
           if (!group) {
-            console.warn(`[CharacterEntity] Animation '${activeAnimName}' not found in '${activePath}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
+            console.warn(`[CharacterEntity] Animation '${anim.animName}' not found in '${anim.path}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
             continue;
           }
         } else {
@@ -374,44 +404,66 @@ export class CharacterEntity {
         }
         if (!group) continue;
 
-        // Retarget animation onto our skeleton
         const retargetedAnims = [];
         let missCount = 0;
+        let correctedCount = 0;
+
         for (const ta of group.targetedAnimations) {
           const target = ta.target as TransformNode;
           if (!target?.name) continue;
 
+          // Only rotation tracks
+          const prop = ta.animation.targetProperty;
+          if (prop !== 'rotationQuaternion' && !prop.startsWith('rotationQuaternion')) {
+            continue;
+          }
+
+          // Match source bone → our bone by name
           let ourTarget = ourNodesByName.get(target.name) ?? null;
           if (!ourTarget) {
             const stripped = target.name.replace(/\.\d+$/, '');
             ourTarget = ourNodesByName.get(stripped) ?? null;
           }
+
           if (!ourTarget) {
-            const lastDot = target.name.lastIndexOf('.');
-            if (lastDot >= 0) {
-              const shortName = target.name.substring(lastDot + 1);
-              ourTarget = ourNodesByName.get(shortName) ?? null;
+            missCount++;
+            if (missCount <= 5) {
+              console.log(`[CharacterEntity] Retarget miss: '${target.name}'`);
+            }
+            continue;
+          }
+
+          // Rest-pose correction: if source and target rest rotations differ,
+          // transform each keyframe so it plays correctly on our skeleton.
+          const srcRest = result.srcRestRotations.get(target.name);
+          const ourRest = ourRestRotations.get(ourTarget.name);
+          if (srcRest && ourRest) {
+            const dot = Math.abs(Quaternion.Dot(srcRest, ourRest));
+            if (dot < 0.999) {
+              const srcRestInv = Quaternion.Inverse(srcRest);
+              const keys = ta.animation.getKeys();
+              for (const key of keys) {
+                if (key.value && key.value.w !== undefined) {
+                  key.value = ourRest.multiply(srcRestInv.multiply(key.value));
+                }
+              }
+              correctedCount++;
             }
           }
 
-          if (ourTarget) {
-            // Skip position and scale tracks for neck_01 and Head bones.
-            // External animations carry the original (longer) neck rest pose —
-            // without this filter they override the shortened rest pose in the GLB.
-            const boneName = ourTarget.name;
-            const prop = ta.animation.targetProperty;
-            const isNeckOrHead = boneName === 'neck_01' || boneName === 'Head';
-            const isPosOrScale = prop === 'position' || prop === 'scaling' || prop.startsWith('position') || prop.startsWith('scaling');
-            if (isNeckOrHead && isPosOrScale) {
-              continue;
-            }
-            retargetedAnims.push({ animation: ta.animation, target: ourTarget });
-          } else {
-            missCount++;
-            if (missCount <= 15) {
-              console.log(`[CharacterEntity] Retarget miss: no node for '${target.name}'`);
+          // Apply constant bone rotation offsets (e.g. pull shoulders back)
+          const offset = BONE_ROTATION_OFFSETS[ourTarget.name];
+          if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
+            const offsetQuat = Quaternion.FromEulerAngles(offset.x, offset.y, offset.z);
+            const keys = ta.animation.getKeys();
+            for (const key of keys) {
+              if (key.value && key.value.w !== undefined) {
+                key.value = key.value.multiply(offsetQuat);
+              }
             }
           }
+
+          retargetedAnims.push({ animation: ta.animation, target: ourTarget });
         }
 
         if (retargetedAnims.length > 0) {
@@ -421,18 +473,16 @@ export class CharacterEntity {
           }
           this.animGroups.set(anim.name, newGroup);
           newGroup.stop();
-          console.log(`[CharacterEntity] Animation '${anim.name}' loaded (${retargetedAnims.length}/${group.targetedAnimations.length} retargeted, ${missCount} missed)`);
+          console.log(`[CharacterEntity] '${anim.name}': ${retargetedAnims.length} tracks retargeted, ${correctedCount} rest-corrected, ${missCount} missed`);
         } else {
-          console.warn(`[CharacterEntity] Retargeting failed for '${anim.name}' — 0/${group.targetedAnimations.length} matched`);
+          console.warn(`[CharacterEntity] Retargeting failed for '${anim.name}' — 0 tracks matched`);
         }
       } catch (e) {
         console.warn(`[CharacterEntity] Failed to load '${anim.name}' from '${anim.path}':`, e);
       }
     }
 
-    // Clean up all loaded GLB resources — including animation groups
-    // that weren't retargeted, to prevent them from interfering with our
-    // character's skeleton (they share bone names with the source armatures).
+    // Clean up loaded GLB resources
     for (const [, result] of loadedFiles) {
       for (const ag of result.animationGroups) ag.dispose();
       for (const sk of result.skeletons) sk.dispose();
@@ -763,7 +813,8 @@ export class CharacterEntity {
       clone.attachToBone(bone, this.root!);
     }
 
-    // Apply local transform
+    // Apply local transform — null out rotationQuaternion so euler rotation works
+    clone.rotationQuaternion = null;
     clone.position.set(
       gearTemplate.localPosition.x,
       gearTemplate.localPosition.y,
@@ -956,6 +1007,10 @@ export class CharacterEntity {
     return this.skeleton.bones.map(b => b.name);
   }
 
+  getBoneRestRotation(boneName: string): Quaternion | null {
+    return this.boneRestRotations.get(boneName) ?? null;
+  }
+
   // ---------------------------------------------------------------------------
   // Appearance — recolor clothing/hair materials
   // ---------------------------------------------------------------------------
@@ -1042,10 +1097,16 @@ export class CharacterEntity {
    * Bunching values together = fast motion, spreading = slow/held pose.
    */
   private static readonly ANIM_SAMPLE_CURVES: Record<string, number[]> = {
-    // Chop: fast wind-up (0→0.45 in 3 frames), fast swing (0.45→0.65 in 1 frame), slow recovery (0.65→1.0 in 4 frames)
+    idle: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
+    walk: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
+    run: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
+    attack: [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
+    attack_slash: [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
+    attack_punch: [0, 0.10, 0.30, 0.50, 0.65, 0.78, 0.90, 1.0],
+    bow_attack: [0, 0.12, 0.28, 0.42, 0.55, 0.70, 0.85, 1.0],
     chop: [0, 0.15, 0.35, 0.50, 0.60, 0.72, 0.85, 1.0],
-    // Mine: fast raise (0→0.4 in 2 frames), fast strike (0.4→0.55 in 1 frame), slow pull-back (0.55→1.0 in 5 frames)
     mine: [0, 0.2, 0.42, 0.55, 0.65, 0.77, 0.88, 1.0],
+    death: [0, 0.08, 0.20, 0.35, 0.55, 0.75, 0.90, 1.0],
   };
 
   private quantizeAnimationGroup(group: AnimationGroup, animName: string): void {
