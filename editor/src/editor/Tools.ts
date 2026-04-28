@@ -9,9 +9,11 @@ export const ToolMode = {
   COLLISION: 'collision',
   ITEM_SPAWN: 'item_spawn',
   BIOME: 'biome'
-}
+} as const
 
-export function toolLabel(mode) {
+export type ToolModeValue = (typeof ToolMode)[keyof typeof ToolMode]
+
+export function toolLabel(mode: ToolModeValue): string {
   if (mode === ToolMode.TERRAIN) return 'Terrain Tool'
   if (mode === ToolMode.PAINT) return 'Paint Tool'
   if (mode === ToolMode.PLACE) return 'Place Asset'

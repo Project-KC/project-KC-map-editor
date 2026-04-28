@@ -1,18 +1,105 @@
+export interface Tile {
+  ground: string
+  groundB: string | null
+  split: 'forward' | 'back'
+  textureId: string | null
+  textureRotation: number
+  textureScale: number
+  textureWorldUV: boolean
+  textureHalfMode: boolean
+  textureIdB: string | null
+  textureRotationB: number
+  textureScaleB: number
+  waterPainted: boolean
+  waterSurface: boolean
+}
+
+export interface CornerHeights {
+  tl: number
+  tr: number
+  bl: number
+  br: number
+}
+
+export interface TexturePlane {
+  id: string
+  textureId: string
+  width: number
+  height: number
+  vertical: boolean
+  doubleSided: boolean
+  position: { x: number; y: number; z: number }
+  rotation: { x: number; y: number; z: number }
+  scale: { x: number; y: number; z: number }
+  uvRepeat: number
+  texRotation: number
+  tintColor?: { r: number; g: number; b: number }
+}
+
+export type MapType = 'overworld' | 'dungeon'
+
+export interface MapDataJSON {
+  width: number
+  height: number
+  mapType: string
+  worldOffset: { x: number; z: number }
+  waterLevel: number
+  chunkWaterLevels: Record<string, number>
+  selectedTexturePlaneId: string | null
+  texturePlanes: TexturePlane[]
+  tiles: Tile[][]
+  heights: number[][]
+  terrainGeneration: number
+  activeChunks: string[]
+}
+
+const CHUNK = 64
+
+function createDefaultTile(): Tile {
+  return {
+    ground: 'grass',
+    groundB: null,
+    split: 'forward',
+    textureId: null,
+    textureRotation: 0,
+    textureScale: 1,
+    textureWorldUV: false,
+    textureHalfMode: false,
+    textureIdB: null,
+    textureRotationB: 0,
+    textureScaleB: 1,
+    waterPainted: false,
+    waterSurface: false
+  }
+}
+
 export class MapData {
-  constructor(width, height) {
+  width: number
+  height: number
+  terrainGeneration: number
+  mapType: MapType
+  worldOffset: { x: number; z: number }
+  waterLevel: number
+  chunkWaterLevels: Record<string, number>
+  texturePlanes: TexturePlane[]
+  selectedTexturePlaneId: string | null
+  activeChunks: Set<string>
+  tiles: Tile[][]
+  heights: number[][]
+
+  constructor(width: number, height: number) {
     this.width = width
     this.height = height
 
-    this.terrainGeneration = 0   // incremented on terrain/tile/height changes — used by undo to skip rebuilds
-    this.mapType = 'overworld'   // 'overworld' | 'dungeon'
-    this.worldOffset = { x: 0, z: 0 }  // world-space origin of this chunk
+    this.terrainGeneration = 0   // incremented on terrain/tile/height changes -- used by undo to skip rebuilds
+    this.mapType = 'overworld'
+    this.worldOffset = { x: 0, z: 0 }
     this.waterLevel = -2.5
-    this.chunkWaterLevels = {}   // keyed "chunkX,chunkZ", overrides waterLevel per 64x64 chunk
+    this.chunkWaterLevels = {}
     this.texturePlanes = []
     this.selectedTexturePlaneId = null
-    this.activeChunks = new Set() // "cx,cz" keys for active 64x64 chunks
+    this.activeChunks = new Set<string>()
     // Initialize all chunks within bounds as active
-    const CHUNK = 64
     for (let cz = 0; cz < Math.ceil(height / CHUNK); cz++) {
       for (let cx = 0; cx < Math.ceil(width / CHUNK); cx++) {
         this.activeChunks.add(`${cx},${cz}`)
@@ -21,30 +108,16 @@ export class MapData {
 
     this.tiles = []
     for (let z = 0; z < height; z++) {
-      const row = []
+      const row: Tile[] = []
       for (let x = 0; x < width; x++) {
-        row.push({
-          ground: 'grass',
-          groundB: null,
-          split: 'forward',
-          textureId: null,
-          textureRotation: 0,
-          textureScale: 1,
-          textureWorldUV: false,
-          textureHalfMode: false,
-          textureIdB: null,
-          textureRotationB: 0,
-          textureScaleB: 1,
-          waterPainted: false,
-          waterSurface: false
-        })
+        row.push(createDefaultTile())
       }
       this.tiles.push(row)
     }
 
     this.heights = []
     for (let z = 0; z <= height; z++) {
-      const row = []
+      const row: number[] = []
       for (let x = 0; x <= width; x++) {
         row.push(0)
       }
@@ -52,37 +125,37 @@ export class MapData {
     }
   }
 
-  isChunkActive(cx, cz) {
+  isChunkActive(cx: number, cz: number): boolean {
     return this.activeChunks.has(`${cx},${cz}`)
   }
 
-  isTileInActiveChunk(x, z) {
+  isTileInActiveChunk(x: number, z: number): boolean {
     return this.activeChunks.has(`${Math.floor(x / 64)},${Math.floor(z / 64)}`)
   }
 
-  getTile(x, z) {
+  getTile(x: number, z: number): Tile | null {
     if (x < 0 || z < 0 || x >= this.width || z >= this.height) return null
     return this.tiles[z][x]
   }
 
-  getVertexHeight(x, z) {
+  getVertexHeight(x: number, z: number): number {
     if (x < 0 || z < 0 || x > this.width || z > this.height) return 0
     return this.heights[z][x]
   }
 
-  setVertexHeight(x, z, value) {
+  setVertexHeight(x: number, z: number, value: number): void {
     if (x < 0 || z < 0 || x > this.width || z > this.height) return
     this.heights[z][x] = value
     this.terrainGeneration++
   }
 
-  adjustVertexHeight(x, z, delta) {
+  adjustVertexHeight(x: number, z: number, delta: number): void {
     if (x < 0 || z < 0 || x > this.width || z > this.height) return
     this.heights[z][x] += delta
     this.terrainGeneration++
   }
 
-  getTileCornerHeights(x, z) {
+  getTileCornerHeights(x: number, z: number): CornerHeights {
     if (!this.getTile(x, z)) {
       return { tl: 0, tr: 0, bl: 0, br: 0 }
     }
@@ -95,39 +168,39 @@ export class MapData {
     }
   }
 
-  getAverageTileHeight(x, z) {
+  getAverageTileHeight(x: number, z: number): number {
     const h = this.getTileCornerHeights(x, z)
     return (h.tl + h.tr + h.bl + h.br) / 4
   }
 
-  getBaseGroundType(x, z) {
+  getBaseGroundType(x: number, z: number): string {
     const tile = this.getTile(x, z)
     if (!tile) return 'grass'
     return tile.ground || 'grass'
   }
 
-  getChunkWaterLevel(chunkX, chunkZ) {
+  getChunkWaterLevel(chunkX: number, chunkZ: number): number {
     const key = `${chunkX},${chunkZ}`
     return Object.prototype.hasOwnProperty.call(this.chunkWaterLevels, key)
       ? this.chunkWaterLevels[key]
       : this.waterLevel
   }
 
-  setChunkWaterLevel(chunkX, chunkZ, level) {
+  setChunkWaterLevel(chunkX: number, chunkZ: number, level: number): void {
     this.chunkWaterLevels[`${chunkX},${chunkZ}`] = level
   }
 
-  clearChunkWaterLevel(chunkX, chunkZ) {
+  clearChunkWaterLevel(chunkX: number, chunkZ: number): void {
     delete this.chunkWaterLevels[`${chunkX},${chunkZ}`]
   }
 
-  getTileWaterLevel(x, z) {
+  getTileWaterLevel(x: number, z: number): number {
     const chunkX = Math.floor(x / 64)
     const chunkZ = Math.floor(z / 64)
     return this.getChunkWaterLevel(chunkX, chunkZ)
   }
 
-  shouldRenderWaterTile(x, z) {
+  shouldRenderWaterTile(x: number, z: number): boolean {
     const tile = this.getTile(x, z)
     if (!tile) return false
 
@@ -139,17 +212,17 @@ export class MapData {
     return minH <= this.getTileWaterLevel(x, z)
   }
 
-  getEffectiveGroundType(x, z) {
+  getEffectiveGroundType(x: number, z: number): string {
     const tile = this.getTile(x, z)
     if (!tile) return 'grass'
     return this.shouldRenderWaterTile(x, z) ? 'water' : tile.ground
   }
 
-  isWaterTile(x, z) {
+  isWaterTile(x: number, z: number): boolean {
     return this.shouldRenderWaterTile(x, z)
   }
 
-  raiseTile(x, z, amount = 0.25) {
+  raiseTile(x: number, z: number, amount: number = 0.25): void {
     if (!this.getTile(x, z)) return
     this.adjustVertexHeight(x, z, amount)
     this.adjustVertexHeight(x + 1, z, amount)
@@ -157,7 +230,7 @@ export class MapData {
     this.adjustVertexHeight(x + 1, z + 1, amount)
   }
 
-  lowerTile(x, z, amount = 0.25) {
+  lowerTile(x: number, z: number, amount: number = 0.25): void {
     if (!this.getTile(x, z)) return
     this.adjustVertexHeight(x, z, -amount)
     this.adjustVertexHeight(x + 1, z, -amount)
@@ -165,7 +238,7 @@ export class MapData {
     this.adjustVertexHeight(x + 1, z + 1, -amount)
   }
 
-  flattenTile(x, z) {
+  flattenTile(x: number, z: number): void {
     if (!this.getTile(x, z)) return
 
     const avg = this.getAverageTileHeight(x, z)
@@ -175,7 +248,7 @@ export class MapData {
     this.setVertexHeight(x + 1, z + 1, avg)
   }
 
-  flattenTileToHeight(x, z, height) {
+  flattenTileToHeight(x: number, z: number, height: number): void {
     if (!this.getTile(x, z)) return
 
     this.setVertexHeight(x, z, height)
@@ -184,7 +257,7 @@ export class MapData {
     this.setVertexHeight(x + 1, z + 1, height)
   }
 
-  paintTile(x, z, groundType) {
+  paintTile(x: number, z: number, groundType: string): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.ground = groundType
@@ -193,7 +266,7 @@ export class MapData {
     this.terrainGeneration++
   }
 
-  paintTileFirst(x, z, groundType) {
+  paintTileFirst(x: number, z: number, groundType: string): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     if (tile.groundB === null) tile.groundB = tile.ground
@@ -202,42 +275,42 @@ export class MapData {
     this.terrainGeneration++
   }
 
-  paintTileSecond(x, z, groundType) {
+  paintTileSecond(x: number, z: number, groundType: string): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.groundB = groundType
     this.terrainGeneration++
   }
 
-  paintWaterTile(x, z) {
+  paintWaterTile(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.waterPainted = true
     this.terrainGeneration++
   }
 
-  clearWaterPaint(x, z) {
+  clearWaterPaint(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.waterPainted = false
     this.terrainGeneration++
   }
 
-  paintWaterSurface(x, z) {
+  paintWaterSurface(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.waterSurface = true
     this.terrainGeneration++
   }
 
-  clearWaterSurface(x, z) {
+  clearWaterSurface(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.waterSurface = false
     this.terrainGeneration++
   }
 
-  paintTextureTile(x, z, textureId, rotation = 0, scale = 1, worldUV = false) {
+  paintTextureTile(x: number, z: number, textureId: string, rotation: number = 0, scale: number = 1, worldUV: boolean = false): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -251,7 +324,7 @@ export class MapData {
     tile.textureScaleB = 1
   }
 
-  paintTextureTileFirst(x, z, textureId, rotation = 0, scale = 1) {
+  paintTextureTileFirst(x: number, z: number, textureId: string, rotation: number = 0, scale: number = 1): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -261,7 +334,7 @@ export class MapData {
     tile.textureHalfMode = true
   }
 
-  paintTextureTileSecond(x, z, textureId, rotation = 0, scale = 1) {
+  paintTextureTileSecond(x: number, z: number, textureId: string, rotation: number = 0, scale: number = 1): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -271,7 +344,7 @@ export class MapData {
     tile.textureHalfMode = true
   }
 
-  clearTextureTile(x, z) {
+  clearTextureTile(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -284,7 +357,7 @@ export class MapData {
     tile.textureScaleB = 1
   }
 
-  clearTextureTileFirst(x, z) {
+  clearTextureTileFirst(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -293,7 +366,7 @@ export class MapData {
     tile.textureScale = 1
   }
 
-  clearTextureTileSecond(x, z) {
+  clearTextureTileSecond(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
 
@@ -302,14 +375,14 @@ export class MapData {
     tile.textureScaleB = 1
   }
 
-  flipTileSplit(x, z) {
+  flipTileSplit(x: number, z: number): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     tile.split = tile.split === 'forward' ? 'back' : 'forward'
     this.terrainGeneration++
   }
 
-  setTileSplit(x, z, direction) {
+  setTileSplit(x: number, z: number, direction: 'forward' | 'back'): void {
     const tile = this.getTile(x, z)
     if (!tile) return
     if (tile.split !== direction) {
@@ -318,8 +391,8 @@ export class MapData {
     }
   }
 
-  addTexturePlane(textureId, x, y, z, width = 1, height = 1, vertical = true) {
-    const plane = {
+  addTexturePlane(textureId: string, x: number, y: number, z: number, width: number = 1, height: number = 1, vertical: boolean = true): TexturePlane {
+    const plane: TexturePlane = {
       id: `plane_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
       textureId,
       width,
@@ -339,7 +412,7 @@ export class MapData {
     return plane
   }
 
-  resize(newWidth, newHeight, offsetX = 0, offsetZ = 0) {
+  resize(newWidth: number, newHeight: number, offsetX: number = 0, offsetZ: number = 0): MapData {
     const next = new MapData(newWidth, newHeight)
     next.mapType = this.mapType
     next.worldOffset = { ...this.worldOffset }
@@ -347,7 +420,6 @@ export class MapData {
     // Shift chunk water level keys by the offset
     next.chunkWaterLevels = {}
     if (offsetX !== 0 || offsetZ !== 0) {
-      const CHUNK = 64
       for (const [key, val] of Object.entries(this.chunkWaterLevels)) {
         const [kx, kz] = key.split(',').map(Number)
         next.chunkWaterLevels[`${kx + Math.floor(offsetX / CHUNK)},${kz + Math.floor(offsetZ / CHUNK)}`] = val
@@ -359,10 +431,9 @@ export class MapData {
     next.selectedTexturePlaneId = this.selectedTexturePlaneId
 
     // Carry over active chunks with offset
-    const CHUNK = 64
     const coxChunks = Math.floor(offsetX / CHUNK)
     const cozChunks = Math.floor(offsetZ / CHUNK)
-    next.activeChunks = new Set()
+    next.activeChunks = new Set<string>()
     for (const key of this.activeChunks) {
       const [cx, cz] = key.split(',').map(Number)
       next.activeChunks.add(`${cx + coxChunks},${cz + cozChunks}`)
@@ -401,7 +472,7 @@ export class MapData {
     return next
   }
 
-  toJSON() {
+  toJSON(): MapDataJSON {
     return {
       width: this.width,
       height: this.height,
@@ -418,7 +489,7 @@ export class MapData {
     }
   }
 
-  static fromJSON(data) {
+  static fromJSON(data: Partial<MapDataJSON> & { width: number; height: number }): MapData {
     const map = new MapData(data.width, data.height)
 
     map.mapType = data.mapType === 'dungeon' ? 'dungeon' : 'overworld'
@@ -469,7 +540,7 @@ export class MapData {
     } else {
       for (let z = 0; z < map.height; z++) {
         for (let x = 0; x < map.width; x++) {
-          const src = data.tiles?.[z]?.[x]
+          const src = (data.tiles as any)?.[z]?.[x]
           if (!src?.corners) continue
 
           map.heights[z][x] = src.corners.tl ?? map.heights[z][x]

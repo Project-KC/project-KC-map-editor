@@ -2,18 +2,31 @@ import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader'
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
+import type { Scene } from '@babylonjs/core/scene'
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup'
+import type { ISceneLoaderAsyncResult } from '@babylonjs/core/Loading/sceneLoader'
 import '@babylonjs/loaders/glTF'
 
-const cache = new Map()           // path -> { template: TransformNode, animGroups: AnimationGroup[] }
+interface CacheEntry {
+  template: TransformNode
+  animGroups: AnimationGroup[]
+}
 
-let _scene = null
+interface BoundsMetadata {
+  bounds: { width: number; height: number; depth: number }
+}
+
+const cache = new Map<string, CacheEntry>()
+
+let _scene: Scene | null = null
 
 /** Must be called once with the Babylon.js scene before loading any assets */
-export function initAssetLoader(scene) {
+export function initAssetLoader(scene: Scene): void {
   _scene = scene
 }
 
-async function buildCenteredPivotTemplate(meshes, root) {
+async function buildCenteredPivotTemplate(meshes: AbstractMesh[], root: AbstractMesh): Promise<TransformNode> {
   // Compute world-space bounding box of all meshes
   let minX = Infinity, maxX = -Infinity
   let minY = Infinity, maxY = -Infinity
@@ -37,7 +50,7 @@ async function buildCenteredPivotTemplate(meshes, root) {
   const sizeZ = maxZ - minZ
 
   // Create pivot TransformNode at bottom-center
-  const pivot = new TransformNode('asset-pivot', _scene)
+  const pivot = new TransformNode('asset-pivot', _scene!)
 
   // Offset root so model's bottom-center aligns with pivot's origin
   root.parent = pivot
@@ -47,12 +60,12 @@ async function buildCenteredPivotTemplate(meshes, root) {
 
   pivot.metadata = {
     bounds: { width: sizeX, height: sizeY, depth: sizeZ }
-  }
+  } as BoundsMetadata
 
   return pivot
 }
 
-export async function loadAssetModel(path) {
+export async function loadAssetModel(path: string): Promise<TransformNode | null> {
   if (!_scene) throw new Error('AssetLoader not initialized — call initAssetLoader(scene) first')
 
   if (!cache.has(path)) {
@@ -61,7 +74,7 @@ export async function loadAssetModel(path) {
     const dir = encodedPath.substring(0, lastSlash + 1)
     const file = encodedPath.substring(lastSlash + 1)
 
-    const result = await SceneLoader.ImportMeshAsync('', dir, file, _scene)
+    const result: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync('', dir, file, _scene)
     const root = result.meshes[0]
     const template = await buildCenteredPivotTemplate(result.meshes, root)
 
@@ -77,13 +90,13 @@ export async function loadAssetModel(path) {
 }
 
 /** Synchronous clone — only valid when the path is already cached (e.g. after warmAssetCache). */
-export function cloneAssetModelSync(path) {
+export function cloneAssetModelSync(path: string): TransformNode | null {
   if (!cache.has(path)) throw new Error(`cloneAssetModelSync: "${path}" not in cache`)
   return cloneFromCache(path)
 }
 
-function cloneFromCache(path) {
-  const { template } = cache.get(path)
+function cloneFromCache(path: string): TransformNode | null {
+  const { template } = cache.get(path)!
   const instance = template.instantiateHierarchy(null, undefined, (source, cloned) => {
     cloned.name = `placed_${source.name}`
   })
@@ -94,13 +107,13 @@ function cloneFromCache(path) {
     }
     // Copy bounds metadata and initialize userData for compatibility
     instance.metadata = { ...(template.metadata || {}) }
-    instance.userData = { bounds: instance.metadata?.bounds || null }
+    ;(instance as any).userData = { bounds: instance.metadata?.bounds || null }
 
     // Add .scale alias for .scaling (Three.js compat for scene.js code)
-    if (!instance.scale && instance.scaling) {
+    if (!(instance as any).scale && instance.scaling) {
       Object.defineProperty(instance, 'scale', {
         get() { return this.scaling },
-        set(v) { if (v && v.x !== undefined) this.scaling.copyFrom(v) }
+        set(v: any) { if (v && v.x !== undefined) this.scaling.copyFrom(v) }
       })
     }
   }
@@ -109,20 +122,20 @@ function cloneFromCache(path) {
 }
 
 /** Pre-warm the cache for a set of paths. After this, cloneAssetModelSync is safe. */
-export async function warmAssetCache(paths) {
+export async function warmAssetCache(paths: string[]): Promise<void> {
   await Promise.all(paths.map(p => loadAssetModel(p).then(inst => { if (inst) inst.dispose() }).catch(() => null)))
 }
 
-export function isAssetCached(path) {
+export function isAssetCached(path: string): boolean {
   return cache.has(path)
 }
 
-export function getAssetAnimations(path) {
+export function getAssetAnimations(path: string): AnimationGroup[] {
   const entry = cache.get(path)
   return entry ? entry.animGroups : []
 }
 
-export function makeGhostMaterial(sourceModel) {
+export function makeGhostMaterial(sourceModel: TransformNode): TransformNode | null {
   if (!_scene) return null
 
   const ghost = sourceModel.instantiateHierarchy(null, undefined, (source, cloned) => {
@@ -132,11 +145,11 @@ export function makeGhostMaterial(sourceModel) {
   if (!ghost) return null
 
   ghost.setEnabled(true)
-  ghost.userData = {}
-  if (!ghost.scale && ghost.scaling) {
+  ;(ghost as any).userData = {}
+  if (!(ghost as any).scale && ghost.scaling) {
     Object.defineProperty(ghost, 'scale', {
       get() { return this.scaling },
-      set(v) { if (v && v.x !== undefined) this.scaling.copyFrom(v) }
+      set(v: any) { if (v && v.x !== undefined) this.scaling.copyFrom(v) }
     })
   }
   const ghostMat = new StandardMaterial('ghost-material', _scene)

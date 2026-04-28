@@ -1,3 +1,12 @@
+export interface GearOverride {
+  boneName?: string;
+  localPosition?: { x: number; y: number; z: number };
+  localRotation?: { x: number; y: number; z: number };
+  scale?: number;
+  centerOrigin?: boolean;
+  file?: string;
+}
+
 export const EQUIP_SLOT_BONES: Record<string, { boneName: string; localPosition: { x: number; y: number; z: number }; localRotation: { x: number; y: number; z: number }; scale: number }> = {
   weapon:  { boneName: 'mixamorig:RightHand',    localPosition: { x: -0.16, y: 0.095, z: 0.02 }, localRotation: { x: -1.5, y: 0.05, z: -1.6 }, scale: 0.8 },
   shield:  { boneName: 'mixamorig:LeftForeArm',  localPosition: { x: -0.08, y: -0.15, z: 0 },    localRotation: { x: 0, y: Math.PI, z: 0 }, scale: 0.85 },

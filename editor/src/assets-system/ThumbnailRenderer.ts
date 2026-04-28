@@ -6,20 +6,22 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color'
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader'
+import type { ISceneLoaderAsyncResult } from '@babylonjs/core/Loading/sceneLoader'
+import type { Material } from '@babylonjs/core/Materials/material'
 import '@babylonjs/loaders/glTF'
-import { getCachedThumb, putCachedThumb } from './ThumbnailCache.js'
+import { getCachedThumb, putCachedThumb } from './ThumbnailCache'
 
 const THUMB_SIZE = 128
 // Bump to invalidate every cached thumbnail across clients.
 const THUMB_VERSION = 1
 const RENDER_TIMEOUT_MS = 10000
 
-let _engine = null
-let _scene = null
-let _camera = null
-let _canvas = null
+let _engine: Engine | null = null
+let _scene: Scene | null = null
+let _camera: ArcRotateCamera | null = null
+let _canvas: HTMLCanvasElement | null = null
 
-function ensureEngine() {
+function ensureEngine(): void {
   if (_engine) return
   _canvas = document.createElement('canvas')
   _canvas.width = THUMB_SIZE
@@ -56,20 +58,25 @@ function ensureEngine() {
   _camera.fov = 0.8
 }
 
-const queue = []
+interface QueueItem {
+  path: string
+  resolve: (value: string | null) => void
+}
+
+const queue: QueueItem[] = []
 let processing = false
 
-function enqueue(path) {
+function enqueue(path: string): Promise<string | null> {
   return new Promise((resolve) => {
     queue.push({ path, resolve })
     if (!processing) processQueue()
   })
 }
 
-async function processQueue() {
+async function processQueue(): Promise<void> {
   processing = true
   while (queue.length > 0) {
-    const { path, resolve } = queue.shift()
+    const { path, resolve } = queue.shift()!
     try {
       const url = await withTimeout(renderOne(path), RENDER_TIMEOUT_MS)
       resolve(url)
@@ -81,7 +88,7 @@ async function processQueue() {
   processing = false
 }
 
-function withTimeout(promise, ms) {
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('thumbnail render timeout')), ms)
     promise.then(
@@ -91,7 +98,7 @@ function withTimeout(promise, ms) {
   })
 }
 
-async function renderOne(path) {
+async function renderOne(path: string): Promise<string | null> {
   ensureEngine()
 
   const encodedPath = path.split('/').map((s) => encodeURIComponent(s)).join('/')
@@ -99,7 +106,7 @@ async function renderOne(path) {
   const dir = encodedPath.substring(0, lastSlash + 1)
   const file = encodedPath.substring(lastSlash + 1)
 
-  const result = await SceneLoader.ImportMeshAsync('', dir, file, _scene)
+  const result: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync('', dir, file, _scene!)
 
   for (const ag of result.animationGroups || []) ag.stop()
 
@@ -108,7 +115,7 @@ async function renderOne(path) {
   let minZ = Infinity, maxZ = -Infinity
   for (const mesh of result.meshes) {
     if (!mesh.getTotalVertices || mesh.getTotalVertices() === 0) continue
-    if (mesh.material) mesh.material.backFaceCulling = false
+    if (mesh.material) (mesh.material as any).backFaceCulling = false
     mesh.computeWorldMatrix(true)
     const bb = mesh.getBoundingInfo().boundingBox
     if (bb.minimumWorld.x < minX) minX = bb.minimumWorld.x
@@ -119,20 +126,20 @@ async function renderOne(path) {
     if (bb.maximumWorld.z > maxZ) maxZ = bb.maximumWorld.z
   }
 
-  let dataUrl = null
+  let dataUrl: string | null = null
   if (Number.isFinite(minX)) {
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
     const cz = (minZ + maxZ) / 2
     const sizeMax = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1
-    _camera.setTarget(new Vector3(cx, cy, cz))
-    _camera.radius = (sizeMax / Math.tan(_camera.fov / 2)) * 0.75
+    _camera!.setTarget(new Vector3(cx, cy, cz))
+    _camera!.radius = (sizeMax / Math.tan(_camera!.fov / 2)) * 0.75
 
-    await _scene.whenReadyAsync()
+    await _scene!.whenReadyAsync()
     // Two renders: first compiles shaders, second produces correct pixels.
-    _scene.render()
-    _scene.render()
-    dataUrl = _canvas.toDataURL('image/png')
+    _scene!.render()
+    _scene!.render()
+    dataUrl = _canvas!.toDataURL('image/png')
   }
 
   disposeImportResult(result)
@@ -140,33 +147,33 @@ async function renderOne(path) {
   return dataUrl
 }
 
-function disposeImportResult(result) {
-  const materialsSeen = new Set()
+function disposeImportResult(result: ISceneLoaderAsyncResult): void {
+  const materialsSeen = new Set<Material>()
   for (const ag of result.animationGroups || []) {
-    try { ag.dispose() } catch {}
+    try { ag.dispose() } catch { /* ignore */ }
   }
   for (const skel of result.skeletons || []) {
-    try { skel.dispose() } catch {}
+    try { skel.dispose() } catch { /* ignore */ }
   }
   for (const mesh of result.meshes || []) {
     if (mesh.material) materialsSeen.add(mesh.material)
-    try { mesh.dispose(false, false) } catch {}
+    try { mesh.dispose(false, false) } catch { /* ignore */ }
   }
   for (const tn of result.transformNodes || []) {
-    try { tn.dispose(false, false) } catch {}
+    try { tn.dispose(false, false) } catch { /* ignore */ }
   }
   for (const mat of materialsSeen) {
     try {
       const textures = mat.getActiveTextures ? mat.getActiveTextures() : []
       for (const tex of textures) {
-        try { tex.dispose() } catch {}
+        try { tex.dispose() } catch { /* ignore */ }
       }
       mat.dispose()
-    } catch {}
+    } catch { /* ignore */ }
   }
 }
 
-export async function getThumbnail(path) {
+export async function getThumbnail(path: string): Promise<string | null> {
   if (!path) return null
   const cached = await getCachedThumb(path, THUMB_VERSION)
   if (cached) return cached

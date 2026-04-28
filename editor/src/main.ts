@@ -1,4 +1,4 @@
 import './style.css'
 import { createEditorScene } from './scene.js'
 
-createEditorScene(document.getElementById('app'))
+createEditorScene(document.getElementById('app')!)

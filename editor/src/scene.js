@@ -23,12 +23,12 @@ import '@babylonjs/core/Shaders/pbr.vertex'
 import '@babylonjs/core/Shaders/pbr.fragment'
 import '@babylonjs/loaders/glTF'
 
-import { MapData } from './map/MapData.js'
-import { ToolMode, toolLabel } from './editor/Tools.js'
-import { loadAssetRegistry } from './assets-system/AssetRegistry.js'
-import { loadAssetModel, cloneAssetModelSync, warmAssetCache, makeGhostMaterial, initAssetLoader } from './assets-system/AssetLoader.js'
-import { getThumbnail } from './assets-system/ThumbnailRenderer.js'
-import { loadTextureRegistry } from './assets-system/TextureRegistry.js'
+import { MapData } from './map/MapData'
+import { ToolMode, toolLabel } from './editor/Tools'
+import { loadAssetRegistry } from './assets-system/AssetRegistry'
+import { loadAssetModel, cloneAssetModelSync, warmAssetCache, makeGhostMaterial, initAssetLoader } from './assets-system/AssetLoader'
+import { getThumbnail } from './assets-system/ThumbnailRenderer'
+import { loadTextureRegistry } from './assets-system/TextureRegistry'
 import {
   buildTerrainMeshes,
   buildCliffMeshes,
@@ -37,7 +37,7 @@ import {
   buildTexturePlanes,
   buildSingleTexturePlane,
   updateTerrainLandHeights
-} from './map/TerrainMesh.js'
+} from './map/TerrainMesh.ts'
 
 export function createEditorScene(container) {
   // --- Babylon.js engine & scene setup ---

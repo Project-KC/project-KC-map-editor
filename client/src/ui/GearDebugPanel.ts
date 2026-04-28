@@ -1,14 +1,23 @@
-/**
- * In-game debug panel for adjusting equipment position, rotation, and scale.
- * Toggle with /geardebug chat command.
- * Supports switching between all equipment slots in real-time.
- */
-
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { EQUIP_SLOT_BONES } from '../data/EquipmentConfig';
+import type { GearOverride } from '../data/EquipmentConfig';
+import { getThumbnail } from '../rendering/ThumbnailRenderer';
 
 type SlotGetter = (slot: string) => TransformNode | null;
 type BoneGetter = (slot: string) => string;
 type ItemInfoGetter = (slot: string) => { id: number; name: string; toolType?: string } | null;
+type SaveCallback = (itemId: number, override: GearOverride) => Promise<void>;
+type LoadGlbCallback = (slot: string, path: string) => Promise<void>;
+type AnimCallback = (anim: string) => void;
+type UnequipCallback = (slot: string) => void;
+type OverrideGetter = (itemId: number) => GearOverride | null;
+
+interface GearFileInfo {
+  file: string;
+  path: string;
+  itemId: number;
+  name: string;
+}
 
 interface ParamDef {
   key: string;
@@ -39,6 +48,9 @@ const SLOT_COLORS: Record<string, string> = {
   legs: '#c96', neck: '#f6f', ring: '#6f6', hands: '#fc6', feet: '#c6f', cape: '#6ff',
 };
 
+const ANIMS = ['idle', 'walk', 'attack', 'chop', 'mine'];
+const THUMB_SIZE = 52;
+
 export class GearDebugPanel {
   private container: HTMLDivElement;
   private visible = false;
@@ -46,54 +58,114 @@ export class GearDebugPanel {
   private sliders: Map<string, HTMLInputElement> = new Map();
   private numInputs: Map<string, HTMLInputElement> = new Map();
   private slotButtons: Map<string, HTMLButtonElement> = new Map();
+  private animButtons: Map<string, HTMLButtonElement> = new Map();
   private itemInfoLabel!: HTMLDivElement;
   private boneLabel!: HTMLSpanElement;
   private statusLabel!: HTMLSpanElement;
+  private overrideStatusEl!: HTMLSpanElement;
+  private glbInput!: HTMLInputElement;
+  private thumbGrid!: HTMLDivElement;
+  private thumbToggleBtn!: HTMLButtonElement;
   private getSlotNode: SlotGetter = () => null;
   private getSlotBone: BoneGetter = () => '';
   private getItemInfo: ItemInfoGetter = () => null;
+  private saveCallback: SaveCallback | null = null;
+  private loadGlbCallback: LoadGlbCallback | null = null;
+  private animCallback: AnimCallback | null = null;
+  private unequipCallback: UnequipCallback | null = null;
+  private overrideGetter: OverrideGetter = () => null;
   private activeSlot = 'weapon';
+  private activeAnim = 'idle';
+  private thumbGridOpen = true;
+  private thumbCache: Map<string, string> = new Map();
+  private slotFilesCache: Map<string, GearFileInfo[]> = new Map();
+  private loadedGlbPath: string | null = null;
+
+  // Drag state
+  private dragOffsetX = 0;
+  private dragOffsetY = 0;
+  private isDragging = false;
 
   constructor() {
     this.container = this.buildUI();
     document.body.appendChild(this.container);
   }
 
-  setSlotGetter(getter: SlotGetter): void {
-    this.getSlotNode = getter;
-  }
-
-  setSlotBoneGetter(getter: BoneGetter): void {
-    this.getSlotBone = getter;
-  }
-
-  setItemInfoGetter(getter: ItemInfoGetter): void {
-    this.getItemInfo = getter;
-  }
+  setSlotGetter(getter: SlotGetter): void { this.getSlotNode = getter; }
+  setSlotBoneGetter(getter: BoneGetter): void { this.getSlotBone = getter; }
+  setItemInfoGetter(getter: ItemInfoGetter): void { this.getItemInfo = getter; }
+  setSaveCallback(cb: SaveCallback): void { this.saveCallback = cb; }
+  setLoadGlbCallback(cb: LoadGlbCallback): void { this.loadGlbCallback = cb; }
+  setAnimCallback(cb: AnimCallback): void { this.animCallback = cb; }
+  setUnequipCallback(cb: UnequipCallback): void { this.unequipCallback = cb; }
+  setOverrideGetter(getter: OverrideGetter): void { this.overrideGetter = getter; }
 
   private buildUI(): HTMLDivElement {
     const div = document.createElement('div');
     div.id = 'gear-debug-panel';
     Object.assign(div.style, {
       position: 'fixed', top: '60px', left: '10px', width: '320px',
+      maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
       background: 'rgba(15,12,8,0.95)', color: '#ddd', fontFamily: 'monospace',
-      fontSize: '12px', padding: '12px', borderRadius: '6px', zIndex: '9999',
-      display: 'none', userSelect: 'none', border: '1px solid #554a3a',
+      fontSize: '12px', borderRadius: '6px', zIndex: '9999',
+      userSelect: 'none', border: '1px solid #554a3a',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+    });
+    div.style.display = 'none';
+
+    // Draggable title bar
+    const titleBar = document.createElement('div');
+    Object.assign(titleBar.style, {
+      padding: '8px 12px', cursor: 'move',
+      background: 'rgba(20,16,10,0.98)',
+      borderBottom: '1px solid #3a3020',
+      borderRadius: '6px 6px 0 0',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      flexShrink: '0',
+    });
+    const title = document.createElement('span');
+    title.style.cssText = 'font-weight:bold;color:#ffd700;font-size:13px;letter-spacing:1px;';
+    title.textContent = 'GEAR FITTING';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    Object.assign(closeBtn.style, {
+      background: 'none', border: 'none', color: '#666', fontSize: '18px',
+      cursor: 'pointer', padding: '0 4px', lineHeight: '1',
+    });
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = '#f66'; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = '#666'; });
+    closeBtn.addEventListener('click', () => this.toggle());
+    titleBar.appendChild(title);
+    titleBar.appendChild(closeBtn);
+    div.appendChild(titleBar);
+
+    // Drag handlers
+    titleBar.addEventListener('mousedown', (e) => {
+      this.isDragging = true;
+      this.dragOffsetX = e.clientX - div.offsetLeft;
+      this.dragOffsetY = e.clientY - div.offsetTop;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!this.isDragging) return;
+      div.style.left = `${e.clientX - this.dragOffsetX}px`;
+      div.style.top = `${e.clientY - this.dragOffsetY}px`;
+      div.style.right = 'auto';
+    });
+    document.addEventListener('mouseup', () => { this.isDragging = false; });
+
+    // Scrollable body
+    const body = document.createElement('div');
+    Object.assign(body.style, {
+      padding: '10px 12px 12px', overflowY: 'auto', flex: '1',
     });
 
-    // Title
-    const title = document.createElement('div');
-    title.style.cssText = 'font-weight:bold;color:#ffd700;font-size:14px;margin-bottom:8px;text-align:center;';
-    title.textContent = 'Gear Fitting';
-    div.appendChild(title);
-
-    // Slot grid — colored buttons showing equipped state
+    // Slot grid
     const slotGrid = document.createElement('div');
-    slotGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:10px;';
+    slotGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px;';
     for (const slot of SLOTS) {
       const btn = document.createElement('button');
       btn.textContent = slot;
-      const color = SLOT_COLORS[slot] || '#888';
       Object.assign(btn.style, {
         padding: '4px 6px', cursor: 'pointer',
         background: '#1a1510', color: '#555',
@@ -105,21 +177,74 @@ export class GearDebugPanel {
       slotGrid.appendChild(btn);
       this.slotButtons.set(slot, btn);
     }
-    div.appendChild(slotGrid);
+    body.appendChild(slotGrid);
 
-    // Item info — prominent display of what's equipped
+    // Item info + override status
     this.itemInfoLabel = document.createElement('div');
     Object.assign(this.itemInfoLabel.style, {
-      padding: '6px 8px', marginBottom: '8px',
+      padding: '6px 8px', marginBottom: '4px',
       background: '#1a1510', borderRadius: '4px',
       border: '1px solid #2a2520', minHeight: '32px',
     });
-    div.appendChild(this.itemInfoLabel);
+    body.appendChild(this.itemInfoLabel);
 
-    // Bone label
+    this.overrideStatusEl = document.createElement('div');
+    this.overrideStatusEl.style.cssText = 'font-size:10px;margin-bottom:6px;padding:0 2px;';
+    body.appendChild(this.overrideStatusEl);
+
     this.boneLabel = document.createElement('div');
     this.boneLabel.style.cssText = 'color:#555;font-size:10px;margin-bottom:8px;';
-    div.appendChild(this.boneLabel);
+    body.appendChild(this.boneLabel);
+
+    // --- Thumbnail browser section ---
+    const thumbHeader = document.createElement('div');
+    thumbHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;';
+    const thumbLabel = document.createElement('span');
+    thumbLabel.style.cssText = 'color:#aaa;font-size:10px;font-weight:bold;';
+    thumbLabel.textContent = 'AVAILABLE GEAR';
+    this.thumbToggleBtn = document.createElement('button');
+    this.thumbToggleBtn.textContent = '▾';
+    Object.assign(this.thumbToggleBtn.style, {
+      background: 'none', border: 'none', color: '#666', cursor: 'pointer',
+      fontFamily: 'monospace', fontSize: '12px', padding: '0 4px',
+    });
+    this.thumbToggleBtn.addEventListener('click', () => {
+      this.thumbGridOpen = !this.thumbGridOpen;
+      this.thumbGrid.style.display = this.thumbGridOpen ? 'grid' : 'none';
+      this.thumbToggleBtn.textContent = this.thumbGridOpen ? '▾' : '▸';
+    });
+    thumbHeader.appendChild(thumbLabel);
+    thumbHeader.appendChild(this.thumbToggleBtn);
+    body.appendChild(thumbHeader);
+
+    this.thumbGrid = document.createElement('div');
+    Object.assign(this.thumbGrid.style, {
+      display: 'grid',
+      gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_SIZE + 8}px, 1fr))`,
+      gap: '4px', marginBottom: '8px',
+      maxHeight: '200px', overflowY: 'auto',
+      background: '#0e0c08', borderRadius: '4px',
+      border: '1px solid #1a1510', padding: '4px',
+    });
+    body.appendChild(this.thumbGrid);
+
+    // Load GLB manual input
+    const glbRow = document.createElement('div');
+    glbRow.style.cssText = 'display:flex;gap:4px;margin-bottom:10px;';
+    this.glbInput = document.createElement('input');
+    this.glbInput.type = 'text';
+    this.glbInput.placeholder = '/assets/equipment/weapon/99.glb';
+    Object.assign(this.glbInput.style, {
+      flex: '1', background: '#1a1510', color: '#ddd',
+      border: '1px solid #3a3530', borderRadius: '3px',
+      padding: '4px 6px', fontFamily: 'monospace', fontSize: '10px',
+    });
+    const loadBtn = this.makeButton('Load', '#1a2a3a', '#48c', () => this.loadGlb());
+    loadBtn.style.fontSize = '10px';
+    loadBtn.style.padding = '4px 8px';
+    glbRow.appendChild(this.glbInput);
+    glbRow.appendChild(loadBtn);
+    body.appendChild(glbRow);
 
     // Control groups
     const groups: [string, string, ParamDef[]][] = [
@@ -132,30 +257,64 @@ export class GearDebugPanel {
       const groupLabel = document.createElement('div');
       groupLabel.style.cssText = `color:${color};font-size:11px;font-weight:bold;margin:6px 0 3px;`;
       groupLabel.textContent = groupName;
-      div.appendChild(groupLabel);
+      body.appendChild(groupLabel);
 
       for (const p of params) {
-        div.appendChild(this.buildRow(p));
+        body.appendChild(this.buildRow(p));
       }
     }
 
-    // Buttons
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:6px;margin-top:10px;';
+    // Animation toggles
+    const animLabel = document.createElement('div');
+    animLabel.style.cssText = 'color:#aaa;font-size:10px;font-weight:bold;margin:10px 0 4px;';
+    animLabel.textContent = 'PREVIEW ANIM';
+    body.appendChild(animLabel);
 
-    const copyBtn = this.makeButton('Copy Code', '#2a4a2a', '#4a4', () => this.copyCode());
-    const resetBtn = this.makeButton('Reset All', '#4a2a2a', '#a44', () => this.resetAll());
+    const animRow = document.createElement('div');
+    animRow.style.cssText = 'display:flex;gap:3px;margin-bottom:10px;';
+    for (const anim of ANIMS) {
+      const btn = document.createElement('button');
+      btn.textContent = anim;
+      Object.assign(btn.style, {
+        flex: '1', padding: '4px 2px', cursor: 'pointer',
+        background: anim === 'idle' ? '#2a2a20' : '#12100c',
+        color: anim === 'idle' ? '#ffd700' : '#666',
+        border: `1px solid ${anim === 'idle' ? '#554a3a' : '#2a2520'}`,
+        borderRadius: '3px', fontFamily: 'monospace', fontSize: '10px',
+      });
+      btn.addEventListener('click', () => this.playAnim(anim));
+      animRow.appendChild(btn);
+      this.animButtons.set(anim, btn);
+    }
+    body.appendChild(animRow);
+
+    // Action buttons
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:4px;margin-top:4px;';
+
+    const saveBtn = this.makeButton('Save', '#1a3a1a', '#4a4', () => this.saveOverride());
+    const copyBtn = this.makeButton('Copy', '#2a3a2a', '#484', () => this.copyCode());
+    const resetBtn = this.makeButton('Reset', '#3a2a1a', '#a84', () => this.resetToDefaults());
+    const zeroBtn = this.makeButton('Zero', '#4a2a2a', '#a44', () => this.resetAll());
+    const unequipBtn = this.makeButton('Unequip', '#2a1a2a', '#a4a', () => this.unequipSlot());
+    saveBtn.style.flex = '2';
     copyBtn.style.flex = '1';
     resetBtn.style.flex = '1';
+    zeroBtn.style.flex = '1';
+    unequipBtn.style.flex = '1';
+    btnRow.appendChild(saveBtn);
     btnRow.appendChild(copyBtn);
     btnRow.appendChild(resetBtn);
-    div.appendChild(btnRow);
+    btnRow.appendChild(zeroBtn);
+    btnRow.appendChild(unequipBtn);
+    body.appendChild(btnRow);
 
     // Status
     this.statusLabel = document.createElement('div');
     this.statusLabel.style.cssText = 'color:#666;font-size:10px;margin-top:6px;text-align:center;height:14px;';
-    div.appendChild(this.statusLabel);
+    body.appendChild(this.statusLabel);
 
+    div.appendChild(body);
     return div;
   }
 
@@ -200,19 +359,32 @@ export class GearDebugPanel {
     slider.addEventListener('input', () => {
       numInput.value = parseFloat(slider.value).toFixed(3);
       this.applyToTarget();
+      this.updateOverrideStatus();
     });
     numInput.addEventListener('input', () => {
       const v = parseFloat(numInput.value);
       if (!isNaN(v)) {
         slider.value = String(v);
         this.applyToTarget();
+        this.updateOverrideStatus();
       }
     });
     resetBtn.addEventListener('click', () => {
-      const def = p.group === 'scale' ? 1 : 0;
+      const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+      let def = p.group === 'scale' ? 1 : 0;
+      if (defaults) {
+        if (p.key === 'pos.x') def = defaults.localPosition.x;
+        else if (p.key === 'pos.y') def = defaults.localPosition.y;
+        else if (p.key === 'pos.z') def = defaults.localPosition.z;
+        else if (p.key === 'rot.x') def = defaults.localRotation.x;
+        else if (p.key === 'rot.y') def = defaults.localRotation.y;
+        else if (p.key === 'rot.z') def = defaults.localRotation.z;
+        else if (p.key === 'scale') def = defaults.scale;
+      }
       slider.value = String(def);
       numInput.value = def.toFixed(3);
       this.applyToTarget();
+      this.updateOverrideStatus();
     });
 
     row.appendChild(label);
@@ -243,9 +415,12 @@ export class GearDebugPanel {
 
   toggle(): void {
     this.visible = !this.visible;
-    this.container.style.display = this.visible ? 'block' : 'none';
+    this.container.style.display = this.visible ? 'flex' : 'none';
     if (this.visible) {
       this.switchSlot(this.activeSlot);
+    } else {
+      if (this.animCallback) this.animCallback('idle');
+      this.activeAnim = 'idle';
     }
   }
 
@@ -283,7 +458,6 @@ export class GearDebugPanel {
     const item = this.getItemInfo(slot);
     const color = SLOT_COLORS[slot] || '#888';
 
-    // Update item info display
     if (node && item) {
       this.itemInfoLabel.innerHTML = '';
       const nameEl = document.createElement('div');
@@ -318,7 +492,184 @@ export class GearDebugPanel {
     } else {
       this.target = null;
     }
+
+    const existingOverride = item ? this.overrideGetter(item.id) : null;
+    this.loadedGlbPath = existingOverride?.file || null;
+
+    this.updateOverrideStatus();
+    this.loadThumbGrid(slot);
   }
+
+  // --- Thumbnail grid ---
+
+  private async loadThumbGrid(slot: string): Promise<void> {
+    this.thumbGrid.innerHTML = '';
+
+    let files: GearFileInfo[] = this.slotFilesCache.get(slot) || [];
+    if (files.length === 0 && !this.slotFilesCache.has(slot)) {
+      try {
+        const res = await fetch(`/api/dev/gear-files?slot=${slot}`);
+        const data = await res.json();
+        files = data.files || [];
+      } catch { /* keep empty */ }
+      this.slotFilesCache.set(slot, files);
+    }
+
+    if (files.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:#444;font-size:10px;text-align:center;padding:8px;grid-column:1/-1;';
+      empty.textContent = `No gear files in /assets/equipment/${slot}/`;
+      this.thumbGrid.appendChild(empty);
+      return;
+    }
+
+    const equippedItemId = this.getItemInfo(slot)?.id ?? -1;
+    const color = SLOT_COLORS[slot] || '#888';
+
+    for (const info of files) {
+      const cell = document.createElement('div');
+      const isEquipped = info.itemId === equippedItemId && equippedItemId > 0;
+      const isLoadedPreview = info.path === this.loadedGlbPath;
+
+      Object.assign(cell.style, {
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        padding: '3px', cursor: 'pointer',
+        background: (isEquipped || isLoadedPreview) ? `${color}18` : '#1a1510',
+        border: `1px solid ${(isEquipped || isLoadedPreview) ? color : '#2a2520'}`,
+        borderRadius: '4px', transition: 'all 0.1s',
+      });
+
+      // Thumbnail
+      const thumbEl = document.createElement('div');
+      Object.assign(thumbEl.style, {
+        width: `${THUMB_SIZE}px`, height: `${THUMB_SIZE}px`,
+        background: '#0e0c08', borderRadius: '3px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden',
+      });
+
+      const cached = this.thumbCache.get(info.path);
+      if (cached) {
+        const img = document.createElement('img');
+        img.src = cached;
+        img.style.cssText = `width:${THUMB_SIZE}px;height:${THUMB_SIZE}px;object-fit:contain;`;
+        thumbEl.appendChild(img);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = 'color:#333;font-size:9px;';
+        placeholder.textContent = '...';
+        thumbEl.appendChild(placeholder);
+        this.renderThumb(info.path, thumbEl);
+      }
+      cell.appendChild(thumbEl);
+
+      // Label
+      const labelEl = document.createElement('div');
+      Object.assign(labelEl.style, {
+        color: (isEquipped || isLoadedPreview) ? color : '#999', fontSize: '8px',
+        fontWeight: (isEquipped || isLoadedPreview) ? 'bold' : 'normal',
+        marginTop: '2px', textAlign: 'center',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        width: '100%',
+      });
+      labelEl.textContent = info.name;
+      cell.appendChild(labelEl);
+
+      cell.title = `${info.name} (${info.file})`;
+      cell.addEventListener('click', () => this.loadGlbFromGrid(info));
+      cell.addEventListener('mouseenter', () => {
+        if (!isEquipped && !isLoadedPreview) { cell.style.background = '#252015'; cell.style.borderColor = '#3a3520'; }
+      });
+      cell.addEventListener('mouseleave', () => {
+        if (!isEquipped && !isLoadedPreview) { cell.style.background = '#1a1510'; cell.style.borderColor = '#2a2520'; }
+      });
+
+      this.thumbGrid.appendChild(cell);
+    }
+  }
+
+  private async renderThumb(path: string, container: HTMLElement): Promise<void> {
+    const url = await getThumbnail(path);
+    if (url) {
+      this.thumbCache.set(path, url);
+      container.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = url;
+      img.style.cssText = `width:${THUMB_SIZE}px;height:${THUMB_SIZE}px;object-fit:contain;`;
+      container.appendChild(img);
+    } else {
+      container.innerHTML = '<div style="color:#444;font-size:8px;">fail</div>';
+    }
+  }
+
+  private async loadGlbFromGrid(info: GearFileInfo): Promise<void> {
+    if (!this.loadGlbCallback) return;
+    this.flashStatus(`Loading ${info.name}...`);
+    try {
+      await this.loadGlbCallback(this.activeSlot, info.path);
+      this.loadedGlbPath = info.path;
+      // Refresh view after a tick so the attached gear node is available
+      setTimeout(() => {
+        this.switchSlot(this.activeSlot);
+        this.flashStatus(`Loaded ${info.name}`);
+      }, 100);
+    } catch (e: any) {
+      this.flashStatus(`Failed: ${e.message || e}`);
+    }
+  }
+
+  // --- Override status ---
+
+  private updateOverrideStatus(): void {
+    const item = this.getItemInfo(this.activeSlot);
+    if (!item) {
+      this.overrideStatusEl.innerHTML = '';
+      return;
+    }
+
+    const override = this.overrideGetter(item.id);
+    const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+    if (!defaults) {
+      this.overrideStatusEl.innerHTML = '';
+      return;
+    }
+
+    const saved = override || {
+      localPosition: defaults.localPosition,
+      localRotation: defaults.localRotation,
+      scale: defaults.scale,
+    };
+    const ref = {
+      px: saved.localPosition?.x ?? defaults.localPosition.x,
+      py: saved.localPosition?.y ?? defaults.localPosition.y,
+      pz: saved.localPosition?.z ?? defaults.localPosition.z,
+      rx: saved.localRotation?.x ?? defaults.localRotation.x,
+      ry: saved.localRotation?.y ?? defaults.localRotation.y,
+      rz: saved.localRotation?.z ?? defaults.localRotation.z,
+      s: saved.scale ?? defaults.scale,
+    };
+
+    const cur = {
+      px: this.getVal('pos.x'), py: this.getVal('pos.y'), pz: this.getVal('pos.z'),
+      rx: this.getVal('rot.x'), ry: this.getVal('rot.y'), rz: this.getVal('rot.z'),
+      s: this.getVal('scale'),
+    };
+
+    const close = (a: number, b: number) => Math.abs(a - b) < 0.001;
+    const matches = close(cur.px, ref.px) && close(cur.py, ref.py) && close(cur.pz, ref.pz)
+      && close(cur.rx, ref.rx) && close(cur.ry, ref.ry) && close(cur.rz, ref.rz)
+      && close(cur.s, ref.s);
+
+    if (override && matches) {
+      this.overrideStatusEl.innerHTML = '<span style="color:#4a4;">● saved override</span>';
+    } else if (!override && matches) {
+      this.overrideStatusEl.innerHTML = '<span style="color:#666;">○ slot default</span>';
+    } else {
+      this.overrideStatusEl.innerHTML = '<span style="color:#da4;">● unsaved changes</span>';
+    }
+  }
+
+  // --- Values ---
 
   private setVal(key: string, value: number): void {
     const slider = this.sliders.get(key);
@@ -339,27 +690,93 @@ export class GearDebugPanel {
     this.target.scaling.set(s, s, s);
   }
 
+  private resetToDefaults(): void {
+    const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+    if (!defaults) return;
+    this.setVal('pos.x', defaults.localPosition.x);
+    this.setVal('pos.y', defaults.localPosition.y);
+    this.setVal('pos.z', defaults.localPosition.z);
+    this.setVal('rot.x', defaults.localRotation.x);
+    this.setVal('rot.y', defaults.localRotation.y);
+    this.setVal('rot.z', defaults.localRotation.z);
+    this.setVal('scale', defaults.scale);
+    this.applyToTarget();
+    this.updateOverrideStatus();
+    this.flashStatus('Reset to slot defaults');
+  }
+
   private resetAll(): void {
     for (const p of PARAMS) {
       const def = p.group === 'scale' ? 1 : 0;
       this.setVal(p.key, def);
     }
     this.applyToTarget();
-    this.flashStatus('Reset to defaults');
+    this.updateOverrideStatus();
+    this.flashStatus('Reset to zero');
+  }
+
+  private unequipSlot(): void {
+    if (!this.unequipCallback) return;
+    this.unequipCallback(this.activeSlot);
+    this.loadedGlbPath = null;
+    this.target = null;
+    this.switchSlot(this.activeSlot);
+    this.flashStatus(`Unequipped ${this.activeSlot}`);
+  }
+
+  private async saveOverride(): Promise<void> {
+    const item = this.getItemInfo(this.activeSlot);
+    if (!item) {
+      this.flashStatus('No item to save');
+      return;
+    }
+    if (!this.saveCallback) {
+      this.flashStatus('Save not available');
+      return;
+    }
+
+    const override: GearOverride = {
+      localPosition: { x: this.getVal('pos.x'), y: this.getVal('pos.y'), z: this.getVal('pos.z') },
+      localRotation: { x: this.getVal('rot.x'), y: this.getVal('rot.y'), z: this.getVal('rot.z') },
+      scale: this.getVal('scale'),
+    };
+
+    const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+    const currentBone = this.getSlotBone(this.activeSlot);
+    if (defaults && currentBone !== defaults.boneName) {
+      override.boneName = currentBone;
+    }
+
+    if (this.loadedGlbPath) {
+      const defaultPath = `/assets/equipment/${this.activeSlot}/${item.id}.glb`;
+      if (this.loadedGlbPath !== defaultPath) {
+        override.file = this.loadedGlbPath;
+      }
+    }
+
+    try {
+      await this.saveCallback(item.id, override);
+      this.updateOverrideStatus();
+      this.flashStatus(`Saved override for item ${item.id}`);
+    } catch (e: any) {
+      this.flashStatus(`Save failed: ${e.message || e}`);
+    }
   }
 
   private copyCode(): void {
     const slot = this.activeSlot;
-    const bone = this.getSlotBone(slot);
     const item = this.getItemInfo(slot);
     const px = this.getVal('pos.x'), py = this.getVal('pos.y'), pz = this.getVal('pos.z');
     const rx = this.getVal('rot.x'), ry = this.getVal('rot.y'), rz = this.getVal('rot.z');
     const s = this.getVal('scale');
 
-    const itemLabel = item
-      ? `// ${item.name} (id: ${item.id}${item.toolType ? `, toolType: ${item.toolType}` : ''})`
-      : `// ${slot}`;
-    const code = `${itemLabel}\n${slot}: { boneName: '${bone}', localPosition: { x: ${px}, y: ${py}, z: ${pz} }, localRotation: { x: ${rx}, y: ${ry}, z: ${rz} }, scale: ${s} },`;
+    let code: string;
+    if (item) {
+      code = `// ${item.name} (id: ${item.id}${item.toolType ? `, toolType: ${item.toolType}` : ''})\n"${item.id}": { "localPosition": { "x": ${px}, "y": ${py}, "z": ${pz} }, "localRotation": { "x": ${rx}, "y": ${ry}, "z": ${rz} }, "scale": ${s} }`;
+    } else {
+      const bone = this.getSlotBone(slot);
+      code = `// ${slot}\n${slot}: { boneName: '${bone}', localPosition: { x: ${px}, y: ${py}, z: ${pz} }, localRotation: { x: ${rx}, y: ${ry}, z: ${rz} }, scale: ${s} },`;
+    }
 
     navigator.clipboard.writeText(code).then(() => {
       this.flashStatus('Copied to clipboard');
@@ -367,6 +784,41 @@ export class GearDebugPanel {
       this.flashStatus('Copy failed — see console');
     });
     console.log(`[GearDebug] ${code}`);
+  }
+
+  private async loadGlb(): Promise<void> {
+    const path = this.glbInput.value.trim();
+    if (!path) {
+      this.flashStatus('Enter a GLB path');
+      return;
+    }
+    if (!this.loadGlbCallback) {
+      this.flashStatus('Load GLB not available');
+      return;
+    }
+    this.flashStatus('Loading...');
+    try {
+      await this.loadGlbCallback(this.activeSlot, path);
+      this.loadedGlbPath = path;
+      setTimeout(() => {
+        this.switchSlot(this.activeSlot);
+        this.flashStatus('Loaded');
+      }, 100);
+    } catch (e: any) {
+      this.flashStatus(`Load failed: ${e.message || e}`);
+    }
+  }
+
+  private playAnim(anim: string): void {
+    this.activeAnim = anim;
+    if (this.animCallback) this.animCallback(anim);
+
+    for (const [name, btn] of this.animButtons) {
+      const isActive = name === anim;
+      btn.style.background = isActive ? '#2a2a20' : '#12100c';
+      btn.style.color = isActive ? '#ffd700' : '#666';
+      btn.style.border = `1px solid ${isActive ? '#554a3a' : '#2a2520'}`;
+    }
   }
 
   private flashStatus(msg: string): void {

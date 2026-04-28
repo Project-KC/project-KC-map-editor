@@ -1,4 +1,25 @@
-function humanizeName(value) {
+interface RawAssetData {
+  id?: string
+  name?: string
+  path?: string
+  section?: string
+  group?: string
+  tags?: string[]
+  defaultScale?: number
+}
+
+export interface AssetEntry {
+  id: string
+  name: string
+  path: string
+  section: string
+  group: string
+  folderPath: string
+  tags: string[]
+  defaultScale: number | null
+}
+
+function humanizeName(value: unknown): string {
   return String(value || '')
     .replace(/%20/g, ' ')
     .replace(/[-_]+/g, ' ')
@@ -8,7 +29,7 @@ function humanizeName(value) {
     .replace(/\b\w/g, (m) => m.toUpperCase())
 }
 
-function deriveAssetMeta(path) {
+function deriveAssetMeta(path: unknown): { section: string; group: string; folderPath: string } {
   const normalized = decodeURIComponent(String(path || '').replace(/\\/g, '/'))
   const parts = normalized.split('/').filter(Boolean)
 
@@ -36,15 +57,15 @@ function deriveAssetMeta(path) {
   }
 }
 
-export async function loadAssetRegistry() {
+export async function loadAssetRegistry(): Promise<AssetEntry[]> {
   const response = await fetch('/assets/assets.json')
   if (!response.ok) {
     throw new Error('Failed to load /assets/assets.json')
   }
 
-  const data = await response.json()
+  const data: RawAssetData[] | { assets: RawAssetData[] } = await response.json()
 
-  let assets = []
+  let assets: RawAssetData[] = []
 
   if (Array.isArray(data)) {
     assets = data
@@ -53,12 +74,12 @@ export async function loadAssetRegistry() {
   }
 
   return assets
-    .filter((asset) => {
+    .filter((asset): asset is RawAssetData & { path: string } => {
       if (!asset.path) return false
       const lower = asset.path.toLowerCase()
       return lower.endsWith('.glb') || lower.endsWith('.gltf')
     })
-    .map((asset) => {
+    .map((asset): AssetEntry => {
       const meta = deriveAssetMeta(asset.path)
       const fileName = asset.path.split('/').pop() || 'asset.glb'
 

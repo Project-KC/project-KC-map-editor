@@ -1,6 +1,6 @@
 import { SERVER_PORT, GAME_WS_PATH, CHAT_WS_PATH, CHUNK_SIZE } from '@projectrs/shared';
 import { resolve } from 'path';
-import { statSync, readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync, cpSync } from 'fs';
+import { statSync, readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync, cpSync, renameSync } from 'fs';
 import type { KCMapFile, KCMapData, KCTile, MapMeta, WallsFile, SpawnsFile, PlacedObject, BiomesFile } from '@projectrs/shared';
 import { defaultKCTile } from '@projectrs/shared';
 import { World } from './World';
@@ -117,16 +117,15 @@ const TILE_DEFAULTS: Record<string, any> = {
 
 /** Strip default fields from a tile, returning only non-default values */
 function stripTileDefaults(tile: KCTile): Partial<KCTile> | null {
-  const stripped: Record<string, any> = {};
+  const stripped: Partial<KCTile> = {};
   let hasNonDefault = false;
-  for (const key of Object.keys(TILE_DEFAULTS)) {
-    const val = (tile as any)[key];
-    if (val !== TILE_DEFAULTS[key]) {
-      stripped[key] = val;
+  for (const key of Object.keys(TILE_DEFAULTS) as (keyof KCTile)[]) {
+    if (tile[key] !== TILE_DEFAULTS[key]) {
+      (stripped as Record<string, unknown>)[key] = tile[key];
       hasNonDefault = true;
     }
   }
-  return hasNonDefault ? stripped as Partial<KCTile> : null;
+  return hasNonDefault ? stripped : null;
 }
 
 /** Expand a partial tile back to a full KCTile */
@@ -518,6 +517,73 @@ const server = Bun.serve<SocketData>({
         });
       } catch {
         return new Response('Not Found', { status: 404 });
+      }
+    }
+
+    // --- Dev API ---
+
+    if (url.pathname === '/api/dev/gear-overrides' && req.method === 'POST') {
+      try {
+        const body = await req.json() as Record<string, any>;
+        const filePath = resolve(import.meta.dir, '../data/gear-overrides.json');
+        const tmpPath = filePath + '.tmp';
+        writeFileSync(tmpPath, JSON.stringify(body, null, 2));
+        renameSync(tmpPath, filePath);
+        return jsonResponse({ ok: true });
+      } catch (e: any) {
+        return jsonResponse({ ok: false, error: e.message || 'Save failed' }, 500);
+      }
+    }
+
+    if (url.pathname === '/api/dev/gear-files' && req.method === 'GET') {
+      const slot = url.searchParams.get('slot') || '';
+      if (!slot || slot.includes('/') || slot.includes('..')) {
+        return jsonResponse({ ok: false, error: 'Invalid slot' }, 400);
+      }
+      try {
+        const equipRoot = resolve(import.meta.dir, '../../client/public/assets/equipment');
+        let itemDefs: any[] = [];
+        try { itemDefs = JSON.parse(readFileSync(resolve(import.meta.dir, '../data/items.json'), 'utf-8')); } catch {}
+        const itemMap = new Map<number, string>();
+        for (const def of itemDefs) itemMap.set(def.id, def.name);
+
+        const polytopeDirMap: Record<string, string[]> = {
+          weapon:  ['weapon', 'polytope/weapons', 'Tools'],
+          shield:  ['shield', 'polytope/weapons'],
+          head:    ['head', 'polytope/armor_male/helmet'],
+          body:    ['body', 'polytope/armor_male/body'],
+          legs:    ['legs', 'polytope/armor_male/legs'],
+          feet:    ['feet', 'polytope/armor_male/boots'],
+          hands:   ['hands', 'polytope/armor_male/gauntlets'],
+          cape:    ['cape', 'polytope/armor_male/cape'],
+          neck:    ['neck'],
+          ring:    ['ring'],
+        };
+        const dirs = polytopeDirMap[slot] || [slot];
+
+        const seen = new Set<string>();
+        const files: { file: string; path: string; itemId: number; name: string }[] = [];
+        for (const dir of dirs) {
+          const fullDir = resolve(equipRoot, dir);
+          if (!existsSync(fullDir)) continue;
+          for (const f of readdirSync(fullDir)) {
+            if (!f.endsWith('.glb') && !f.endsWith('.gltf')) continue;
+            const relPath = `/assets/equipment/${dir}/${f}`;
+            if (seen.has(relPath)) continue;
+            seen.add(relPath);
+            const itemId = parseInt(f.replace(/\.[^.]+$/, ''), 10);
+            files.push({
+              file: f,
+              path: relPath,
+              itemId: isNaN(itemId) ? -1 : itemId,
+              name: (!isNaN(itemId) && itemMap.get(itemId)) || f.replace(/\.[^.]+$/, ''),
+            });
+          }
+        }
+        files.sort((a, b) => a.itemId - b.itemId);
+        return jsonResponse({ files });
+      } catch {
+        return jsonResponse({ files: [] });
       }
     }
 
@@ -919,24 +985,24 @@ const server = Bun.serve<SocketData>({
     perMessageDeflate: true,
     open(ws: import('bun').ServerWebSocket<SocketData>) {
       if (ws.data.type === 'game') {
-        handleGameSocketOpen(ws as any, world);
+        handleGameSocketOpen(ws as import('bun').ServerWebSocket<GameSocketData>, world);
       } else {
-        handleChatSocketOpen(ws as any, world);
+        handleChatSocketOpen(ws as import('bun').ServerWebSocket<ChatSocketData>, world);
       }
     },
     message(ws: import('bun').ServerWebSocket<SocketData>, message: string | Buffer) {
       if (ws.data.type === 'game') {
         const buf = message instanceof ArrayBuffer ? message : (message as unknown as Buffer).buffer.slice(0) as ArrayBuffer;
-        handleGameSocketMessage(ws as any, buf, world);
+        handleGameSocketMessage(ws as import('bun').ServerWebSocket<GameSocketData>, buf, world);
       } else {
-        handleChatSocketMessage(ws as any, String(message), world);
+        handleChatSocketMessage(ws as import('bun').ServerWebSocket<ChatSocketData>, String(message), world);
       }
     },
     close(ws: import('bun').ServerWebSocket<SocketData>) {
       if (ws.data.type === 'game') {
-        handleGameSocketClose(ws as any, world);
+        handleGameSocketClose(ws as import('bun').ServerWebSocket<GameSocketData>, world);
       } else {
-        handleChatSocketClose(ws as any, world);
+        handleChatSocketClose(ws as import('bun').ServerWebSocket<ChatSocketData>, world);
       }
     },
   },

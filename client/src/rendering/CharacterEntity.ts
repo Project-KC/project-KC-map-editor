@@ -60,7 +60,7 @@ interface GearAttachment {
 }
 
 /** Cached gear template ready to be cloned and attached. */
-interface GearTemplate {
+export interface GearTemplate {
   template: TransformNode;
   /** Which bone name to attach to (e.g. 'hand_R', 'head') */
   boneName: string;

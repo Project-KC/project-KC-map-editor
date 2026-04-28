@@ -4,7 +4,7 @@ import {
   SkillBlock, SkillId, MeleeStance, CombatBonuses,
   initSkills, addXp, combatLevel, zeroBonuses, STANCE_XP,
   ACC_BASE, osrsMeleeMaxHit, calculateHitChance, STANCE_BONUSES,
-  type PlayerAppearance,
+  type PlayerAppearance, type ItemDef,
 } from '@projectrs/shared';
 import type { ServerWebSocket } from 'bun';
 
@@ -78,7 +78,7 @@ export class Player extends Entity {
   }
 
   // Recompute bonuses from all equipped items
-  computeBonuses(itemDefs: Map<number, any>): CombatBonuses {
+  computeBonuses(itemDefs: Map<number, ItemDef>): CombatBonuses {
     const b = zeroBonuses();
     for (const [, itemId] of this.equipment) {
       const def = itemDefs.get(itemId);
@@ -99,7 +99,7 @@ export class Player extends Entity {
     return b;
   }
 
-  getAttackSpeed(itemDefs: Map<number, any>): number {
+  getAttackSpeed(itemDefs: Map<number, ItemDef>): number {
     const weaponId = this.equipment.get('weapon');
     if (weaponId) {
       const def = itemDefs.get(weaponId);
@@ -108,7 +108,7 @@ export class Player extends Entity {
     return 4; // Unarmed
   }
 
-  getWeaponStyle(itemDefs: Map<number, any>): 'stab' | 'slash' | 'crush' | 'bow' | 'crossbow' {
+  getWeaponStyle(itemDefs: Map<number, ItemDef>): 'stab' | 'slash' | 'crush' | 'bow' | 'crossbow' {
     const weaponId = this.equipment.get('weapon');
     if (weaponId) {
       const def = itemDefs.get(weaponId);
@@ -117,13 +117,13 @@ export class Player extends Entity {
     return 'crush'; // Unarmed = crush (fists)
   }
 
-  isRangedWeapon(itemDefs: Map<number, any>): boolean {
+  isRangedWeapon(itemDefs: Map<number, ItemDef>): boolean {
     const style = this.getWeaponStyle(itemDefs);
     return style === 'bow' || style === 'crossbow';
   }
 
   /** Find the first matching ammo in inventory. Returns slot index + item def, or null. */
-  findAmmo(itemDefs: Map<number, any>): { slotIndex: number; itemDef: any } | null {
+  findAmmo(itemDefs: Map<number, ItemDef>): { slotIndex: number; itemDef: ItemDef } | null {
     const weaponId = this.equipment.get('weapon');
     if (!weaponId) return null;
     const weaponDef = itemDefs.get(weaponId);
@@ -147,7 +147,7 @@ export class Player extends Entity {
     return true;
   }
 
-  addItem(itemId: number, quantity: number = 1, itemDefs?: Map<number, any>): boolean {
+  addItem(itemId: number, quantity: number = 1, itemDefs?: Map<number, ItemDef>): boolean {
     const def = itemDefs?.get(itemId);
     const stackable = def?.stackable === true;
 

@@ -913,150 +913,137 @@ export class World {
       return;
     }
 
-    // Object-based map transition (cave doors, ladders, portals)
     if (action === 'Enter') {
-      // Per-instance trigger from editor takes priority
-      if (obj.trigger?.type === 'teleport' && obj.trigger.destChunk) {
-        this.handleMapTransition(player, {
-          targetMap: obj.trigger.destChunk,
-          targetX: obj.trigger.entryX || 32.5,
-          targetZ: obj.trigger.entryZ || 32.5,
-        });
-        return;
-      }
-      // Fallback to def-level transition
-      if (obj.def.transition) {
-        this.handleMapTransition(player, {
-          targetMap: obj.def.transition.targetMap,
-          targetX: obj.def.transition.targetX,
-          targetZ: obj.def.transition.targetZ,
-        });
-        return;
-      }
+      this.handleTeleportInteraction(player, obj);
+      return;
     }
 
-    // Door open/close
     if (obj.def.category === 'door' && (action === 'Open' || action === 'Close')) {
       this.toggleDoor(obj);
       return;
     }
 
-    // Harvesting actions (Chop, Mine, Fish)
     if (obj.def.skill && obj.def.harvestItemId) {
-      const skillId = obj.def.skill as SkillId;
-      const playerLevel = player.skills[skillId]?.level ?? 1;
-      if (playerLevel < (obj.def.levelRequired ?? 1)) {
-        // Send level requirement message via chat
-        return;
-      }
-
-      // Tool check: forestry requires an axe, mining requires a pickaxe
-      const requiredTool = obj.def.category === 'tree' ? 'axe' : obj.def.category === 'rock' ? 'pickaxe' : null;
-      let toolItemId: number | undefined;
-      let toolBonus = 0;
-      if (requiredTool) {
-        const bestTool = this.findBestTool(player, requiredTool, playerLevel);
-        if (!bestTool) {
-          // No suitable tool — notify via chat socket
-          return;
-        }
-        toolItemId = bestTool.id;
-        toolBonus = bestTool.toolBonus ?? 0;
-      }
-
-      // Cycle time between harvest rolls. toolBonus (from pickaxe/axe tier) reduces it.
-      const baseTime = obj.def.harvestTime ?? 4;
-      const harvestTime = Math.max(2, baseTime - toolBonus);
-
-      // Start skilling action
-      this.skillingActions.set(playerId, {
-        objectId: obj.id,
-        action,
-        ticksLeft: harvestTime,
-        toolItemId,
-      });
-
-      // Notify client of skilling start
-      this.sendToPlayer(player, ServerOpcode.SKILLING_START, obj.id);
+      this.handleHarvestInteraction(playerId, player, obj, action);
       return;
     }
 
-    // Crafting station actions (Smelt, Cook, Smith)
     if (obj.def.recipes && obj.def.recipes.length > 0) {
-      // If recipeIndex specified, try only that recipe; otherwise find first valid
-      const recipesToTry = (recipeIndex >= 0 && recipeIndex < obj.def.recipes.length)
-        ? [obj.def.recipes[recipeIndex]]
-        : obj.def.recipes;
-      for (const recipe of recipesToTry) {
-        const skillId = recipe.skill as SkillId;
-        const playerLevel = player.skills[skillId]?.level ?? 1;
-        if (playerLevel < recipe.levelRequired) continue;
+      this.handleCraftingInteraction(player, obj, recipeIndex);
+      return;
+    }
+  }
 
-        // Check tool requirement (e.g. hammer for anvil smithing)
-        if (recipe.requiresTool) {
-          const hasTool = player.inventory.some(slot =>
-            slot !== null && this.data.getItem(slot.itemId)?.toolType === recipe.requiresTool
-          );
-          if (!hasTool) continue;
+  private handleTeleportInteraction(player: Player, obj: WorldObject): void {
+    if (obj.trigger?.type === 'teleport' && obj.trigger.destChunk) {
+      this.handleMapTransition(player, {
+        targetMap: obj.trigger.destChunk,
+        targetX: obj.trigger.entryX || 32.5,
+        targetZ: obj.trigger.entryZ || 32.5,
+      });
+      return;
+    }
+    if (obj.def.transition) {
+      this.handleMapTransition(player, {
+        targetMap: obj.def.transition.targetMap,
+        targetX: obj.def.transition.targetX,
+        targetZ: obj.def.transition.targetZ,
+      });
+    }
+  }
+
+  private handleHarvestInteraction(playerId: number, player: Player, obj: WorldObject, action: string): void {
+    const skillId = obj.def.skill as SkillId;
+    const playerLevel = player.skills[skillId]?.level ?? 1;
+    if (playerLevel < (obj.def.levelRequired ?? 1)) return;
+
+    const requiredTool = obj.def.category === 'tree' ? 'axe' : obj.def.category === 'rock' ? 'pickaxe' : null;
+    let toolItemId: number | undefined;
+    let toolBonus = 0;
+    if (requiredTool) {
+      const bestTool = this.findBestTool(player, requiredTool, playerLevel);
+      if (!bestTool) return;
+      toolItemId = bestTool.id;
+      toolBonus = bestTool.toolBonus ?? 0;
+    }
+
+    const baseTime = obj.def.harvestTime ?? 4;
+    const harvestTime = Math.max(2, baseTime - toolBonus);
+
+    this.skillingActions.set(playerId, {
+      objectId: obj.id,
+      action,
+      ticksLeft: harvestTime,
+      toolItemId,
+    });
+    this.sendToPlayer(player, ServerOpcode.SKILLING_START, obj.id);
+  }
+
+  private handleCraftingInteraction(player: Player, obj: WorldObject, recipeIndex: number): void {
+    const recipes = obj.def.recipes!;
+    const recipesToTry = (recipeIndex >= 0 && recipeIndex < recipes.length)
+      ? [recipes[recipeIndex]]
+      : recipes;
+
+    for (const recipe of recipesToTry) {
+      const skillId = recipe.skill as SkillId;
+      const playerLevel = player.skills[skillId]?.level ?? 1;
+      if (playerLevel < recipe.levelRequired) continue;
+
+      if (recipe.requiresTool) {
+        const hasTool = player.inventory.some(slot =>
+          slot !== null && this.data.getItem(slot.itemId)?.toolType === recipe.requiresTool
+        );
+        if (!hasTool) continue;
+      }
+
+      let inputSlot = -1;
+      for (let i = 0; i < player.inventory.length; i++) {
+        const slot = player.inventory[i];
+        if (slot && slot.itemId === recipe.inputItemId && slot.quantity >= recipe.inputQuantity) {
+          inputSlot = i;
+          break;
         }
+      }
+      if (inputSlot < 0) continue;
 
-        // Check if player has the primary input item
-        let inputSlot = -1;
+      let secondInputSlot = -1;
+      if (recipe.secondInputItemId !== undefined) {
+        const needed = recipe.secondInputQuantity ?? 1;
         for (let i = 0; i < player.inventory.length; i++) {
+          if (i === inputSlot) continue;
           const slot = player.inventory[i];
-          if (slot && slot.itemId === recipe.inputItemId && slot.quantity >= recipe.inputQuantity) {
-            inputSlot = i;
+          if (slot && slot.itemId === recipe.secondInputItemId && slot.quantity >= needed) {
+            secondInputSlot = i;
             break;
           }
         }
-        if (inputSlot < 0) continue;
+        if (secondInputSlot < 0) continue;
+      }
 
-        // Check second input if required (e.g. tin ore, coal)
-        let secondInputSlot = -1;
-        if (recipe.secondInputItemId !== undefined) {
-          const needed = recipe.secondInputQuantity ?? 1;
-          for (let i = 0; i < player.inventory.length; i++) {
-            if (i === inputSlot) continue;
-            const slot = player.inventory[i];
-            if (slot && slot.itemId === recipe.secondInputItemId && slot.quantity >= needed) {
-              secondInputSlot = i;
-              break;
-            }
-          }
-          if (secondInputSlot < 0) continue;
-        }
+      player.removeItem(inputSlot, recipe.inputQuantity);
+      if (secondInputSlot >= 0 && recipe.secondInputQuantity) {
+        player.removeItem(secondInputSlot, recipe.secondInputQuantity);
+      }
 
-        // Consume inputs
-        player.removeItem(inputSlot, recipe.inputQuantity);
-        if (secondInputSlot >= 0 && recipe.secondInputQuantity) {
-          player.removeItem(secondInputSlot, recipe.secondInputQuantity);
-        }
-
-        // Check success chance (e.g. smelting iron without coal = 50%)
-        if (recipe.successChance !== undefined && Math.random() > recipe.successChance) {
-          // Failed — inputs consumed but no output
-          this.sendInventory(player);
-          return;
-        }
-
-        // Give output
-        player.addItem(recipe.outputItemId, recipe.outputQuantity, this.data.itemDefs);
-
-        // Award XP
-        const result = addXp(player.skills, skillId, recipe.xpReward);
-        const skillIdx = ALL_SKILLS.indexOf(skillId);
-        if (skillIdx >= 0) {
-          this.sendToPlayer(player, ServerOpcode.XP_GAIN, skillIdx, recipe.xpReward);
-          if (result.leveled) {
-            this.sendToPlayer(player, ServerOpcode.LEVEL_UP, skillIdx, result.newLevel);
-          }
-        }
-
+      if (recipe.successChance !== undefined && Math.random() > recipe.successChance) {
         this.sendInventory(player);
-        if (skillIdx >= 0) this.sendSingleSkill(player, skillIdx);
         return;
       }
-      // No valid recipe found - player doesn't have required items/level
+
+      player.addItem(recipe.outputItemId, recipe.outputQuantity, this.data.itemDefs);
+
+      const result = addXp(player.skills, skillId, recipe.xpReward);
+      const skillIdx = ALL_SKILLS.indexOf(skillId);
+      if (skillIdx >= 0) {
+        this.sendToPlayer(player, ServerOpcode.XP_GAIN, skillIdx, recipe.xpReward);
+        if (result.leveled) {
+          this.sendToPlayer(player, ServerOpcode.LEVEL_UP, skillIdx, result.newLevel);
+        }
+      }
+
+      this.sendInventory(player);
+      if (skillIdx >= 0) this.sendSingleSkill(player, skillIdx);
       return;
     }
   }
@@ -1730,9 +1717,16 @@ export class World {
     }
   }
 
+  private readonly _dirtyPlayerPackets: Map<number, Uint8Array> = new Map();
+  private readonly _dirtyNpcPackets: Map<number, Uint8Array> = new Map();
+
   private broadcastSync(): void {
-    // Phase 1: Mark dirty entities (position or health changed since last sync)
-    // Use rounded coords to match what we actually send (x*10 truncated to int)
+    const dirtyPlayerPackets = this._dirtyPlayerPackets;
+    const dirtyNpcPackets = this._dirtyNpcPackets;
+    dirtyPlayerPackets.clear();
+    dirtyNpcPackets.clear();
+
+    // Phase 1: Dirty-check and pre-build packets for changed entities
     for (const [, player] of this.players) {
       const sx = Math.round(player.position.x * 10);
       const sz = Math.round(player.position.y * 10);
@@ -1741,6 +1735,13 @@ export class World {
         player.lastSyncZ = sz;
         player.lastSyncHealth = player.health;
         player.syncDirty = true;
+        const a = player.appearance;
+        dirtyPlayerPackets.set(player.id, encodePacket(ServerOpcode.PLAYER_SYNC,
+          player.id, sx, sz,
+          player.health, player.maxHealth,
+          a ? a.shirtColor : -1, a ? a.pantsColor : -1, a ? a.shoesColor : -1,
+          a ? a.hairColor  : -1, a ? a.beltColor  : -1, a ? a.shirtStyle : -1,
+        ));
       }
     }
     for (const [, npc] of this.npcs) {
@@ -1752,83 +1753,37 @@ export class World {
         npc.lastSyncZ = sz;
         npc.lastSyncHealth = npc.health;
         npc.syncDirty = true;
+        dirtyNpcPackets.set(npc.id, encodePacket(ServerOpcode.NPC_SYNC,
+          npc.id, npc.npcId, sx, sz, npc.health, npc.maxHealth,
+        ));
       }
     }
 
-    // Phase 2a: Dirty players → push updates to nearby viewers (O(dirty_players × viewers_per_area))
-    for (const [, subject] of this.players) {
-      if (!subject.syncDirty) continue;
-      const cm = this.chunkManagers.get(subject.currentMapLevel);
-      if (!cm) continue;
-      const a = subject.appearance;
-      const packet = encodePacket(ServerOpcode.PLAYER_SYNC,
-        subject.id,
-        Math.round(subject.position.x * 10),
-        Math.round(subject.position.y * 10),
-        subject.health,
-        subject.maxHealth,
-        a ? a.shirtColor : -1,
-        a ? a.pantsColor : -1,
-        a ? a.shoesColor : -1,
-        a ? a.hairColor  : -1,
-        a ? a.beltColor  : -1,
-        a ? a.shirtStyle : -1,
-      );
-      cm.forEachPlayerNearChunk(subject.currentChunkX, subject.currentChunkZ, (viewerId) => {
-        const viewer = this.players.get(viewerId);
-        if (viewer) {
-          try { viewer.ws.sendBinary(packet); } catch { /* closed */ }
-        }
-      });
-    }
-
-    // Phase 2b: Dirty NPCs → push updates to nearby viewers (O(dirty_npcs × viewers_per_area))
-    for (const [, npc] of this.npcs) {
-      if (!npc.syncDirty || npc.dead) continue;
-      const cm = this.chunkManagers.get(npc.currentMapLevel);
-      if (!cm) continue;
-      const packet = encodePacket(ServerOpcode.NPC_SYNC,
-        npc.id,
-        npc.npcId,
-        Math.round(npc.position.x * 10),
-        Math.round(npc.position.y * 10),
-        npc.health,
-        npc.maxHealth
-      );
-      const ncx = Math.floor(npc.position.x / CHUNK_SIZE);
-      const ncz = Math.floor(npc.position.y / CHUNK_SIZE);
-      cm.forEachPlayerNearChunk(ncx, ncz, (viewerId) => {
-        const viewer = this.players.get(viewerId);
-        if (viewer) {
-          try { viewer.ws.sendBinary(packet); } catch { /* closed */ }
-        }
-      });
-    }
-
-    // Phase 2c: Viewers who changed chunks get a full sync of non-dirty nearby entities
-    // (Dirty ones were already sent in 2a/2b)
+    // Phase 2: Viewer-first iteration — all sends to each viewer are consecutive
     for (const [, viewer] of this.players) {
-      const chunkChanged = viewer.currentChunkX !== viewer.lastBroadcastChunkX ||
-                            viewer.currentChunkZ !== viewer.lastBroadcastChunkZ;
-      if (!chunkChanged) continue;
-      viewer.lastBroadcastChunkX = viewer.currentChunkX;
-      viewer.lastBroadcastChunkZ = viewer.currentChunkZ;
-
       const cm = this.chunkManagers.get(viewer.currentMapLevel);
       if (!cm) continue;
 
-      cm.forEachEntityNearChunk(viewer.currentChunkX, viewer.currentChunkZ, (eid) => {
-        if (eid === viewer.id) return;
-        const subject = this.players.get(eid);
-        if (subject) {
-          if (!subject.syncDirty) this.sendPlayerUpdate(viewer, subject);
-          return;
-        }
-        const npc = this.npcs.get(eid);
-        if (npc && !npc.dead && !npc.syncDirty) {
-          this.sendNpcUpdate(viewer, npc);
-        }
-      });
+      const chunkChanged = viewer.currentChunkX !== viewer.lastBroadcastChunkX ||
+                            viewer.currentChunkZ !== viewer.lastBroadcastChunkZ;
+      if (chunkChanged) {
+        viewer.lastBroadcastChunkX = viewer.currentChunkX;
+        viewer.lastBroadcastChunkZ = viewer.currentChunkZ;
+      }
+
+      try {
+        cm.forEachEntityNearChunk(viewer.currentChunkX, viewer.currentChunkZ, (eid) => {
+          const pkt = dirtyPlayerPackets.get(eid);
+          if (pkt) { viewer.ws.sendBinary(pkt); return; }
+          const npkt = dirtyNpcPackets.get(eid);
+          if (npkt) { viewer.ws.sendBinary(npkt); return; }
+          if (!chunkChanged || eid === viewer.id) return;
+          const subject = this.players.get(eid);
+          if (subject) { this.sendPlayerUpdate(viewer, subject); return; }
+          const npc = this.npcs.get(eid);
+          if (npc && !npc.dead) this.sendNpcUpdate(viewer, npc);
+        });
+      } catch { /* connection closed */ }
     }
 
     // Phase 3: Clear dirty flags

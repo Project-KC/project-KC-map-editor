@@ -13,7 +13,7 @@ import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 import { CHUNK_SIZE, CHUNK_LOAD_RADIUS, TILE_SIZE, TileType, BLOCKING_TILES, WallEdge, DEFAULT_WALL_HEIGHT, groundTypeToTileType, shouldTileRenderWater, classifyTileType } from '@projectrs/shared';
 import { ASSET_TO_OBJECT_DEF, STAIR_ASSET_CONFIG, rotateStairDirection } from '@projectrs/shared';
-import { clamp, sampleNoise, groundColor, getNoiseExtra, getSlopeShade, getTileAverageHeight, CLIFF_R, CLIFF_G, CLIFF_B, DESERT_SLOPE_TYPES } from '@projectrs/shared';
+import { clamp, sampleNoise, groundColor, getNoiseExtra, getSlopeShade, getTileAverageHeight, getVertexAO as sharedGetVertexAO, getVertexWaterProximity as sharedGetVertexWaterProximity, CLIFF_R, CLIFF_G, CLIFF_B, DESERT_SLOPE_TYPES } from '@projectrs/shared';
 import type { RGB } from '@projectrs/shared';
 import type { MapMeta, WallsFile, StairData, RoofData, FloorLayerData, KCMapFile, KCMapData, KCTile, GroundType, PlacedObject, TexturePlane } from '@projectrs/shared';
 
@@ -409,33 +409,11 @@ export class ChunkManager {
   }
 
   private getVertexAO(vx: number, vz: number): number {
-    const h = this.getVertexHeight(vx, vz);
-    let sum = 0, count = 0;
-    for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as [number, number][]) {
-      const nx = vx + dx, nz = vz + dz;
-      if (nx < 0 || nx > this.mapWidth || nz < 0 || nz > this.mapHeight) continue;
-      sum += this.getVertexHeight(nx, nz);
-      count++;
-    }
-    if (count === 0) return 1.0;
-    const depression = (sum / count) - h;
-    return 1.0 - clamp(depression * 0.16, 0, 0.40);
+    return sharedGetVertexAO(vx, vz, this.mapWidth, this.mapHeight, (x, z) => this.getVertexHeight(x, z));
   }
 
   private getVertexWaterProximity(vx: number, vz: number): number {
-    let maxProx = 0;
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const tx = vx + dx, tz = vz + dz;
-        if (!this.shouldRenderWater(tx, tz)) continue;
-        const cx = clamp(vx, tx, tx + 1);
-        const cz = clamp(vz, tz, tz + 1);
-        const dist = Math.sqrt((vx - cx) * (vx - cx) + (vz - cz) * (vz - cz));
-        const prox = Math.max(0, 1 - dist / 2.5);
-        if (prox > maxProx) maxProx = prox;
-      }
-    }
-    return maxProx;
+    return sharedGetVertexWaterProximity(vx, vz, (tx, tz) => this.shouldRenderWater(tx, tz));
   }
 
   private isCliffNearby(x: number, z: number): boolean {

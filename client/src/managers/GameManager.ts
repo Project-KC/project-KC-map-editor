@@ -4,6 +4,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Vector3, Color3, Color4, Matrix, Quaternion } from '@babylonjs/core/Maths/math';
 import { Viewport } from '@babylonjs/core/Maths/math.viewport';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -11,11 +12,11 @@ import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import '@babylonjs/loaders/glTF';
 import { ChunkManager } from '../rendering/ChunkManager';
 import { GameCamera } from '../rendering/Camera';
-import { SpriteEntity, loadDirectionalSprites, loadAnimationSprites, load8DirAnimationSprites, type DirectionalSpriteSet, type AnimationSpriteSet } from '../rendering/SpriteEntity';
-import { CharacterEntity, loadGearTemplate, type GearDef } from '../rendering/CharacterEntity';
+import { SpriteEntity } from '../rendering/SpriteEntity';
+import { CharacterEntity, loadGearTemplate, type GearDef, type GearTemplate } from '../rendering/CharacterEntity';
 import { Npc3DEntity } from '../rendering/Npc3DEntity';
 import { WorldObjectModels } from '../rendering/WorldObjectModels';
-import { loadRecoloredDirectionalSprites, loadRecolored8DirAnimationSprites, loadRecoloredAnimationSprites, type RecolorConfig } from '../rendering/SpriteRecolor';
+import { EntityManager, type GroundItemData } from './EntityManager';
 import { InputManager } from './InputManager';
 import { NetworkManager } from './NetworkManager';
 import { findPath } from '../rendering/Pathfinding';
@@ -30,17 +31,9 @@ import { ShopPanel, type ShopItem } from '../ui/ShopPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
 import { SmithingPanel } from '../ui/SmithingPanel';
 import { getExperimentalCharacterPath } from '../experimental';
-import { NPC_COLORS, NPC_NAMES, NPC_SIZES, NPC_3D_MODELS } from '../data/NpcConfig';
-import { EQUIP_SLOT_BONES, EQUIP_SLOT_NAMES, TOOL_TIER_METAL_COLOR } from '../data/EquipmentConfig';
-import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, BIOME_CELL_SIZE, type WorldObjectDef, type ItemDef, type PlayerAppearance, type BiomesFile, type BiomeDef, SHIRT_STYLES } from '@projectrs/shared';
-
-interface GroundItemData {
-  id: number;
-  itemId: number;
-  quantity: number;
-  x: number;
-  z: number;
-}
+import { NPC_NAMES } from '../data/NpcConfig';
+import { EQUIP_SLOT_BONES, EQUIP_SLOT_NAMES, TOOL_TIER_METAL_COLOR, type GearOverride } from '../data/EquipmentConfig';
+import { ServerOpcode, ClientOpcode, encodePacket, ALL_SKILLS, SKILL_NAMES, ASSET_TO_OBJECT_DEF, WallEdge, decodeStringPacket, BIOME_CELL_SIZE, type WorldObjectDef, type ItemDef, type InventorySlot, type PlayerAppearance, type BiomesFile, type BiomeDef, SHIRT_STYLES } from '@projectrs/shared';
 
 export class GameManager {
   private engine: Engine;
@@ -88,35 +81,20 @@ export class GameManager {
   private localEquipment: Map<number, number> = new Map();
 
   // Gear — cached templates so the same GLB isn't loaded twice
-  private gearTemplateCache: Map<string, any> = new Map(); // key: "slot/itemId"
-  private gearLoadingPromises: Map<string, Promise<any>> = new Map();
+  private gearTemplateCache: Map<string, GearTemplate> = new Map();
+  private gearLoadingPromises: Map<string, Promise<GearTemplate | null>> = new Map();
+  private gearOverrides: Map<number, GearOverride> = new Map();
 
   // Combat follow (local player follows melee target)
   private combatTargetId: number = -1;
   private _combatPathTimer: number = 0;
-  // Combat facing: track who each entity is targeting (from COMBAT_HIT events)
-  private npcCombatTargets: Map<number, number> = new Map();  // npcId -> playerId they're attacking
-  private remoteCombatTargets: Map<number, number> = new Map();  // remotePlayerId -> npcId they're attacking
 
   // Character creator
   private characterCreator: CharacterCreator | null = null;
   private localAppearance: PlayerAppearance | null = null;
-  private remoteAppearances: Map<number, PlayerAppearance> = new Map();
 
-  // Remote players
-  private remotePlayers: Map<number, SpriteEntity> = new Map();
-  private remoteTargets: Map<number, { x: number; z: number }> = new Map();
-  private playerNames: Map<number, string> = new Map();
-  private nameToEntityId: Map<string, number> = new Map();
-
-  // NPCs
-  private npcSprites: Map<number, SpriteEntity | Npc3DEntity> = new Map();
-  private npcTargets: Map<number, { x: number; z: number }> = new Map();
-  private npcDefs: Map<number, number> = new Map();
-
-  // Ground items
-  private groundItems: Map<number, GroundItemData> = new Map();
-  private groundItemSprites: Map<number, SpriteEntity> = new Map();
+  // Entity management (remote players, NPCs, ground items, sprites)
+  private entities!: EntityManager;
 
   // World objects
   private worldObjectSprites: Map<number, SpriteEntity> = new Map();
@@ -136,17 +114,6 @@ export class GameManager {
   private fogCurrentStart = 0;
   private fogCurrentEnd = 100;
   private objectModels!: WorldObjectModels;
-  private playerSprites: DirectionalSpriteSet | null = null;
-  private playerWalkAnim: AnimationSpriteSet | null = null;
-  private playerPunchAnim: AnimationSpriteSet | null = null;
-  private playerKickAnim: AnimationSpriteSet | null = null;
-  private playerSwordAnim: AnimationSpriteSet | null = null;
-  /** Per-NPC-defId directional sprite sets */
-  private npcSpriteSets: Map<number, DirectionalSpriteSet> = new Map();
-  /** Per-NPC-defId attack animation sprite sets */
-  private npcAttackAnims: Map<number, AnimationSpriteSet> = new Map();
-  /** Per-NPC-defId walk animation sprite sets (for recolored humanoid NPCs) */
-  private npcWalkAnims: Map<number, AnimationSpriteSet> = new Map();
   private isSkilling: boolean = false;
   private isIndoors: boolean = false;
   private hiddenRoofNodes: TransformNode[] = [];
@@ -156,8 +123,8 @@ export class GameManager {
   private skillingObjectId: number = -1;
 
   // UI
-  private destMarker: any = null;
-  private interactMarker: any = null;
+  private destMarker: Mesh | null = null;
+  private interactMarker: Mesh | null = null;
   private lastClickX: number = 0;
   private lastClickY: number = 0;
   // Single active cursor-click burst element; new clicks cancel the previous one
@@ -172,7 +139,6 @@ export class GameManager {
   private armorBrowser: ArmorBrowserPanel | null = null;
   private armorPreviewNodes: Map<string, TransformNode> = new Map();
   private armorSkeletons: Map<string, Skeleton> = new Map();
-  private statsPanel: any = null; // removed — HP shown in side panel
   private shopPanel: ShopPanel | null = null;
   private smithingPanel: SmithingPanel | null = null;
 
@@ -261,83 +227,9 @@ export class GameManager {
     this.sidePanel = new SidePanel(this.network, this.token);
     this.chatPanel = new ChatPanel();
     this.chatPanel.setSendHandler((msg) => {
-      if (msg === '/geardebug') {
-        if (!this.gearDebugPanel) {
-          this.gearDebugPanel = new GearDebugPanel();
-          this.gearDebugPanel.setSlotGetter((slot) => this.localPlayer?.getGearNode?.(slot) ?? null);
-          this.gearDebugPanel.setSlotBoneGetter((slot) => EQUIP_SLOT_BONES[slot]?.boneName ?? '');
-          this.gearDebugPanel.setItemInfoGetter((slot) => {
-            const itemId = this.localPlayer?.getGearItemId(slot) ?? -1;
-            if (itemId < 0) return null;
-            const def = this.itemDefsCache.get(itemId);
-            return { id: itemId, name: def?.name ?? `item ${itemId}`, toolType: def?.toolType };
-          });
-        }
-        this.gearDebugPanel.toggle();
-        if (this.gearDebugPanel.isVisible) {
-          this.camera.enterDebugZoom();
-        } else {
-          this.camera.exitDebugZoom();
-        }
-        return;
+      if (!this.handleChatCommand(msg)) {
+        this.network.sendChat(msg);
       }
-      if (msg === '/bonedebug') {
-        if (!this.boneDebugPanel) {
-          this.boneDebugPanel = new BoneDebugPanel();
-          this.boneDebugPanel.setSkeletonGetter(() => this.localPlayer?.getSkeleton?.() ?? null);
-        }
-        this.boneDebugPanel.toggle();
-        if (this.boneDebugPanel.isVisible) {
-          this.camera.enterDebugZoom();
-        } else {
-          this.camera.exitDebugZoom();
-        }
-        return;
-      }
-      if (msg === '/armor') {
-        if (!this.armorBrowser) {
-          this.armorBrowser = new ArmorBrowserPanel();
-          this.armorBrowser.setScene(this.scene);
-          this.armorBrowser.setEquipCallback((category, item, root, armorSkeleton) => {
-            const prev = this.armorPreviewNodes.get(category);
-            if (prev) prev.dispose();
-            const prevSkel = this.armorSkeletons.get(category);
-            if (prevSkel) prevSkel.dispose();
-            this.armorSkeletons.delete(category);
-
-            const charRoot = this.localPlayer?.getRoot?.();
-            if (charRoot) {
-              root.parent = charRoot;
-              root.rotationQuaternion = null;
-              root.position.set(0, 0, 0);
-              root.rotation.set(0, 0, 0);
-              root.scaling.set(1, 1, 1);
-            }
-            this.armorPreviewNodes.set(category, root);
-            if (armorSkeleton) this.armorSkeletons.set(category, armorSkeleton);
-          });
-          this.armorBrowser.setUnequipCallback((category) => {
-            const node = this.armorPreviewNodes.get(category);
-            if (node) {
-              node.dispose();
-              this.armorPreviewNodes.delete(category);
-            }
-            const skel = this.armorSkeletons.get(category);
-            if (skel) {
-              skel.dispose();
-              this.armorSkeletons.delete(category);
-            }
-          });
-        }
-        this.armorBrowser.toggle();
-        if (this.armorBrowser.isVisible) {
-          this.camera.enterDebugZoom();
-        } else {
-          this.camera.exitDebugZoom();
-        }
-        return;
-      }
-      this.network.sendChat(msg);
     });
     this.shopPanel = new ShopPanel(this.network, this.itemDefsCache);
     this.shopPanel.setOnClose(() => {
@@ -353,11 +245,11 @@ export class GameManager {
         case 'player_info': {
           const entityId = data.entityId!;
           const name = data.name!;
-          this.playerNames.set(entityId, name);
-          this.nameToEntityId.set(name.toLowerCase(), entityId);
-          const existing = this.remotePlayers.get(entityId);
+          this.entities.playerNames.set(entityId, name);
+          this.entities.nameToEntityId.set(name.toLowerCase(), entityId);
+          const existing = this.entities.remotePlayers.get(entityId);
           if (existing) {
-            const target = this.remoteTargets.get(entityId);
+            const target = this.entities.remoteTargets.get(entityId);
             existing.dispose();
             const sprite = new SpriteEntity(this.scene, {
               name: `player_${entityId}`,
@@ -368,7 +260,7 @@ export class GameManager {
             if (target) {
               sprite.position = new Vector3(target.x, this.getHeight(target.x, target.z), target.z);
             }
-            this.remotePlayers.set(entityId, sprite);
+            this.entities.remotePlayers.set(entityId, sprite);
           }
           break;
         }
@@ -407,8 +299,9 @@ export class GameManager {
     this.loadObjectDefs();
     this.objectModels = new WorldObjectModels(this.scene, (x, z) => this.getHeight(x, z), this.objectDefsCache);
     this.objectModels.loadAll();
-    this.loadPlayerSprites();
-    this.loadNpcSprites();
+    this.entities = new EntityManager(this.scene, (x, z) => this.getHeight(x, z), this.itemDefsCache);
+    this.entities.loadPlayerSprites();
+    this.entities.loadNpcSprites();
 
     // FPS counter
     const fpsEl = document.createElement('div');
@@ -553,6 +446,17 @@ export class GameManager {
     } catch (e) {
       console.warn('Failed to load item definitions:', e);
     }
+    try {
+      const res = await fetch('/data/gear-overrides.json');
+      const overrides: Record<string, GearOverride> = await res.json();
+      this.gearOverrides.clear();
+      for (const [id, override] of Object.entries(overrides)) {
+        this.gearOverrides.set(Number(id), override);
+      }
+      console.log(`[Gear] Loaded ${this.gearOverrides.size} gear overrides`);
+    } catch (e) {
+      console.warn('Failed to load gear overrides:', e);
+    }
   }
 
   /** Rebuild blockedObjectTiles from all known world objects. */
@@ -577,65 +481,6 @@ export class GameManager {
 
   private thinkingBubble: HTMLDivElement | null = null;
 
-  private async loadPlayerSprites(): Promise<void> {
-    try {
-      this.playerSprites = await loadDirectionalSprites(this.scene, '/sprites/player', 'player');
-      console.log('Player directional sprites loaded');
-      // Note: local player is now a 3D CharacterEntity — no sprite upgrade needed
-      // Upgrade existing remote players
-      for (const [, sprite] of this.remotePlayers) {
-        this.upgradeToDirectionalSprite(sprite);
-      }
-    } catch (e) {
-      console.warn('Failed to load player sprites, using fallback:', e);
-    }
-
-    // Load walk animation (8-direction, 4 frames)
-    try {
-      this.playerWalkAnim = await load8DirAnimationSprites(this.scene, '/sprites/player/walk', 'player_walk', 4);
-      console.log('Player walk animation loaded');
-      // Note: local player is a 3D CharacterEntity with its own walk animation
-      for (const [, sprite] of this.remotePlayers) sprite.setWalkAnimation(this.playerWalkAnim);
-    } catch (e) {
-      console.warn('Failed to load player walk animation:', e);
-    }
-
-    // Load punch animation (8-direction, 4 frames) — for Accurate/Defensive/Controlled stances
-    try {
-      this.playerPunchAnim = await load8DirAnimationSprites(this.scene, '/sprites/player/punch', 'player_punch', 4);
-      console.log('Player punch animation loaded');
-      for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
-    } catch (e) {
-      console.warn('Failed to load player punch animation:', e);
-    }
-
-    // Load kick animation (4-direction, 4 frames) — for Aggressive stance
-    try {
-      this.playerKickAnim = await loadAnimationSprites(this.scene, '/sprites/player/kick', 'player_kick', 4);
-      console.log('Player kick animation loaded');
-      for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
-    } catch (e) {
-      console.warn('Failed to load player kick animation:', e);
-    }
-
-    // Load sword animation (4-direction, 4 frames) — for when weapon is equipped
-    try {
-      this.playerSwordAnim = await loadAnimationSprites(this.scene, '/sprites/player/sword', 'player_sword', 4);
-      console.log('Player sword animation loaded');
-      for (const [, sprite] of this.remotePlayers) this.attachPlayerAttackAnims(sprite);
-    } catch (e) {
-      console.warn('Failed to load player sword animation:', e);
-    }
-  }
-
-  /** Attach all loaded player attack animations to a sprite */
-  private attachPlayerAttackAnims(sprite: SpriteEntity | null): void {
-    if (!sprite) return;
-    if (this.playerPunchAnim) sprite.addAttackAnimation('punch', this.playerPunchAnim);
-    if (this.playerKickAnim) sprite.addAttackAnimation('kick', this.playerKickAnim);
-    if (this.playerSwordAnim) sprite.addAttackAnimation('sword', this.playerSwordAnim);
-  }
-
   /**
    * Choose the correct attack animation name based on stance and weapon.
    * - Weapon equipped (slot 0) → 'sword'
@@ -657,165 +502,6 @@ export class GameManager {
     return 'punch';
   }
 
-  /** NPC sprite config: defId → sprite folder path + optional attack animation + optional recolor */
-  private static readonly NPC_SPRITE_CONFIG: {
-    defId: number; path: string; name: string;
-    attackPath?: string; attackFrames?: number;
-    /** If set, loads player sprites recolored instead of dedicated NPC sprites */
-    recolor?: RecolorConfig;
-  }[] = [
-    { defId: 1, path: '/sprites/chicken', name: 'chicken' },
-    { defId: 10, path: '/sprites/cow', name: 'cow', attackPath: '/sprites/cow/attack', attackFrames: 4 },
-    // Humanoid NPCs — recolored from player sprites
-    { defId: 3, path: '/sprites/player', name: 'goblin_sprite', recolor: {
-      shirtHue: 100, shirtSat: 0.6, shirtLightOffset: -0.05,   // green shirt
-      pantsHue: 30, pantsSat: 0.4, pantsLightOffset: -0.15,     // brown pants
-      skinHue: 95, skinSat: 0.5, skinLightOffset: -0.15,        // greenish skin
-      hairHue: 30, hairSat: 0.3, hairLightOffset: -0.1,         // dark hair
-    }},
-    { defId: 7, path: '/sprites/player', name: 'guard_sprite', recolor: {
-      shirtHue: 220, shirtSat: 0.3, shirtLightOffset: 0.1,     // silver-blue armor
-      pantsHue: 220, pantsSat: 0.2, pantsLightOffset: -0.05,    // matching grey pants
-      hairHue: 25, hairSat: 0.6,                                 // keep brown hair
-    }},
-    { defId: 8, path: '/sprites/player', name: 'shopkeeper_sprite', recolor: {
-      shirtHue: 35, shirtSat: 0.7, shirtLightOffset: 0.05,     // gold/tan shirt
-      pantsHue: 25, pantsSat: 0.3, pantsLightOffset: -0.1,      // brown pants
-      hairHue: 10, hairSat: 0.4, hairLightOffset: -0.1,         // dark reddish hair
-    }},
-    { defId: 9, path: '/sprites/player', name: 'darkknight_sprite', recolor: {
-      shirtHue: 270, shirtSat: 0.6, shirtLightOffset: -0.15,   // dark purple armor
-      pantsHue: 270, pantsSat: 0.4, pantsLightOffset: -0.25,    // dark purple pants
-      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.15,         // black hair
-      skinHue: 10, skinSat: 0.2, skinLightOffset: -0.15,        // pale skin
-    }},
-    { defId: 5, path: '/sprites/player', name: 'skeleton_sprite', recolor: {
-      shirtHue: 50, shirtSat: 0.05, shirtLightOffset: 0.3,     // bone white shirt
-      pantsHue: 50, pantsSat: 0.05, pantsLightOffset: 0.1,      // bone white pants
-      skinHue: 50, skinSat: 0.1, skinLightOffset: 0.1,          // bone-colored skin
-      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.2,          // no hair (dark)
-    }},
-    // Specialist shopkeepers
-    { defId: 11, path: '/sprites/player', name: 'weaponsmith_sprite', recolor: {
-      shirtHue: 10, shirtSat: 0.6, shirtLightOffset: -0.05,    // dark red shirt
-      pantsHue: 25, pantsSat: 0.3, pantsLightOffset: -0.2,      // dark brown pants
-      hairHue: 15, hairSat: 0.5, hairLightOffset: -0.1,         // dark auburn hair
-    }},
-    { defId: 12, path: '/sprites/player', name: 'armorer_sprite', recolor: {
-      shirtHue: 220, shirtSat: 0.15, shirtLightOffset: -0.05,  // steel grey shirt
-      pantsHue: 220, pantsSat: 0.1, pantsLightOffset: -0.1,     // dark grey pants
-      hairHue: 0, hairSat: 0.0, hairLightOffset: -0.15,         // black hair
-    }},
-    { defId: 13, path: '/sprites/player', name: 'legarmorer_sprite', recolor: {
-      shirtHue: 30, shirtSat: 0.5, shirtLightOffset: -0.05,    // brown shirt
-      pantsHue: 30, pantsSat: 0.6, pantsLightOffset: -0.1,      // rich brown pants
-      hairHue: 35, hairSat: 0.7, hairLightOffset: 0.0,          // light brown hair
-    }},
-    { defId: 14, path: '/sprites/player', name: 'shieldsmith_sprite', recolor: {
-      shirtHue: 210, shirtSat: 0.4, shirtLightOffset: 0.0,     // blue-grey shirt
-      pantsHue: 210, pantsSat: 0.2, pantsLightOffset: -0.1,     // grey-blue pants
-      hairHue: 20, hairSat: 0.3, hairLightOffset: -0.05,        // dark hair
-    }},
-  ];
-
-  private async loadNpcSprites(): Promise<void> {
-    for (const cfg of GameManager.NPC_SPRITE_CONFIG) {
-      try {
-        let sprites: DirectionalSpriteSet;
-        if (cfg.recolor) {
-          // Load player sprites with recolored pixels
-          sprites = await loadRecoloredDirectionalSprites(this.scene, cfg.path, cfg.name, cfg.recolor);
-          console.log(`Recolored NPC sprites loaded for ${cfg.name} (defId=${cfg.defId})`);
-        } else {
-          sprites = await loadDirectionalSprites(this.scene, cfg.path, cfg.name);
-          console.log(`NPC sprites loaded for ${cfg.name} (defId=${cfg.defId})`);
-        }
-        this.npcSpriteSets.set(cfg.defId, sprites);
-        // Upgrade existing NPC sprites of this type
-        for (const [entityId, sprite] of this.npcSprites) {
-          if (this.npcDefs.get(entityId) === cfg.defId) {
-            sprite.setDirectionalSprites(sprites);
-          }
-        }
-      } catch (e) {
-        console.warn(`Failed to load NPC sprites for ${cfg.name}:`, e);
-      }
-
-      // Load attack animation if configured (dedicated path)
-      if (cfg.attackPath && cfg.attackFrames) {
-        try {
-          const attackAnim = await loadAnimationSprites(this.scene, cfg.attackPath, cfg.name, cfg.attackFrames);
-          // Compute mesh scale so attack frames match idle sprite pixel density
-          const idleSprites = this.npcSpriteSets.get(cfg.defId);
-          if (idleSprites) {
-            const idleTex = idleSprites.materials[0]?.diffuseTexture;
-            const atkTex = attackAnim.materials[0]?.[0]?.diffuseTexture;
-            if (idleTex && atkTex) {
-              const idleSize = idleTex.getSize();
-              const atkSize = atkTex.getSize();
-              if (idleSize.width > 0 && idleSize.height > 0) {
-                attackAnim.meshScaleX = atkSize.width / idleSize.width;
-                attackAnim.meshScaleY = atkSize.height / idleSize.height;
-              }
-            }
-          }
-          this.npcAttackAnims.set(cfg.defId, attackAnim);
-          console.log(`Attack animation loaded for ${cfg.name} (${cfg.attackFrames} frames, scale ${attackAnim.meshScaleX.toFixed(2)}x${attackAnim.meshScaleY.toFixed(2)})`);
-          // Attach to existing NPC sprites of this type
-          for (const [entityId, sprite] of this.npcSprites) {
-            if (this.npcDefs.get(entityId) === cfg.defId) {
-              sprite.setAttackAnimation(attackAnim);
-            }
-          }
-        } catch (e) {
-          console.warn(`Failed to load attack animation for ${cfg.name}:`, e);
-        }
-      }
-
-      // For recolored humanoid NPCs, also load recolored walk/punch animations from player sprites
-      if (cfg.recolor) {
-        try {
-          const walkAnim = await loadRecolored8DirAnimationSprites(
-            this.scene, '/sprites/player/walk', `${cfg.name}_walk`, 4, cfg.recolor
-          );
-          // Attach walk anim to existing NPC sprites of this type
-          for (const [entityId, sprite] of this.npcSprites) {
-            if (this.npcDefs.get(entityId) === cfg.defId) {
-              sprite.setWalkAnimation(walkAnim);
-            }
-          }
-          // Store for future spawns
-          this.npcWalkAnims.set(cfg.defId, walkAnim);
-          console.log(`Recolored walk animation loaded for ${cfg.name}`);
-        } catch (e) {
-          console.warn(`Failed to load recolored walk animation for ${cfg.name}:`, e);
-        }
-
-        try {
-          const punchAnim = await loadRecolored8DirAnimationSprites(
-            this.scene, '/sprites/player/punch', `${cfg.name}_punch`, 4, cfg.recolor
-          );
-          this.npcAttackAnims.set(cfg.defId, punchAnim);
-          for (const [entityId, sprite] of this.npcSprites) {
-            if (this.npcDefs.get(entityId) === cfg.defId) {
-              sprite.setAttackAnimation(punchAnim);
-            }
-          }
-          console.log(`Recolored punch animation loaded for ${cfg.name}`);
-        } catch (e) {
-          console.warn(`Failed to load recolored punch animation for ${cfg.name}:`, e);
-        }
-      }
-    }
-  }
-
-  private upgradeToDirectionalSprite(sprite: SpriteEntity): void {
-    if (!this.playerSprites) return;
-    sprite.setDirectionalSprites(this.playerSprites);
-    if (this.playerWalkAnim) sprite.setWalkAnimation(this.playerWalkAnim);
-    this.attachPlayerAttackAnims(sprite);
-  }
-
   /** Reposition all world objects/models after heightmap loads (fixes race condition) */
   private repositionWorldObjects(): void {
     for (const [objectEntityId, data] of this.worldObjectDefs) {
@@ -829,31 +515,7 @@ export class GameManager {
         sprite.position = new Vector3(data.x, h, data.z);
       }
     }
-    // Reposition NPCs
-    for (const [entityId, sprite] of this.npcSprites) {
-      const target = this.npcTargets.get(entityId);
-      if (target) {
-        sprite.position = new Vector3(target.x, this.getHeight(target.x, target.z), target.z);
-      }
-    }
-    // Reposition remote players
-    for (const [entityId, sprite] of this.remotePlayers) {
-      const target = this.remoteTargets.get(entityId);
-      if (target) {
-        sprite.position = new Vector3(target.x, this.getHeight(target.x, target.z), target.z);
-      }
-    }
-    // Also reposition ground items
-    for (const [groundItemId, item] of this.groundItems) {
-      const sprite = this.groundItemSprites.get(groundItemId);
-      if (sprite) {
-        sprite.position = new Vector3(item.x, this.getHeight(item.x, item.z), item.z);
-      }
-    }
-    // Reposition local player
-    if (this.localPlayer) {
-      this.localPlayer.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
-    }
+    this.entities.repositionEntities(this.playerX, this.playerZ, this.localPlayer);
   }
 
   /** Clean up world object references to disposed placed nodes (after chunk unload) */
@@ -928,7 +590,7 @@ export class GameManager {
 
   /**
    * Equip or unequip a 3D gear piece on the local player.
-   * Loads /gear/{slotName}/{itemId}.glb on demand, caches the template.
+   * Loads /assets/equipment/{slotName}/{itemId}.glb on demand, caches the template.
    * itemId = 0 or -1 means unequip.
    */
   private async equipGear(slotIndex: number, itemId: number): Promise<void> {
@@ -949,8 +611,6 @@ export class GameManager {
     const boneConfig = EQUIP_SLOT_BONES[slotName];
     if (!boneConfig) return;
 
-    const itemDef = this.itemDefsCache.get(itemId);
-
     // Clear cache for this item so rotation changes take effect immediately
     this.gearTemplateCache.delete(cacheKey);
 
@@ -961,27 +621,17 @@ export class GameManager {
       let promise = this.gearLoadingPromises.get(cacheKey);
       if (!promise) {
         promise = (async () => {
-          // Tools share a single model file by toolType
-          const toolType = itemDef?.toolType;
-          const toolModelMap: Record<string, string> = {
-            axe: '/assets/equipment/Tools/Axe.glb',
-            pickaxe: '/assets/equipment/Tools/Pickaxe.glb',
-          };
-          const pickaxeTransform = {
-            pos: { x: 0.445, y: 0.15, z: 0.01 },
-            rot: { x: -2.8, y: 1.65, z: -0.15 },
-            scale: 0.65,
-          };
-          const isPickaxe = toolType === 'pickaxe';
-          const gearFile = (toolType && toolModelMap[toolType]) || `/gear/${slotName}/${itemId}.glb`;
+          const override = this.gearOverrides.get(itemId);
+          const gearFile = override?.file
+            || `/assets/equipment/${slotName}/${itemId}.glb`;
           const gearDef: GearDef = {
             itemId,
             file: gearFile,
-            boneName: boneConfig.boneName,
-            localPosition: isPickaxe ? pickaxeTransform.pos : boneConfig.localPosition,
-            localRotation: isPickaxe ? pickaxeTransform.rot : boneConfig.localRotation,
-            scale: isPickaxe ? pickaxeTransform.scale : boneConfig.scale,
-            centerOrigin: false,
+            boneName: override?.boneName ?? boneConfig.boneName,
+            localPosition: override?.localPosition ?? boneConfig.localPosition,
+            localRotation: override?.localRotation ?? boneConfig.localRotation,
+            scale: override?.scale ?? boneConfig.scale,
+            centerOrigin: override?.centerOrigin ?? false,
             metalColor: TOOL_TIER_METAL_COLOR[itemId],
           };
           const tmpl = await loadGearTemplate(this.scene, gearDef);
@@ -994,7 +644,7 @@ export class GameManager {
         })();
         this.gearLoadingPromises.set(cacheKey, promise);
       }
-      template = await promise;
+      template = (await promise) ?? undefined;
     }
 
     if (template && this.localPlayer) {
@@ -1103,7 +753,6 @@ export class GameManager {
       const x = x10 / 10;
       const z = z10 / 10;
 
-      // Parse appearance from extended PLAYER_SYNC (values 5-10)
       const hasAppearance = v.length >= 11 && v[5] >= 0;
       const syncAppearance: PlayerAppearance | null = hasAppearance ? {
         shirtColor: v[5], pantsColor: v[6], shoesColor: v[7], hairColor: v[8], beltColor: v[9], shirtStyle: v[10],
@@ -1120,7 +769,6 @@ export class GameManager {
             this.localPlayer.hideHealthBar();
           }
         }
-        // Apply appearance to local player if we received it and haven't set it yet
         if (syncAppearance && !this.localAppearance) {
           this.localAppearance = syncAppearance;
           if (this.localPlayer) this.localPlayer.applyAppearance(syncAppearance);
@@ -1128,26 +776,15 @@ export class GameManager {
         return;
       }
 
-      if (!this.remotePlayers.has(entityId)) {
-        const playerName = this.playerNames.get(entityId) || 'Player';
-        const sprite = new SpriteEntity(this.scene, {
-          name: `player_${entityId}`,
-          color: new Color3(0.8, 0.2, 0.2),
-          width: 1.6,
-          height: 2.8,
-          label: playerName,
-          labelColor: '#ffffff',
-          directionalSprites: this.playerSprites ?? undefined,
-        });
-        sprite.position = new Vector3(x, this.getHeight(x, z), z);
-        this.remotePlayers.set(entityId, sprite);
+      if (!this.entities.remotePlayers.has(entityId)) {
+        const playerName = this.entities.playerNames.get(entityId) || 'Player';
+        this.entities.createRemotePlayer(entityId, x, z, playerName);
       }
-      // Store appearance for remote players (used when upgrading to 3D models later)
       if (syncAppearance) {
-        this.remoteAppearances.set(entityId, syncAppearance);
+        this.entities.remoteAppearances.set(entityId, syncAppearance);
       }
-      this.remoteTargets.set(entityId, { x, z });
-      const sprite = this.remotePlayers.get(entityId)!;
+      this.entities.remoteTargets.set(entityId, { x, z });
+      const sprite = this.entities.remotePlayers.get(entityId)!;
       if (health < maxHealth) {
         sprite.showHealthBar(health, maxHealth);
       } else {
@@ -1160,44 +797,15 @@ export class GameManager {
       const x = x10 / 10;
       const z = z10 / 10;
 
-      this.npcDefs.set(entityId, npcDefId);
+      this.entities.npcDefs.set(entityId, npcDefId);
 
-      if (!this.npcSprites.has(entityId)) {
-        const name = NPC_NAMES[npcDefId] || `NPC${npcDefId}`;
-        const modelCfg = NPC_3D_MODELS[npcDefId];
-
-        if (modelCfg) {
-          // Use 3D model
-          const npc3d = new Npc3DEntity(this.scene, modelCfg.file, modelCfg.scale, modelCfg.anims, name);
-          npc3d.position = new Vector3(x, this.getHeight(x, z), z);
-          this.npcSprites.set(entityId, npc3d);
-
-        } else {
-          // Fall back to sprite
-          const color = NPC_COLORS[npcDefId] || new Color3(0.5, 0.5, 0.5);
-          const size = NPC_SIZES[npcDefId] || { w: 0.8, h: 1.4 };
-          const npcSpriteSet = this.npcSpriteSets.get(npcDefId);
-          const sprite = new SpriteEntity(this.scene, {
-            name: `npc_${entityId}`,
-            color,
-            label: name,
-            labelColor: '#ffff00',
-            width: size.w,
-            height: size.h,
-            directionalSprites: npcSpriteSet ?? undefined,
-          });
-          sprite.position = new Vector3(x, this.getHeight(x, z), z);
-          const attackAnim = this.npcAttackAnims.get(npcDefId);
-          if (attackAnim) sprite.setAttackAnimation(attackAnim);
-          const walkAnim = this.npcWalkAnims.get(npcDefId);
-          if (walkAnim) sprite.setWalkAnimation(walkAnim);
-          this.npcSprites.set(entityId, sprite);
-        }
+      if (!this.entities.npcSprites.has(entityId)) {
+        this.entities.createNpc(entityId, npcDefId, x, z);
       }
 
-      this.npcTargets.set(entityId, { x, z });
+      this.entities.npcTargets.set(entityId, { x, z });
 
-      const sprite = this.npcSprites.get(entityId)!;
+      const sprite = this.entities.npcSprites.get(entityId)!;
       if (health < maxHealth) {
         sprite.showHealthBar(health, maxHealth);
       } else {
@@ -1208,36 +816,16 @@ export class GameManager {
     this.network.on(ServerOpcode.GROUND_ITEM_SYNC, (_op, v) => {
       const [groundItemId, itemId, quantity, x10, z10] = v;
       if (itemId === 0) {
-        const sprite = this.groundItemSprites.get(groundItemId);
-        if (sprite) {
-          sprite.dispose();
-          this.groundItemSprites.delete(groundItemId);
-        }
-        this.groundItems.delete(groundItemId);
+        this.entities.removeGroundItem(groundItemId);
         return;
       }
 
       const x = x10 / 10;
       const z = z10 / 10;
-      this.groundItems.set(groundItemId, { id: groundItemId, itemId, quantity, x, z });
+      this.entities.groundItems.set(groundItemId, { id: groundItemId, itemId, quantity, x, z });
 
-      if (!this.groundItemSprites.has(groundItemId)) {
-        const itemDef = this.itemDefsCache.get(itemId);
-        const itemName = itemDef?.name ?? `Item ${itemId}`;
-        const iconPath = itemDef?.sprite ? `/sprites/items/${itemDef.sprite}`
-          : itemDef?.icon ? `/items/${itemDef.icon}`
-          : null;
-        const sprite = new SpriteEntity(this.scene, {
-          name: `gitem_${groundItemId}`,
-          color: new Color3(0.8, 0.7, 0.2),
-          label: itemName,
-          labelColor: '#ffaa00',
-          width: 0.48,
-          height: 0.48,
-          iconUrl: iconPath ?? undefined,
-        });
-        sprite.position = new Vector3(x, this.getHeight(x, z), z);
-        this.groundItemSprites.set(groundItemId, sprite);
+      if (!this.entities.groundItemSprites.has(groundItemId)) {
+        this.entities.createGroundItem(groundItemId, itemId, quantity, x, z);
       }
     });
 
@@ -1248,67 +836,36 @@ export class GameManager {
         this.combatTargetId = -1;
       }
 
-      // Clean up combat facing targets
-      this.npcCombatTargets.delete(entityId);
-      this.remoteCombatTargets.delete(entityId);
-      // Also remove any entity that was targeting this dead entity
-      for (const [npcId, targetId] of this.npcCombatTargets) {
-        if (targetId === entityId) this.npcCombatTargets.delete(npcId);
-      }
-      for (const [playerId, targetId] of this.remoteCombatTargets) {
-        if (targetId === entityId) this.remoteCombatTargets.delete(playerId);
-      }
-
-      const playerSprite = this.remotePlayers.get(entityId);
-      if (playerSprite) {
-        playerSprite.dispose();
-        this.remotePlayers.delete(entityId);
-        this.remoteTargets.delete(entityId);
-        this.remoteAppearances.delete(entityId);
-        const name = this.playerNames.get(entityId);
-        if (name) this.nameToEntityId.delete(name.toLowerCase());
-        this.playerNames.delete(entityId);
-      }
-
-      const npcSprite = this.npcSprites.get(entityId);
-      if (npcSprite) {
-        npcSprite.dispose();
-        this.npcSprites.delete(entityId);
-        this.npcTargets.delete(entityId);
-        this.npcDefs.delete(entityId);
-      }
+      this.entities.cleanupCombatTargetsFor(entityId);
+      this.entities.removeRemotePlayer(entityId);
+      this.entities.removeNpc(entityId);
     });
   }
 
   private setupCombatHandlers(): void {
     this.network.on(ServerOpcode.COMBAT_HIT, (_op, v) => {
       const [attackerId, targetId, damage, targetHp, targetMaxHp] = v;
-      const targetSprite = this.npcSprites.get(targetId) || this.remotePlayers.get(targetId);
+      const targetSprite = this.entities.npcSprites.get(targetId) || this.entities.remotePlayers.get(targetId);
       if (targetSprite) {
         this.showHitSplat(targetSprite.position, damage);
       }
 
-      // Track combat targets for facing
-      if (this.npcSprites.has(attackerId)) {
-        // NPC attacking a player
-        this.npcCombatTargets.set(attackerId, targetId);
-      } else if (this.remotePlayers.has(attackerId)) {
-        // Remote player attacking an NPC
-        this.remoteCombatTargets.set(attackerId, targetId);
+      if (this.entities.npcSprites.has(attackerId)) {
+        this.entities.npcCombatTargets.set(attackerId, targetId);
+      } else if (this.entities.remotePlayers.has(attackerId)) {
+        this.entities.remoteCombatTargets.set(attackerId, targetId);
       }
 
-      // Trigger attack animation on the attacker
       if (attackerId === this.localPlayerId && this.localPlayer) {
-        // Use punch animation for ranged (no bow draw animation yet)
-        const weaponId = this.localEquipment.get(0) ?? -1; // slot 0 = weapon
+        const weaponId = this.localEquipment.get(0) ?? -1;
         const weaponDef = this.itemDefsCache.get(weaponId);
         const isBow = weaponDef?.weaponStyle === 'bow' || weaponDef?.weaponStyle === 'crossbow';
         this.localPlayer.playAttackAnimation(isBow ? 'bow_attack' : undefined);
       } else {
-        const attackerSprite = this.npcSprites.get(attackerId)
-          || this.remotePlayers.get(attackerId);
+        const attackerSprite = this.entities.npcSprites.get(attackerId)
+          || this.entities.remotePlayers.get(attackerId);
         if (attackerSprite) {
-          const isPlayer = this.remotePlayers.has(attackerId);
+          const isPlayer = this.entities.remotePlayers.has(attackerId);
           if (isPlayer) {
             attackerSprite.playAttackAnimation(this.getPlayerAttackAnimName(attackerId));
           } else {
@@ -1341,11 +898,11 @@ export class GameManager {
       if (attackerId === this.localPlayerId && this.localPlayer) {
         fromPos = this.localPlayer.position.clone();
       } else {
-        const sprite = this.remotePlayers.get(attackerId) || this.npcSprites.get(attackerId);
+        const sprite = this.entities.remotePlayers.get(attackerId) || this.entities.npcSprites.get(attackerId);
         if (sprite) fromPos = sprite.position.clone();
       }
 
-      const targetSprite = this.npcSprites.get(targetId) || this.remotePlayers.get(targetId);
+      const targetSprite = this.entities.npcSprites.get(targetId) || this.entities.remotePlayers.get(targetId);
       if (targetSprite) toPos = targetSprite.position.clone();
       if (targetId === this.localPlayerId && this.localPlayer) {
         toPos = this.localPlayer.position.clone();
@@ -1370,7 +927,7 @@ export class GameManager {
         });
       }
       if (this.shopPanel) {
-        const npcDefId = this.npcDefs.get(npcEntityId);
+        const npcDefId = this.entities.npcDefs.get(npcEntityId);
         const shopTitle = NPC_NAMES[npcDefId || 0] || 'Shop';
         this.shopPanel.show(npcEntityId, items, shopTitle);
         // Enable sell option in inventory context menu
@@ -1721,20 +1278,7 @@ export class GameManager {
   private async handleMapChange(mapId: string, newX: number, newZ: number): Promise<void> {
     console.log(`Map change to '${mapId}' at (${newX}, ${newZ})`);
 
-    // Clear all entity sprites
-    for (const [, sprite] of this.remotePlayers) sprite.dispose();
-    this.remotePlayers.clear();
-    this.remoteTargets.clear();
-    this.remoteAppearances.clear();
-
-    for (const [, sprite] of this.npcSprites) sprite.dispose();
-    this.npcSprites.clear();
-    this.npcTargets.clear();
-    this.npcDefs.clear();
-
-    for (const [, sprite] of this.groundItemSprites) sprite.dispose();
-    this.groundItemSprites.clear();
-    this.groundItems.clear();
+    this.entities.disposeAllEntities();
 
     for (const [, sprite] of this.worldObjectSprites) sprite.dispose();
     this.worldObjectSprites.clear();
@@ -1788,9 +1332,9 @@ export class GameManager {
       const meshName = pickResult.pickedMesh.name;
       const options: { label: string; action: () => void }[] = [];
 
-      for (const [entityId, sprite] of this.npcSprites) {
+      for (const [entityId, sprite] of this.entities.npcSprites) {
         if (sprite.getMesh().name === meshName) {
-          const npcDefId = this.npcDefs.get(entityId);
+          const npcDefId = this.entities.npcDefs.get(entityId);
           const name = NPC_NAMES[npcDefId || 0] || 'NPC';
           if (npcDefId === 8 || npcDefId === 11 || npcDefId === 12 || npcDefId === 13 || npcDefId === 14) {
             // Shopkeeper — trade instead of attack
@@ -1808,9 +1352,9 @@ export class GameManager {
         }
       }
 
-      for (const [groundItemId, sprite] of this.groundItemSprites) {
+      for (const [groundItemId, sprite] of this.entities.groundItemSprites) {
         if (sprite.getMesh().name === meshName) {
-          const gItem = this.groundItems.get(groundItemId);
+          const gItem = this.entities.groundItems.get(groundItemId);
           const iDef = gItem ? this.itemDefsCache.get(gItem.itemId) : null;
           const iName = iDef?.name ?? 'item';
           options.push({
@@ -1823,22 +1367,22 @@ export class GameManager {
 
       // Check 3D models (trees, rocks, placed objects) — walk up parent chain looking for objectEntityId metadata
       let pickedObjectEntityId: number | null = null;
-      let walkMesh: any = pickResult.pickedMesh;
+      let walkMesh: TransformNode | null = pickResult.pickedMesh;
       while (walkMesh) {
         if (walkMesh.metadata?.objectEntityId != null) {
           pickedObjectEntityId = walkMesh.metadata.objectEntityId;
           break;
         }
-        walkMesh = walkMesh.parent;
+        walkMesh = walkMesh.parent as TransformNode | null;
       }
 
       // If no objectEntityId found, check if this is a placed object near a world object
       if (pickedObjectEntityId == null && pickResult.pickedMesh) {
         // Walk up to root placed node
-        let rootNode: any = pickResult.pickedMesh;
+        let rootNode: TransformNode = pickResult.pickedMesh!;
         while (rootNode.parent) {
           if (this.chunkManager.isPlacedObjectNode(rootNode)) break;
-          rootNode = rootNode.parent;
+          rootNode = rootNode.parent as TransformNode;
         }
 
         if (this.chunkManager.isPlacedObjectNode(rootNode)) {
@@ -1956,7 +1500,7 @@ export class GameManager {
     this.combatTargetId = npcEntityId;
     this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_ATTACK_NPC, npcEntityId));
 
-    const target = this.npcTargets.get(npcEntityId);
+    const target = this.entities.npcTargets.get(npcEntityId);
     if (target) {
       const path = findPath(this.playerX, this.playerZ, target.x, target.z,
         this.isTileBlocked,
@@ -1970,7 +1514,7 @@ export class GameManager {
       }
       if (path.length > 0) {
         this.path = path; this.pathIndex = 0; this.tileProgress = 0; this.tileFrom = { x: this.playerX, z: this.playerZ };
-        this.destMarker.isVisible = false;
+        if (this.destMarker) this.destMarker.isVisible = false;
         this.minimap?.clearDestination();
       }
     }
@@ -1978,7 +1522,7 @@ export class GameManager {
 
   private talkToNpc(npcEntityId: number): void {
     this.spawnCursorClickEffect(this.lastClickX, this.lastClickY, '#ff3030');
-    const target = this.npcTargets.get(npcEntityId);
+    const target = this.entities.npcTargets.get(npcEntityId);
     if (!target) return;
 
     // Walk to NPC first, then send talk opcode
@@ -1994,7 +1538,7 @@ export class GameManager {
     }
     if (path.length > 0) {
       this.path = path; this.pathIndex = 0; this.tileProgress = 0; this.tileFrom = { x: this.playerX, z: this.playerZ };
-      this.destMarker.isVisible = false;
+      if (this.destMarker) this.destMarker.isVisible = false;
       this.minimap?.clearDestination();
     }
     // Send talk opcode — server checks distance
@@ -2025,22 +1569,22 @@ export class GameManager {
         this.interactMarker.position.z = data.z;
         this.alignMarkerToTerrain(data.x, data.z, this.interactMarker);
         this.interactMarker.isVisible = true;
-        this.destMarker.isVisible = false;
+        if (this.destMarker) this.destMarker.isVisible = false;
       }
 
       this.interactObject(objectEntityId, 0);
     }
   }
 
-  private showSmithingUI(objectEntityId: number, def: any): void {
+  private showSmithingUI(objectEntityId: number, def: WorldObjectDef): void {
     if (!this.smithingPanel || !this.sidePanel) return;
     const inventory = this.sidePanel.getInventory();
     const smithingLevel = this.sidePanel.getSkillLevel('smithing');
     const itemDefs = this.sidePanel.getItemDefs();
-    const toolType = def.recipes[0].requiresTool;
-    const hasTool = inventory.some((slot: any) => slot && itemDefs.get(slot.itemId)?.toolType === toolType);
+    const toolType = def.recipes?.[0]?.requiresTool;
+    const hasTool = inventory.some((slot: InventorySlot | null) => slot && itemDefs.get(slot.itemId)?.toolType === toolType);
 
-    this.smithingPanel.show(def.recipes, inventory, smithingLevel, hasTool, itemDefs, (recipeIndex) => {
+    this.smithingPanel.show(def.recipes ?? [], inventory, smithingLevel, hasTool, itemDefs, (recipeIndex) => {
       // Walk to the anvil and send the crafting request with the specific recipe index
       this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_INTERACT_OBJECT, objectEntityId, 0, recipeIndex));
     });
@@ -2206,6 +1750,120 @@ export class GameManager {
     this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_INTERACT_OBJECT, objectEntityId, actionIndex));
   }
 
+  private handleChatCommand(msg: string): boolean {
+    if (msg === '/geardebug') {
+      if (!this.gearDebugPanel) {
+        this.gearDebugPanel = new GearDebugPanel();
+        this.gearDebugPanel.setSlotGetter((slot) => this.localPlayer?.getGearNode?.(slot) ?? null);
+        this.gearDebugPanel.setSlotBoneGetter((slot) => EQUIP_SLOT_BONES[slot]?.boneName ?? '');
+        this.gearDebugPanel.setItemInfoGetter((slot) => {
+          const itemId = this.localPlayer?.getGearItemId(slot) ?? -1;
+          if (itemId < 0) return null;
+          const def = this.itemDefsCache.get(itemId);
+          return { id: itemId, name: def?.name ?? `item ${itemId}`, toolType: def?.toolType };
+        });
+        this.gearDebugPanel.setOverrideGetter((itemId) => this.gearOverrides.get(itemId) ?? null);
+        this.gearDebugPanel.setSaveCallback(async (itemId, override) => {
+          this.gearOverrides.set(itemId, override);
+          const all: Record<string, any> = {};
+          for (const [id, ov] of this.gearOverrides) all[String(id)] = ov;
+          const res = await fetch('/api/dev/gear-overrides', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(all),
+          });
+          if (!res.ok) throw new Error('Server returned ' + res.status);
+          const slotName = EQUIP_SLOT_NAMES.find(s => this.localPlayer?.getGearItemId(s) === itemId);
+          if (slotName) this.gearTemplateCache.delete(`${slotName}/${itemId}`);
+        });
+        this.gearDebugPanel.setLoadGlbCallback(async (slot, path) => {
+          if (!this.localPlayer) throw new Error('No local player');
+          const boneConfig = EQUIP_SLOT_BONES[slot];
+          if (!boneConfig) throw new Error('Unknown slot: ' + slot);
+          const gearDef: GearDef = {
+            itemId: -999,
+            file: path,
+            boneName: boneConfig.boneName,
+            localPosition: boneConfig.localPosition,
+            localRotation: boneConfig.localRotation,
+            scale: boneConfig.scale,
+            centerOrigin: false,
+          };
+          const tmpl = await loadGearTemplate(this.scene, gearDef);
+          if (!tmpl) throw new Error('Failed to load ' + path);
+          this.localPlayer.attachGear(slot, -999, tmpl);
+        });
+        this.gearDebugPanel.setUnequipCallback((slot) => {
+          if (!this.localPlayer) return;
+          this.localPlayer.detachGear(slot);
+        });
+        this.gearDebugPanel.setAnimCallback((anim) => {
+          if (!this.localPlayer) return;
+          if (anim === 'idle') {
+            this.localPlayer.stopWalking();
+            this.localPlayer.stopSkillAnimation();
+          } else if (anim === 'walk') {
+            this.localPlayer.startWalking();
+          } else if (anim === 'attack') {
+            this.localPlayer.playAttackAnimation();
+          } else if (anim === 'chop') {
+            this.localPlayer.startSkillAnimation('chop');
+          } else if (anim === 'mine') {
+            this.localPlayer.startSkillAnimation('mine');
+          }
+        });
+      }
+      this.gearDebugPanel.toggle();
+      if (this.gearDebugPanel.isVisible) this.camera.enterDebugZoom();
+      else this.camera.exitDebugZoom();
+      return true;
+    }
+    if (msg === '/bonedebug') {
+      if (!this.boneDebugPanel) {
+        this.boneDebugPanel = new BoneDebugPanel();
+        this.boneDebugPanel.setSkeletonGetter(() => this.localPlayer?.getSkeleton?.() ?? null);
+      }
+      this.boneDebugPanel.toggle();
+      if (this.boneDebugPanel.isVisible) this.camera.enterDebugZoom();
+      else this.camera.exitDebugZoom();
+      return true;
+    }
+    if (msg === '/armor') {
+      if (!this.armorBrowser) {
+        this.armorBrowser = new ArmorBrowserPanel();
+        this.armorBrowser.setScene(this.scene);
+        this.armorBrowser.setEquipCallback((category, item, root, armorSkeleton) => {
+          const prev = this.armorPreviewNodes.get(category);
+          if (prev) prev.dispose();
+          const prevSkel = this.armorSkeletons.get(category);
+          if (prevSkel) prevSkel.dispose();
+          this.armorSkeletons.delete(category);
+          const charRoot = this.localPlayer?.getRoot?.();
+          if (charRoot) {
+            root.parent = charRoot;
+            root.rotationQuaternion = null;
+            root.position.set(0, 0, 0);
+            root.rotation.set(0, 0, 0);
+            root.scaling.set(1, 1, 1);
+          }
+          this.armorPreviewNodes.set(category, root);
+          if (armorSkeleton) this.armorSkeletons.set(category, armorSkeleton);
+        });
+        this.armorBrowser.setUnequipCallback((category) => {
+          const node = this.armorPreviewNodes.get(category);
+          if (node) { node.dispose(); this.armorPreviewNodes.delete(category); }
+          const skel = this.armorSkeletons.get(category);
+          if (skel) { skel.dispose(); this.armorSkeletons.delete(category); }
+        });
+      }
+      this.armorBrowser.toggle();
+      if (this.armorBrowser.isVisible) this.camera.enterDebugZoom();
+      else this.camera.exitDebugZoom();
+      return true;
+    }
+    return false;
+  }
+
   private showPlayerChatBubble(fromName: string, message: string): void {
     if (!fromName) return;
 
@@ -2216,9 +1874,9 @@ export class GameManager {
       return;
     }
 
-    const entityId = this.nameToEntityId.get(fromName.toLowerCase());
+    const entityId = this.entities.nameToEntityId.get(fromName.toLowerCase());
     if (entityId !== undefined) {
-      const sprite = this.remotePlayers.get(entityId);
+      const sprite = this.entities.remotePlayers.get(entityId);
       if (sprite) {
         sprite.showChatBubble(message);
       }
@@ -2385,8 +2043,9 @@ export class GameManager {
   }
 
   /** Align a marker disc to the terrain normal at (x, z) */
-  private alignMarkerToTerrain(x: number, z: number, marker?: any): void {
+  private alignMarkerToTerrain(x: number, z: number, marker?: TransformNode): void {
     const target = marker ?? this.destMarker;
+    if (!target) return;
     const d = 0.25; // sample offset for gradient
     const hC = this.getHeight(x, z);
     const hR = this.getHeight(x + d, z);
@@ -2526,6 +2185,8 @@ export class GameManager {
 
   private static readonly IDENTITY = Matrix.Identity();
 
+  private static readonly MAX_OVERLAY_DIST_SQ = 45 * 45;
+
   private updateOverlayPositions(): void {
     const cam = this.scene.activeCamera;
     if (!cam) return;
@@ -2538,32 +2199,47 @@ export class GameManager {
     const transform = viewMatrix.multiply(projMatrix);
     const viewport = new Viewport(0, 0, w, h);
     const identity = GameManager.IDENTITY;
+    const camPos = cam.position;
+    const maxDistSq = GameManager.MAX_OVERLAY_DIST_SQ;
 
-    // Project overlays for sprites that actually have visible overlays — no intermediate array
-    const projectSprite = (sprite: SpriteEntity | CharacterEntity | Npc3DEntity) => {
+    const projectOverlay = (
+      getWorldPos: () => Vector3 | null,
+      updateScreenPos: (x: number, y: number) => void,
+    ) => {
+      const worldPos = getWorldPos();
+      if (!worldPos) return;
+      const sp = Vector3.Project(worldPos, identity, transform, viewport);
+      if (sp.z > 0 && sp.z < 1) {
+        updateScreenPos(sp.x, sp.y);
+      } else {
+        updateScreenPos(-9999, -9999);
+      }
+    };
+
+    const projectSprite = (sprite: SpriteEntity | CharacterEntity | Npc3DEntity, skipDistCheck?: boolean) => {
       const hasBubble = sprite.hasChatBubble();
       const hasBar = sprite.hasHealthBar();
       if (!hasBubble && !hasBar) return;
 
-      if (hasBubble) {
-        const worldPos = sprite.getChatBubbleWorldPos();
-        if (worldPos) {
-          const screenPos = Vector3.Project(worldPos, identity, transform, viewport);
-          sprite.updateChatBubbleScreenPos(screenPos.x, screenPos.y);
+      if (!skipDistCheck) {
+        const pos = sprite.position;
+        const dx = pos.x - camPos.x;
+        const dy = pos.y - camPos.y;
+        const dz = pos.z - camPos.z;
+        if (dx * dx + dy * dy + dz * dz > maxDistSq) {
+          if (hasBar) sprite.updateHealthBarScreenPos(-9999, -9999);
+          if (hasBubble) sprite.updateChatBubbleScreenPos(-9999, -9999);
+          return;
         }
       }
-      if (hasBar) {
-        const worldPos = sprite.getHealthBarWorldPos();
-        if (worldPos) {
-          const screenPos = Vector3.Project(worldPos, identity, transform, viewport);
-          sprite.updateHealthBarScreenPos(screenPos.x, screenPos.y);
-        }
-      }
+
+      if (hasBubble) projectOverlay(() => sprite.getChatBubbleWorldPos(), (x, y) => sprite.updateChatBubbleScreenPos(x, y));
+      if (hasBar) projectOverlay(() => sprite.getHealthBarWorldPos(), (x, y) => sprite.updateHealthBarScreenPos(x, y));
     };
 
-    if (this.localPlayer) projectSprite(this.localPlayer);
-    for (const [, sprite] of this.remotePlayers) projectSprite(sprite);
-    for (const [, sprite] of this.npcSprites) projectSprite(sprite);
+    if (this.localPlayer) projectSprite(this.localPlayer, true);
+    for (const [, sprite] of this.entities.remotePlayers) projectSprite(sprite);
+    for (const [, sprite] of this.entities.npcSprites) projectSprite(sprite);
   }
 
   private updateHUD(): void {
@@ -2639,244 +2315,186 @@ export class GameManager {
   }
 
   private update(dt: number): void {
-    // WASD camera rotation
-    const camSpeed = 2.0 * dt;
-    const cam = this.camera.getCamera();
-    if (this.keysDown.has('a') || this.keysDown.has('arrowleft')) cam.alpha += camSpeed;
-    if (this.keysDown.has('d') || this.keysDown.has('arrowright')) cam.alpha -= camSpeed;
-    if (this.keysDown.has('w') || this.keysDown.has('arrowup')) cam.beta = Math.max(0.2, cam.beta - camSpeed);
-    if (this.keysDown.has('s') || this.keysDown.has('arrowdown')) cam.beta = Math.min(Math.PI / 2.2, cam.beta + camSpeed);
-    // Escape resets camera rotation to default
-    if (this.keysDown.has('escape')) {
-      cam.alpha = -Math.PI / 4;
-      cam.beta = Math.PI / 3.2;
-      this.keysDown.delete('escape');
-    }
+    this.updateCameraKeys(dt);
 
-    // Update attack animations on all sprites
     if (this.localPlayer) this.localPlayer.updateAnimation(dt);
-    for (const [, sprite] of this.remotePlayers) sprite.updateAnimation(dt);
-    for (const [, sprite] of this.npcSprites) sprite.updateAnimation(dt);
+    this.entities.updateAnimations(dt);
 
     if (this.armorSkeletons.size > 0) this.syncArmorBones();
 
-    // Cache camera position for this frame
     const camPos = this.scene.activeCamera?.position ?? null;
 
-    // Update chunks around player
     this.chunkManager.updatePlayerPosition(this.playerX, this.playerZ);
     this.chunkManager.updateAnimations();
     this.updateFog(dt);
 
-    // Combat follow
-    this._combatPathTimer -= dt;
-    if (this.combatTargetId >= 0 && this.localPlayer) {
-      const npcTarget = this.npcTargets.get(this.combatTargetId);
-      if (npcTarget) {
-        const dx = npcTarget.x - this.playerX;
-        const dz = npcTarget.z - this.playerZ;
-        const dist = Math.hypot(dx, dz);
-        if (dist > 1.5) {
-          if ((this.pathIndex >= this.path.length || dist > 3) && this._combatPathTimer <= 0) {
-            this._combatPathTimer = 0.3;
-            const newPath = findPath(this.playerX, this.playerZ, npcTarget.x, npcTarget.z,
-              this.isTileBlocked,
-              this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 200,
-              this.isWallBlockedForPath);
-            if (newPath.length > 1) {
-              const last = newPath[newPath.length - 1];
-              if (Math.floor(last.x) === Math.floor(npcTarget.x) && Math.floor(last.z) === Math.floor(npcTarget.z)) {
-                newPath.pop();
-              }
-            }
-            if (newPath.length > 0) {
-              this.path = newPath; this.pathIndex = 0;
-              this.destMarker.isVisible = false;
-              this.minimap?.clearDestination();
-            }
-          }
-        }
-      }
-    }
+    this.updateCombatFollow(dt);
+    this.updateLocalPlayerMovement(dt, camPos);
 
-    // Move local player — tick-aligned tile stepping
-    if (this.pathIndex < this.path.length && this.localPlayer) {
-      if (!this.localPlayer.isWalking()) this.localPlayer.startWalking();
-
-      // Combat range check
-      if (this.combatTargetId >= 0) {
-        const npcTarget = this.npcTargets.get(this.combatTargetId);
-        if (npcTarget) {
-          const toDist = Math.hypot(npcTarget.x - this.playerX, npcTarget.z - this.playerZ);
-          if (toDist <= 1.5) {
-            this.pathIndex = this.path.length;
-            this.localPlayer.stopWalking();
-            this.playerX = Math.floor(this.playerX) + 0.5;
-            this.playerZ = Math.floor(this.playerZ) + 0.5;
-            this.localPlayer!.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
-          }
-        }
-      }
-
-      if (this.pathIndex < this.path.length) {
-        const target = this.path[this.pathIndex];
-        const dx = target.x - this.tileFrom.x;
-        const dz = target.z - this.tileFrom.z;
-        const tileDist = Math.hypot(dx, dz);
-        // Speed: 1 tile per 600ms = 1.67 tiles/sec. Diagonal tiles are ~1.41 tiles distance.
-        const stepRate = tileDist > 0 ? (this.moveSpeed * dt) / tileDist : 1;
-        this.tileProgress += stepRate;
-
-        if (this.tileProgress >= 1.0) {
-          // Arrived at tile center — snap
-          this.playerX = target.x;
-          this.playerZ = target.z;
-          this.tileProgress = 0;
-          this.tileFrom = { x: target.x, z: target.z };
-          this.pathIndex++;
-
-          // Apply pending path at every tile boundary (max 1 tile delay on redirect)
-          if (this.pendingPath) {
-            this.path = this.pendingPath;
-            this.pathIndex = 0;
-            this.pendingPath = null;
-          }
-
-          if (this.pathIndex >= this.path.length) {
-            this.destMarker.isVisible = false;
-            this.minimap?.clearDestination();
-            this.localPlayer.stopWalking();
-            // Start deferred skilling animation now that we've arrived
-            if (this.pendingSkill) {
-              const { objectId, variant } = this.pendingSkill;
-              this.pendingSkill = null;
-              this.startSkillingVisual(objectId, variant);
-            }
-          }
-        } else {
-          // Lerp between tile centers
-          this.playerX = this.tileFrom.x + dx * this.tileProgress;
-          this.playerZ = this.tileFrom.z + dz * this.tileProgress;
-        }
-
-        // Update facing direction (skip if skilling — startSkillingVisual handles facing)
-        if (!this.isSkilling) {
-          if (camPos && this.pathIndex < this.path.length) {
-            const nextTarget = this.path[this.pathIndex];
-            this.localPlayer.updateMovementDirection(nextTarget.x - this.playerX, nextTarget.z - this.playerZ, camPos);
-          } else if (camPos && (dx !== 0 || dz !== 0)) {
-            this.localPlayer.updateMovementDirection(dx, dz, camPos);
-          }
-        }
-
-        const playerH = this.getHeight(this.playerX, this.playerZ);
-        this.localPlayer.setPositionXYZ(this.playerX, playerH, this.playerZ);
-        this.inputManager.setPlayerY(playerH);
-      }
-    }
-
-    // Face local player toward combat target when idle
     if (this.localPlayer && this.pathIndex >= this.path.length && this.combatTargetId >= 0) {
       if (camPos) {
-        const npcTarget = this.npcTargets.get(this.combatTargetId);
-        const npcSprite = this.npcSprites.get(this.combatTargetId);
+        const npcTarget = this.entities.npcTargets.get(this.combatTargetId);
+        const npcSprite = this.entities.npcSprites.get(this.combatTargetId);
         if (npcTarget && npcSprite) {
           this.localPlayer.faceToward(npcSprite.position, camPos);
         }
       }
     }
 
-    // Interpolate remote players
-    for (const [entityId, sprite] of this.remotePlayers) {
-      const target = this.remoteTargets.get(entityId);
-      if (!target) continue;
-      const c = sprite.position;
-      const dx = target.x - c.x;
-      const dz = target.z - c.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.05) {
-        if (!sprite.isWalking()) sprite.startWalking();
-        if (camPos) sprite.updateMovementDirection(dx, dz, camPos);
-        const step = Math.min(1.67 * dt, dist);
-        const nx = c.x + (dx / dist) * step;
-        const nz = c.z + (dz / dist) * step;
-        sprite.setPositionXYZ(nx, this.getHeight(nx, nz), nz);
+    this.entities.interpolateRemotePlayers(dt, camPos);
+    this.entities.interpolateNpcs(dt, camPos, this.localPlayerId, this.localPlayer?.position ?? null);
+
+    this.updateHitSplats(dt);
+    this.updateIndoorDetection();
+
+    if (this.localPlayer) {
+      this._tempVec.set(this.playerX, this.localPlayer.position.y, this.playerZ);
+      this.camera.followTarget(this._tempVec);
+    }
+
+    this.updateOverlayPositions();
+    this.updateThinkingBubble();
+    this.updateMinimap();
+  }
+
+  private updateCameraKeys(dt: number): void {
+    const camSpeed = 2.0 * dt;
+    const cam = this.camera.getCamera();
+    if (this.keysDown.has('a') || this.keysDown.has('arrowleft')) cam.alpha += camSpeed;
+    if (this.keysDown.has('d') || this.keysDown.has('arrowright')) cam.alpha -= camSpeed;
+    if (this.keysDown.has('w') || this.keysDown.has('arrowup')) cam.beta = Math.max(0.2, cam.beta - camSpeed);
+    if (this.keysDown.has('s') || this.keysDown.has('arrowdown')) cam.beta = Math.min(Math.PI / 2.2, cam.beta + camSpeed);
+    if (this.keysDown.has('escape')) {
+      cam.alpha = -Math.PI / 4;
+      cam.beta = Math.PI / 3.2;
+      this.keysDown.delete('escape');
+    }
+  }
+
+  private updateCombatFollow(dt: number): void {
+    this._combatPathTimer -= dt;
+    if (this.combatTargetId < 0 || !this.localPlayer) return;
+    const npcTarget = this.entities.npcTargets.get(this.combatTargetId);
+    if (!npcTarget) return;
+    const dx = npcTarget.x - this.playerX;
+    const dz = npcTarget.z - this.playerZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= 1.5) return;
+    if ((this.pathIndex < this.path.length && dist <= 3) || this._combatPathTimer > 0) return;
+    this._combatPathTimer = 0.3;
+    const newPath = findPath(this.playerX, this.playerZ, npcTarget.x, npcTarget.z,
+      this.isTileBlocked,
+      this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 200,
+      this.isWallBlockedForPath);
+    if (newPath.length > 1) {
+      const last = newPath[newPath.length - 1];
+      if (Math.floor(last.x) === Math.floor(npcTarget.x) && Math.floor(last.z) === Math.floor(npcTarget.z)) {
+        newPath.pop();
+      }
+    }
+    if (newPath.length > 0) {
+      this.path = newPath; this.pathIndex = 0;
+      if (this.destMarker) this.destMarker.isVisible = false;
+      this.minimap?.clearDestination();
+    }
+  }
+
+  private updateLocalPlayerMovement(dt: number, camPos: Vector3 | null): void {
+    if (this.pathIndex >= this.path.length || !this.localPlayer) return;
+    if (!this.localPlayer.isWalking()) this.localPlayer.startWalking();
+
+    if (this.combatTargetId >= 0) {
+      const npcTarget = this.entities.npcTargets.get(this.combatTargetId);
+      if (npcTarget) {
+        const toDist = Math.hypot(npcTarget.x - this.playerX, npcTarget.z - this.playerZ);
+        if (toDist <= 1.5) {
+          this.pathIndex = this.path.length;
+          this.localPlayer.stopWalking();
+          this.playerX = Math.floor(this.playerX) + 0.5;
+          this.playerZ = Math.floor(this.playerZ) + 0.5;
+          this.localPlayer.setPositionXYZ(this.playerX, this.getHeight(this.playerX, this.playerZ), this.playerZ);
+          return;
+        }
+      }
+    }
+
+    if (this.pathIndex >= this.path.length) return;
+    const target = this.path[this.pathIndex];
+    const dx = target.x - this.tileFrom.x;
+    const dz = target.z - this.tileFrom.z;
+    const tileDist = Math.hypot(dx, dz);
+    const stepRate = tileDist > 0 ? (this.moveSpeed * dt) / tileDist : 1;
+    this.tileProgress += stepRate;
+
+    if (this.tileProgress >= 1.0) {
+      this.playerX = target.x;
+      this.playerZ = target.z;
+      this.tileProgress = 0;
+      this.tileFrom = { x: target.x, z: target.z };
+      this.pathIndex++;
+
+      if (this.pendingPath) {
+        this.path = this.pendingPath;
+        this.pathIndex = 0;
+        this.pendingPath = null;
+      }
+
+      if (this.pathIndex >= this.path.length) {
+        if (this.destMarker) this.destMarker.isVisible = false;
+        this.minimap?.clearDestination();
+        this.localPlayer.stopWalking();
+        if (this.pendingSkill) {
+          const { objectId, variant } = this.pendingSkill;
+          this.pendingSkill = null;
+          this.startSkillingVisual(objectId, variant);
+        }
+      }
+    } else {
+      this.playerX = this.tileFrom.x + dx * this.tileProgress;
+      this.playerZ = this.tileFrom.z + dz * this.tileProgress;
+    }
+
+    if (!this.isSkilling) {
+      if (camPos && this.pathIndex < this.path.length) {
+        const nextTarget = this.path[this.pathIndex];
+        this.localPlayer.updateMovementDirection(nextTarget.x - this.playerX, nextTarget.z - this.playerZ, camPos);
+      } else if (camPos && (dx !== 0 || dz !== 0)) {
+        this.localPlayer.updateMovementDirection(dx, dz, camPos);
+      }
+    }
+
+    const playerH = this.getHeight(this.playerX, this.playerZ);
+    this.localPlayer.setPositionXYZ(this.playerX, playerH, this.playerZ);
+    this.inputManager.setPlayerY(playerH);
+  }
+
+  private updateHitSplats(dt: number): void {
+    const cam = this.scene.activeCamera;
+    if (!cam || this.hitSplats.length === 0) return;
+    const w = this.engine.getRenderWidth();
+    const h = this.engine.getRenderHeight();
+    const transform = cam.getViewMatrix().multiply(cam.getProjectionMatrix());
+    this._splatVp.x = 0; this._splatVp.y = 0; this._splatVp.width = w; this._splatVp.height = h;
+
+    let writeIdx = 0;
+    for (let i = 0; i < this.hitSplats.length; i++) {
+      const splat = this.hitSplats[i];
+      splat.timer -= dt;
+      splat.worldPos.y += dt * 0.5;
+      if (splat.timer <= 0) {
+        splat.el.remove();
       } else {
-        if (sprite.isWalking()) sprite.stopWalking();
-        // Idle — face combat target if in combat
-        const combatTarget = this.remoteCombatTargets.get(entityId);
-        if (combatTarget !== undefined) {
-          if (camPos) {
-            const targetSprite = this.npcSprites.get(combatTarget);
-            if (targetSprite) sprite.faceToward(targetSprite.position, camPos);
-          }
-        }
+        splat.el.style.opacity = (splat.timer < 0.3 ? splat.timer / 0.3 : 1).toString();
+        const screenPos = Vector3.Project(splat.worldPos, Matrix.Identity(), transform, this._splatVp);
+        splat.el.style.left = `${screenPos.x}px`;
+        splat.el.style.top = `${screenPos.y}px`;
+        this.hitSplats[writeIdx++] = splat;
       }
     }
+    this.hitSplats.length = writeIdx;
+  }
 
-    // Interpolate NPCs
-    for (const [entityId, sprite] of this.npcSprites) {
-      const target = this.npcTargets.get(entityId);
-      if (!target) continue;
-      const c = sprite.position;
-      const dx = target.x - c.x;
-      const dz = target.z - c.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.05) {
-        if (!sprite.isWalking()) sprite.startWalking();
-        if (camPos) sprite.updateMovementDirection(dx, dz, camPos);
-        const step = Math.min(3.0 * dt, dist);
-        const nx = c.x + (dx / dist) * step;
-        const nz = c.z + (dz / dist) * step;
-        sprite.setPositionXYZ(nx, this.getHeight(nx, nz), nz);
-      } else {
-        if (sprite.isWalking()) sprite.stopWalking();
-        // Idle — face combat target if in combat
-        const combatTarget = this.npcCombatTargets.get(entityId);
-        if (combatTarget !== undefined) {
-          if (camPos) {
-            // NPC's target could be local player or a remote player
-            if (combatTarget === this.localPlayerId && this.localPlayer) {
-              sprite.faceToward(this.localPlayer.position, camPos);
-            } else {
-              const targetSprite = this.remotePlayers.get(combatTarget);
-              if (targetSprite) sprite.faceToward(targetSprite.position, camPos);
-            }
-          }
-        }
-      }
-    }
-
-    // Update hit splats
-    {
-      const cam = this.scene.activeCamera;
-      if (cam && this.hitSplats.length > 0) {
-        const w = this.engine.getRenderWidth();
-        const h = this.engine.getRenderHeight();
-        const transform = cam.getViewMatrix().multiply(cam.getProjectionMatrix());
-        this._splatVp.x = 0; this._splatVp.y = 0; this._splatVp.width = w; this._splatVp.height = h;
-
-        let writeIdx = 0;
-        for (let i = 0; i < this.hitSplats.length; i++) {
-          const splat = this.hitSplats[i];
-          splat.timer -= dt;
-          splat.worldPos.y += dt * 0.5;
-
-          if (splat.timer <= 0) {
-            splat.el.remove();
-          } else {
-            splat.el.style.opacity = (splat.timer < 0.3 ? splat.timer / 0.3 : 1).toString();
-            const screenPos = Vector3.Project(splat.worldPos, Matrix.Identity(), transform, this._splatVp);
-            splat.el.style.left = `${screenPos.x}px`;
-            splat.el.style.top = `${screenPos.y}px`;
-            this.hitSplats[writeIdx++] = splat;
-          }
-        }
-        this.hitSplats.length = writeIdx;
-      }
-    }
-
-    // Indoor detection — check if player is under a roof
+  private updateIndoorDetection(): void {
     const playerY = this.localPlayer?.position.y ?? this.getHeight(this.playerX, this.playerZ);
     const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ, playerY);
     if (underRoof && !this.isIndoors) {
@@ -2890,20 +2508,17 @@ export class GameManager {
       this._lastIndoorTileX = -9999;
       this._lastIndoorTileZ = -9999;
     }
-    // While indoors, update which objects are hidden — only when player tile changes
     if (this.isIndoors) {
       const ptx = Math.floor(this.playerX);
       const ptz = Math.floor(this.playerZ);
       if (ptx !== this._lastIndoorTileX || ptz !== this._lastIndoorTileZ) {
         this._lastIndoorTileX = ptx;
         this._lastIndoorTileZ = ptz;
-        // Show previously hidden nodes
         for (const node of this.hiddenRoofNodes) node.setEnabled(true);
-        const playerY = this.localPlayer?.position.y ?? 0;
-        // Hide objects above the player's current height
+        const py = this.localPlayer?.position.y ?? 0;
         this.hiddenRoofNodes = [
-          ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, playerY + 0.5),
-          ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, playerY + 1.5),
+          ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, py + 0.5),
+          ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, py + 1.5),
         ];
         this._roofDedup.clear();
         this.hiddenRoofNodes = this.hiddenRoofNodes.filter(n => {
@@ -2914,47 +2529,32 @@ export class GameManager {
         for (const node of this.hiddenRoofNodes) node.setEnabled(false);
       }
     }
+  }
 
-    // Camera follows player — use sprite's actual Y position (accounts for bridges/floors)
-    if (this.localPlayer) {
-      this._tempVec.set(this.playerX, this.localPlayer.position.y, this.playerZ);
-      this.camera.followTarget(this._tempVec);
+  private updateMinimap(): void {
+    if (!this.minimap || !this.chunkManager.isLoaded()) return;
+    this._minimapRemotes.length = 0;
+    for (const [, target] of this.entities.remoteTargets) {
+      this._minimapRemotes.push(target);
     }
-
-    // Note: player sprite directions are updated during movement interpolation above
-    // (based on movement direction, not camera angle)
-
-    // Update all HTML overlay positions
-    this.updateOverlayPositions();
-    this.updateThinkingBubble();
-
-    // Update minimap
-    if (this.minimap && this.chunkManager.isLoaded()) {
-      this._minimapRemotes.length = 0;
-      for (const [, target] of this.remoteTargets) {
-        this._minimapRemotes.push(target);
-      }
-      this._minimapNpcs.length = 0;
-      for (const [, target] of this.npcTargets) {
-        this._minimapNpcs.push(target);
-      }
-      // Rebuild world-object list for the minimap. Hidden dots for depleted
-      // resources would flicker, so skip them.
-      this._minimapObjects.length = 0;
-      for (const [, data] of this.worldObjectDefs) {
-        if (data.depleted) continue;
-        const def = this.objectDefsCache.get(data.defId);
-        if (!def) continue;
-        this._minimapObjects.push({ x: data.x, z: data.z, category: def.category });
-      }
-      const camAlpha = this.camera.getCamera().alpha;
-      this.minimap.update(
-        this.playerX, this.playerZ,
-        this._minimapRemotes, this._minimapNpcs,
-        this.chunkManager,
-        camAlpha,
-        this._minimapObjects,
-      );
+    this._minimapNpcs.length = 0;
+    for (const [, target] of this.entities.npcTargets) {
+      this._minimapNpcs.push(target);
     }
+    this._minimapObjects.length = 0;
+    for (const [, data] of this.worldObjectDefs) {
+      if (data.depleted) continue;
+      const def = this.objectDefsCache.get(data.defId);
+      if (!def) continue;
+      this._minimapObjects.push({ x: data.x, z: data.z, category: def.category });
+    }
+    const camAlpha = this.camera.getCamera().alpha;
+    this.minimap.update(
+      this.playerX, this.playerZ,
+      this._minimapRemotes, this._minimapNpcs,
+      this.chunkManager,
+      camAlpha,
+      this._minimapObjects,
+    );
   }
 }

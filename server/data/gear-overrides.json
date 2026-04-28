@@ -1,0 +1,68 @@
+{
+  "31": {
+    "file": "/assets/equipment/Tools/Axe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "32": {
+    "file": "/assets/equipment/Tools/Axe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "33": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "36": {
+    "file": "/assets/equipment/Tools/Axe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "37": {
+    "file": "/assets/equipment/Tools/Axe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "38": {
+    "file": "/assets/equipment/Tools/Axe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "53": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "54": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "55": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "56": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  },
+  "57": {
+    "file": "/assets/equipment/Tools/Pickaxe.glb",
+    "localPosition": { "x": 0.445, "y": 0.15, "z": 0.01 },
+    "localRotation": { "x": -2.8, "y": 1.65, "z": -0.15 },
+    "scale": 0.65
+  }
+}

@@ -1,6 +1,7 @@
 import { Scene } from '@babylonjs/core/scene';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import type { Node } from '@babylonjs/core/node';
 import { Plane } from '@babylonjs/core/Maths/math.plane';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
 import '@babylonjs/core/Culling/ray';
@@ -51,7 +52,7 @@ export class InputManager {
             this.scene.pointerY,
             (mesh) => {
               // Only pick meshes that belong to interactive objects
-              let node: any = mesh;
+              let node: Node | null = mesh;
               while (node) {
                 if (node.metadata?.objectEntityId != null) return true;
                 node = node.parent;
@@ -62,7 +63,7 @@ export class InputManager {
             this.scene.activeCamera!
           );
           if (pick?.hit && pick.pickedMesh) {
-            let node: any = pick.pickedMesh;
+            let node: Node | null = pick.pickedMesh;
             while (node) {
               if (node.metadata?.objectEntityId != null) {
                 this.onObjectClick(node.metadata.objectEntityId);

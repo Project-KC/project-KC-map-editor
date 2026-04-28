@@ -74,3 +74,40 @@ export function getSlopeShade(h: CornerHeights): number {
 export function getTileAverageHeight(h: CornerHeights): number {
   return (h.tl + h.tr + h.bl + h.br) / 4;
 }
+
+export function getVertexAO(
+  vx: number, vz: number,
+  mapWidth: number, mapHeight: number,
+  getVertexHeight: (x: number, z: number) => number,
+): number {
+  const h = getVertexHeight(vx, vz);
+  let sum = 0, count = 0;
+  for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as [number, number][]) {
+    const nx = vx + dx, nz = vz + dz;
+    if (nx < 0 || nx > mapWidth || nz < 0 || nz > mapHeight) continue;
+    sum += getVertexHeight(nx, nz);
+    count++;
+  }
+  if (count === 0) return 1.0;
+  const depression = (sum / count) - h;
+  return 1.0 - clamp(depression * 0.16, 0, 0.40);
+}
+
+export function getVertexWaterProximity(
+  vx: number, vz: number,
+  isWaterTile: (tx: number, tz: number) => boolean,
+): number {
+  let maxProx = 0;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const tx = vx + dx, tz = vz + dz;
+      if (!isWaterTile(tx, tz)) continue;
+      const cx = clamp(vx, tx, tx + 1);
+      const cz = clamp(vz, tz, tz + 1);
+      const dist = Math.sqrt((vx - cx) * (vx - cx) + (vz - cz) * (vz - cz));
+      const prox = Math.max(0, 1 - dist / 2.5);
+      if (prox > maxProx) maxProx = prox;
+    }
+  }
+  return maxProx;
+}
