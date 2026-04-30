@@ -29,6 +29,9 @@ export default defineConfig({
       '@projectrs/shared': resolve(__dirname, '../shared'),
     },
   },
+  optimizeDeps: {
+    exclude: ['@babylonjs/core', '@babylonjs/gui', '@babylonjs/loaders'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

@@ -4,7 +4,9 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import '@babylonjs/loaders/glTF';
+import { quantizeAnimationGroup, rs2Rotation } from './AnimationQuantizer';
 
 /**
  * 3D NPC entity — loads a GLB with embedded animations.
@@ -56,6 +58,17 @@ export class Npc3DEntity {
       const fname = file.substring(lastSlash + 1);
       const result = await SceneLoader.ImportMeshAsync('', dir, fname, this.scene);
 
+      // Apply nearest-neighbor filtering to NPC textures
+      for (const mesh of result.meshes) {
+        const mat = mesh.material;
+        if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+        if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+      }
+
       // Same pattern as ChunkManager.loadGLBModel — proven to work
       const glbRoot = result.meshes[0]; // __root__ node with coordinate transforms
       this.root = new TransformNode(`npc3d_${label ?? ''}`, this.scene);
@@ -85,7 +98,10 @@ export class Npc3DEntity {
         if (group.name === animMap.death) this.animGroups.set('death', group);
       }
 
-      // Start idle
+      for (const [role, group] of this.animGroups) {
+        quantizeAnimationGroup(group, `npc_${role}`);
+      }
+
       this.playAnim('idle', true);
       this.root.position.set(this._position.x, this._position.y, this._position.z);
       this._ready = true;
@@ -153,13 +169,10 @@ export class Npc3DEntity {
 
   updateAnimation(dt: number): void {
     if (!this.root) return;
-    // Smooth rotation
-    let diff = this.targetRotationY - this._rotationY;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    if (Math.abs(diff) > 0.01) {
-      this._rotationY += diff * Math.min(1, 10 * dt);
-      this.root.rotation.y = this._rotationY;
+    const newYaw = rs2Rotation(this._rotationY, this.targetRotationY, dt);
+    if (newYaw !== this._rotationY) {
+      this._rotationY = newYaw;
+      this.root.rotation.y = newYaw;
     }
   }
 

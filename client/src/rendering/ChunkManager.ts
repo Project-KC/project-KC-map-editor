@@ -136,8 +136,8 @@ export class ChunkManager {
   private elevatedFloorHeights: Map<number, number> = new Map();
   /** Placed stair ramp zones for proximity-based height interpolation */
   private placedStairRamps: { cx: number; cz: number; baseY: number; topY: number; direction: 'N' | 'S' | 'E' | 'W'; halfLength: number }[] = [];
-  /** Spatial index of roof objects: "tileX,tileZ" → roof nodes covering that tile */
-  private roofObjectGrid: Map<string, TransformNode[]> = new Map();
+  /** Spatial index of roof objects: "tileX,tileZ" → roof entries with floor tag + Y height */
+  private roofObjectGrid: Map<string, { node: TransformNode; floor: number; y: number }[]> = new Map();
   /** Callback fired when a chunk's placed objects finish loading */
   private onChunkObjectsLoaded: ((chunkKey: string) => void) | null = null;
   private texturePlaneMeshes: Mesh[] = [];
@@ -281,7 +281,7 @@ export class ChunkManager {
       this.waterMat.alpha = 0.88;
       this.waterMat.diffuseColor = new Color3(0.83, 0.91, 1.0); // 0xd4e8ff tint
       // Load water texture
-      this.waterTexture = new Texture('/assets/textures/1.png', this.scene);
+      this.waterTexture = new Texture('/assets/textures/1.png', this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
       this.waterTexture.uScale = 1;
       this.waterTexture.vScale = 1;
       this.waterTexture.wrapU = Texture.WRAP_ADDRESSMODE;
@@ -975,6 +975,7 @@ export class ChunkManager {
     VertexData.ComputeNormals(positions, indices, normals);
     vertexData.normals = normals;
     vertexData.applyToMesh(mesh);
+    mesh.convertToFlatShadedMesh();
     mesh.material = this.groundMat;
     mesh.hasVertexAlpha = false;
     mesh.isPickable = true;
@@ -1903,6 +1904,7 @@ export class ChunkManager {
     else this.openDoorEdges.set(idx, next);
   }
 
+
   /** Clear neighbor wall edges pointing toward the given tile (used by door open) */
   clearNeighborWallsToward(tx: number, tz: number): void {
     if (!this.walls) return;
@@ -2041,7 +2043,7 @@ export class ChunkManager {
     return false;
   }
 
-  getTilesForMinimap(centerX: number, centerZ: number, radius: number): { tiles: Uint8Array; walls: Uint8Array; roofs: Uint8Array; textured: Uint8Array; size: number; startX: number; startZ: number } {
+  getTilesForMinimap(centerX: number, centerZ: number, radius: number): { tiles: Uint8Array; walls: Uint8Array; roofs: Uint8Array; textured: Uint8Array; voidTiles: Uint8Array; size: number; startX: number; startZ: number } {
     const size = radius * 2;
     const startX = Math.floor(centerX) - radius;
     const startZ = Math.floor(centerZ) - radius;
@@ -2049,13 +2051,14 @@ export class ChunkManager {
     const walls = new Uint8Array(size * size);
     const roofs = new Uint8Array(size * size);
     const textured = new Uint8Array(size * size);
+    const voidTiles = new Uint8Array(size * size);
     for (let dz = 0; dz < size; dz++) {
       for (let dx = 0; dx < size; dx++) {
         const idx = dz * size + dx;
         const tx = startX + dx;
         const tz = startZ + dz;
         if (this.activeChunks && !this.activeChunks.has(`${Math.floor(tx / 64)},${Math.floor(tz / 64)}`)) {
-          tiles[idx] = TileType.WALL;
+          voidTiles[idx] = 1;
           continue;
         }
         tiles[idx] = this.getTileTypeRaw(tx, tz);
@@ -2067,7 +2070,7 @@ export class ChunkManager {
         }
       }
     }
-    return { tiles, walls, roofs, textured, size, startX, startZ };
+    return { tiles, walls, roofs, textured, voidTiles, size, startX, startZ };
   }
 
   private static readonly WALL_FENCE_RE = /wall|fence|halfwall/i;
@@ -2294,6 +2297,17 @@ export class ChunkManager {
       const file = encodedPath.substring(lastSlash + 1);
       const result = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
 
+      // Apply nearest-neighbor filtering to all GLB textures
+      for (const mesh of result.meshes) {
+        const mat = mesh.material;
+        if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+        if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+      }
+
       // Replicate KC editor's buildCenteredPivotGroup:
       // Compute bounding box, then offset children so pivot = bottom-center
       const root = result.meshes[0];
@@ -2372,11 +2386,12 @@ export class ChunkManager {
     return entries;
   }
 
-  private canThinInstance(obj: PlacedObject): boolean {
+  private canThinInstance(obj: PlacedObject, groundY: number): boolean {
     if (obj.assetId in ASSET_TO_OBJECT_DEF) return false;
     if (obj.assetId in STAIR_ASSET_CONFIG) return false;
-    if (obj.assetId.toLowerCase().includes('roof')) return false;
+    if (this.isRoofLikeAsset(obj.assetId)) return false;
     if (this.modelAnimationGroups.has(obj.assetId)) return false;
+    if (obj.position.y > groundY + 2.0) return false;
     return true;
   }
 
@@ -2448,11 +2463,15 @@ export class ChunkManager {
     }
     await Promise.all(templatePromises.values());
 
+    let groundY = Infinity;
+    for (const obj of objects) { if (obj.position.y < groundY) groundY = obj.position.y; }
+    if (!isFinite(groundY)) groundY = 0;
+
     const regularObjects: PlacedObject[] = [];
     const thinGroups = new Map<string, PlacedObject[]>();
     for (const obj of objects) {
       if (!this.loadedModelCache.get(obj.assetId)) continue;
-      if (this.canThinInstance(obj)) {
+      if (this.canThinInstance(obj, groundY)) {
         let group = thinGroups.get(obj.assetId);
         if (!group) { group = []; thinGroups.set(obj.assetId, group); }
         group.push(obj);
@@ -2596,7 +2615,8 @@ export class ChunkManager {
       root.metadata = { ...root.metadata, assetId: obj.assetId };
 
       const hasAnims = !!templateAnims && templateAnims.length > 0;
-      if (!hasAnims) {
+      const isDoorAsset = obj.assetId === 'castleTruedoor' || obj.assetId === 'basicTruedoor';
+      if (!hasAnims && !isDoorAsset) {
         root.freezeWorldMatrix();
         for (const child of root.getChildMeshes()) {
           child.freezeWorldMatrix();
@@ -2613,15 +2633,16 @@ export class ChunkManager {
         this.placedObjectGrid.set(gridKey, root);
       }
 
-      if (obj.assetId.toLowerCase().includes('roof')) {
+      if (this.isRoofLikeAsset(obj.assetId)) {
         const tx = Math.floor(obj.position.x);
         const tz = Math.floor(obj.position.z);
+        const roofFloor = this.assignRoofFloor(obj.position.x, obj.position.z, obj.position.y);
         for (let dz = -2; dz <= 2; dz++) {
           for (let dx = -2; dx <= 2; dx++) {
             const rk = `${tx + dx},${tz + dz}`;
             let arr = this.roofObjectGrid.get(rk);
             if (!arr) { arr = []; this.roofObjectGrid.set(rk, arr); }
-            arr.push(root);
+            arr.push({ node: root, floor: roofFloor, y: obj.position.y });
           }
         }
       }
@@ -2681,16 +2702,16 @@ export class ChunkManager {
           const gridKey = `${Math.floor(node.position.x)},${Math.floor(node.position.z)}`;
           this.placedObjectGrid.delete(gridKey);
         }
-        // Remove from roof grid
-        if (assetId && assetId.toLowerCase().includes('roof')) {
+        // Remove from roof grid (must match -2..2 range used when adding)
+        if (assetId && this.isRoofLikeAsset(assetId)) {
           const tx = Math.floor(node.position.x);
           const tz = Math.floor(node.position.z);
-          for (let dz = -1; dz <= 1; dz++) {
-            for (let dx = -1; dx <= 1; dx++) {
+          for (let dz = -2; dz <= 2; dz++) {
+            for (let dx = -2; dx <= 2; dx++) {
               const rk = `${tx + dx},${tz + dz}`;
               const arr = this.roofObjectGrid.get(rk);
               if (arr) {
-                const ri = arr.indexOf(node);
+                const ri = arr.findIndex(e => e.node === node);
                 if (ri >= 0) arr.splice(ri, 1);
                 if (arr.length === 0) this.roofObjectGrid.delete(rk);
               }
@@ -2731,25 +2752,65 @@ export class ChunkManager {
     }
   }
 
-  /** Check if a world position is under a placed roof object.
-   *  Only triggers when the player is within 1 tile of a roof's placement position
-   *  AND below the roof's Y height. */
-  isUnderRoof(x: number, z: number, playerY: number): boolean {
-    const key = `${Math.floor(x)},${Math.floor(z)}`;
-    const arr = this.roofObjectGrid.get(key);
-    if (!arr || arr.length === 0) return false;
-    for (const node of arr) {
-      if (node.position.y <= playerY) continue;
-      // Only trigger if player is within 1.5 tiles of the roof's actual position
-      const dx = Math.abs(x - node.position.x);
-      const dz = Math.abs(z - node.position.z);
-      if (dx <= 1.5 && dz <= 1.5) return true;
+  /** Determine which floor a roof/ceiling at a given Y belongs to by checking
+   *  floor layer heights top-down. Returns 0 for ground floor or maps without layers. */
+  private assignRoofFloor(x: number, z: number, roofY: number): number {
+    const tx = Math.floor(x), tz = Math.floor(z);
+    if (tx < 0 || tx >= this.mapWidth || tz < 0 || tz >= this.mapHeight) return 0;
+    const tileIdx = tz * this.mapWidth + tx;
+    const floorIndices = Array.from(this.floorLayerData.keys()).sort((a, b) => b - a);
+    for (const floorIdx of floorIndices) {
+      const layer = this.floorLayerData.get(floorIdx)!;
+      const floorH = layer.floors.get(tileIdx);
+      if (floorH !== undefined && roofY > floorH + 0.5) return floorIdx;
     }
-    return false;
+    return 0;
   }
 
-  /** Get all roof nodes near a position that are above minY (for hiding/showing) */
-  getRoofNodesNear(x: number, z: number, radius: number, minY: number = -Infinity): TransformNode[] {
+  /** Get the Y of the lowest roof/ceiling above the player's head near a position.
+   *  Searches a wide area (±8 tiles) to find intermediate ceilings from sparse
+   *  texture plane grids. Height-based: works with or without floor layer data. */
+  getCeilingHeight(x: number, z: number, playerY: number): number {
+    const tx = Math.floor(x), tz = Math.floor(z);
+    const r = 8;
+    let minY = Infinity;
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const arr = this.roofObjectGrid.get(`${tx + dx},${tz + dz}`);
+        if (!arr) continue;
+        for (const entry of arr) {
+          if (entry.y <= playerY + 0.5) continue;
+          if (entry.y < minY) minY = entry.y;
+        }
+      }
+    }
+    return minY;
+  }
+
+  private isRoofLikeAsset(assetId: string): boolean {
+    const lower = assetId.toLowerCase();
+    return lower.includes('roof') || lower.includes('slab');
+  }
+
+  isUnderRoof(x: number, z: number, playerY: number, floor: number): boolean {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const arr = this.roofObjectGrid.get(`${tx + dx},${tz + dz}`);
+        if (!arr || arr.length === 0) return false;
+        let hasRoof = false;
+        for (const entry of arr) {
+          if (entry.floor === floor && entry.y > playerY + 0.5) { hasRoof = true; break; }
+        }
+        if (!hasRoof) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Get all roof nodes near a position on the given floor or above (for hiding). */
+  getRoofNodesNear(x: number, z: number, radius: number, minY: number, floor: number): TransformNode[] {
     const result: TransformNode[] = [];
     const seen = new Set<TransformNode>();
     const tx = Math.floor(x);
@@ -2759,10 +2820,11 @@ export class ChunkManager {
       for (let dx = -r; dx <= r; dx++) {
         const arr = this.roofObjectGrid.get(`${tx + dx},${tz + dz}`);
         if (arr) {
-          for (const node of arr) {
-            if (!seen.has(node) && node.position.y > minY) {
-              seen.add(node);
-              result.push(node);
+          for (const entry of arr) {
+            if (entry.floor < floor) continue;
+            if (!seen.has(entry.node) && entry.y > minY) {
+              seen.add(entry.node);
+              result.push(entry.node);
             }
           }
         }
@@ -2779,12 +2841,10 @@ export class ChunkManager {
     const tz = Math.floor(z);
     const r = Math.ceil(radius);
     const seen = new Set<TransformNode>();
-    // Check all loaded chunk nodes near the player
     for (const [, nodes] of this.chunkPlacedNodes) {
       for (const node of nodes) {
         if (seen.has(node)) continue;
         if (node.position.y <= minY) continue;
-        // Don't hide doors — they need to stay clickable
         const assetId = (node.metadata as any)?.assetId;
         if (assetId && (assetId.toLowerCase().includes('door') || assetId.toLowerCase().includes('truedoor'))) continue;
         const dx = Math.floor(node.position.x) - tx;
@@ -2936,7 +2996,7 @@ export class ChunkManager {
       console.warn(`[ChunkManager] Unknown texture: ${textureId}`);
       return null;
     }
-    const tex = new Texture(texDef.path, this.scene);
+    const tex = new Texture(texDef.path, this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
     tex.hasAlpha = true;
     this.textureCache.set(textureId, tex);
     return tex;
@@ -2954,23 +3014,23 @@ export class ChunkManager {
         height: plane.height,
         sideOrientation: plane.doubleSided ? Mesh.DOUBLESIDE : Mesh.DEFAULTSIDE,
       }, this.scene);
-      const texClone = tex.clone();
+      const planeTex = new Texture(tex.url, this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
+      planeTex.hasAlpha = true;
       const uvScale = plane.uvRepeat ? 1 / plane.uvRepeat : 1;
-      texClone.uScale = uvScale;
-      texClone.vScale = uvScale;
-      texClone.wAng = (plane.texRotation || 0) * Math.PI / 2;
-      texClone.wrapU = Texture.WRAP_ADDRESSMODE;
-      texClone.wrapV = Texture.WRAP_ADDRESSMODE;
-      const mat = new PBRMaterial(`texplane_mat_${plane.id}`, this.scene);
-      mat.albedoTexture = texClone;
+      planeTex.uScale = uvScale;
+      planeTex.vScale = uvScale;
+      planeTex.wAng = (plane.texRotation || 0) * Math.PI / 2;
+      planeTex.wrapU = Texture.WRAP_ADDRESSMODE;
+      planeTex.wrapV = Texture.WRAP_ADDRESSMODE;
+      const mat = new StandardMaterial(`texplane_mat_${plane.id}`, this.scene);
+      mat.diffuseTexture = planeTex;
       if (plane.tintColor) {
-        mat.albedoColor = new Color3(plane.tintColor.r, plane.tintColor.g, plane.tintColor.b);
+        mat.diffuseColor = new Color3(plane.tintColor.r, plane.tintColor.g, plane.tintColor.b);
       }
-      mat.metallic = 0;
-      mat.roughness = 1;
-      mat.useAlphaFromAlbedoTexture = true;
+      mat.specularColor = new Color3(0, 0, 0);
+      mat.useAlphaFromDiffuseTexture = true;
       mat.backFaceCulling = !plane.doubleSided;
-      mat.transparencyMode = 1; // ALPHATEST — same as GLB assets
+      mat.transparencyMode = 1;
       mesh.material = mat;
       mesh.position = new Vector3(plane.position.x, plane.position.y, plane.position.z);
       // Three.js saves Euler angles in XYZ order (intrinsic). Babylon's mesh.rotation uses YXZ.
@@ -2992,10 +3052,10 @@ export class ChunkManager {
 
         // Elevated flat planes act as ceilings — index in roof grid for indoor detection
         const terrainH = this.getEffectiveHeight(plane.position.x, plane.position.z);
-        if (plane.position.y > terrainH + 1.0) {
+        if (plane.position.y > terrainH + 1.0 && !plane.noRoof) {
           const tx = Math.floor(plane.position.x);
           const tz = Math.floor(plane.position.z);
-          // Estimate footprint from plane dimensions (clamped to reasonable range)
+          const roofFloor = this.assignRoofFloor(plane.position.x, plane.position.z, plane.position.y);
           const hw = Math.min(8, Math.ceil((plane.width * Math.abs(plane.scale.x || 1)) / 2));
           const hh = Math.min(8, Math.ceil((plane.height * Math.abs(plane.scale.z || plane.scale.y || 1)) / 2));
           for (let dz = -hh; dz <= hh; dz++) {
@@ -3003,7 +3063,7 @@ export class ChunkManager {
               const rk = `${tx + dx},${tz + dz}`;
               let arr = this.roofObjectGrid.get(rk);
               if (!arr) { arr = []; this.roofObjectGrid.set(rk, arr); }
-              arr.push(mesh);
+              arr.push({ node: mesh, floor: roofFloor, y: plane.position.y });
             }
           }
         }

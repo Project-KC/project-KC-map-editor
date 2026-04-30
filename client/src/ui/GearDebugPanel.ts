@@ -11,6 +11,7 @@ type LoadGlbCallback = (slot: string, path: string) => Promise<void>;
 type AnimCallback = (anim: string) => void;
 type UnequipCallback = (slot: string) => void;
 type OverrideGetter = (itemId: number) => GearOverride | null;
+type SkinnedChecker = (slot: string) => boolean;
 
 interface GearFileInfo {
   file: string;
@@ -32,13 +33,13 @@ interface ParamDef {
 }
 
 const PARAMS: ParamDef[] = [
-  { key: 'pos.x', label: 'X', min: -2, max: 2, step: 0.01, fineStep: 0.005, value: 0, group: 'pos', color: '#f66' },
-  { key: 'pos.y', label: 'Y', min: -2, max: 2, step: 0.01, fineStep: 0.005, value: 0, group: 'pos', color: '#6f6' },
-  { key: 'pos.z', label: 'Z', min: -2, max: 2, step: 0.01, fineStep: 0.005, value: 0, group: 'pos', color: '#66f' },
-  { key: 'rot.x', label: 'X', min: -3.15, max: 3.15, step: 0.05, fineStep: 0.01, value: 0, group: 'rot', color: '#f66' },
-  { key: 'rot.y', label: 'Y', min: -3.15, max: 3.15, step: 0.05, fineStep: 0.01, value: 0, group: 'rot', color: '#6f6' },
-  { key: 'rot.z', label: 'Z', min: -3.15, max: 3.15, step: 0.05, fineStep: 0.01, value: 0, group: 'rot', color: '#66f' },
-  { key: 'scale', label: 'S', min: 0.05, max: 3, step: 0.05, fineStep: 0.01, value: 1, group: 'scale', color: '#f8c' },
+  { key: 'pos.x', label: 'X', min: -1, max: 1, step: 0.001, fineStep: 0.001, value: 0, group: 'pos', color: '#f66' },
+  { key: 'pos.y', label: 'Y', min: -1, max: 1, step: 0.001, fineStep: 0.001, value: 0, group: 'pos', color: '#6f6' },
+  { key: 'pos.z', label: 'Z', min: -1, max: 1, step: 0.001, fineStep: 0.001, value: 0, group: 'pos', color: '#66f' },
+  { key: 'rot.x', label: 'X', min: -3.15, max: 3.15, step: 0.01, fineStep: 0.001, value: 0, group: 'rot', color: '#f66' },
+  { key: 'rot.y', label: 'Y', min: -3.15, max: 3.15, step: 0.01, fineStep: 0.001, value: 0, group: 'rot', color: '#6f6' },
+  { key: 'rot.z', label: 'Z', min: -3.15, max: 3.15, step: 0.01, fineStep: 0.001, value: 0, group: 'rot', color: '#66f' },
+  { key: 'scale', label: 'S', min: 0.05, max: 3, step: 0.01, fineStep: 0.001, value: 1, group: 'scale', color: '#f8c' },
 ];
 
 const SLOTS = ['weapon', 'shield', 'head', 'body', 'legs', 'neck', 'ring', 'hands', 'feet', 'cape'];
@@ -74,6 +75,7 @@ export class GearDebugPanel {
   private animCallback: AnimCallback | null = null;
   private unequipCallback: UnequipCallback | null = null;
   private overrideGetter: OverrideGetter = () => null;
+  private isSkinnedArmor: SkinnedChecker = () => false;
   private activeSlot = 'weapon';
   private activeAnim = 'idle';
   private thumbGridOpen = true;
@@ -99,6 +101,7 @@ export class GearDebugPanel {
   setAnimCallback(cb: AnimCallback): void { this.animCallback = cb; }
   setUnequipCallback(cb: UnequipCallback): void { this.unequipCallback = cb; }
   setOverrideGetter(getter: OverrideGetter): void { this.overrideGetter = getter; }
+  setSkinnedChecker(checker: SkinnedChecker): void { this.isSkinnedArmor = checker; }
 
   private buildUI(): HTMLDivElement {
     const div = document.createElement('div');
@@ -370,16 +373,18 @@ export class GearDebugPanel {
       }
     });
     resetBtn.addEventListener('click', () => {
-      const defaults = EQUIP_SLOT_BONES[this.activeSlot];
       let def = p.group === 'scale' ? 1 : 0;
-      if (defaults) {
-        if (p.key === 'pos.x') def = defaults.localPosition.x;
-        else if (p.key === 'pos.y') def = defaults.localPosition.y;
-        else if (p.key === 'pos.z') def = defaults.localPosition.z;
-        else if (p.key === 'rot.x') def = defaults.localRotation.x;
-        else if (p.key === 'rot.y') def = defaults.localRotation.y;
-        else if (p.key === 'rot.z') def = defaults.localRotation.z;
-        else if (p.key === 'scale') def = defaults.scale;
+      if (!this.isSkinnedArmor(this.activeSlot)) {
+        const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+        if (defaults) {
+          if (p.key === 'pos.x') def = defaults.localPosition.x;
+          else if (p.key === 'pos.y') def = defaults.localPosition.y;
+          else if (p.key === 'pos.z') def = defaults.localPosition.z;
+          else if (p.key === 'rot.x') def = defaults.localRotation.x;
+          else if (p.key === 'rot.y') def = defaults.localRotation.y;
+          else if (p.key === 'rot.z') def = defaults.localRotation.z;
+          else if (p.key === 'scale') def = defaults.scale;
+        }
       }
       slider.value = String(def);
       numInput.value = def.toFixed(3);
@@ -628,25 +633,28 @@ export class GearDebugPanel {
     }
 
     const override = this.overrideGetter(item.id);
+    const skinned = this.isSkinnedArmor(this.activeSlot);
     const defaults = EQUIP_SLOT_BONES[this.activeSlot];
-    if (!defaults) {
+    const zeroDefaults = { localPosition: { x: 0, y: 0, z: 0 }, localRotation: { x: 0, y: 0, z: 0 }, scale: 1 };
+    const def = skinned ? zeroDefaults : defaults;
+    if (!def) {
       this.overrideStatusEl.innerHTML = '';
       return;
     }
 
     const saved = override || {
-      localPosition: defaults.localPosition,
-      localRotation: defaults.localRotation,
-      scale: defaults.scale,
+      localPosition: def.localPosition,
+      localRotation: def.localRotation,
+      scale: def.scale,
     };
     const ref = {
-      px: saved.localPosition?.x ?? defaults.localPosition.x,
-      py: saved.localPosition?.y ?? defaults.localPosition.y,
-      pz: saved.localPosition?.z ?? defaults.localPosition.z,
-      rx: saved.localRotation?.x ?? defaults.localRotation.x,
-      ry: saved.localRotation?.y ?? defaults.localRotation.y,
-      rz: saved.localRotation?.z ?? defaults.localRotation.z,
-      s: saved.scale ?? defaults.scale,
+      px: saved.localPosition?.x ?? def.localPosition.x,
+      py: saved.localPosition?.y ?? def.localPosition.y,
+      pz: saved.localPosition?.z ?? def.localPosition.z,
+      rx: saved.localRotation?.x ?? def.localRotation.x,
+      ry: saved.localRotation?.y ?? def.localRotation.y,
+      rz: saved.localRotation?.z ?? def.localRotation.z,
+      s: saved.scale ?? def.scale,
     };
 
     const cur = {
@@ -691,15 +699,21 @@ export class GearDebugPanel {
   }
 
   private resetToDefaults(): void {
-    const defaults = EQUIP_SLOT_BONES[this.activeSlot];
-    if (!defaults) return;
-    this.setVal('pos.x', defaults.localPosition.x);
-    this.setVal('pos.y', defaults.localPosition.y);
-    this.setVal('pos.z', defaults.localPosition.z);
-    this.setVal('rot.x', defaults.localRotation.x);
-    this.setVal('rot.y', defaults.localRotation.y);
-    this.setVal('rot.z', defaults.localRotation.z);
-    this.setVal('scale', defaults.scale);
+    if (this.isSkinnedArmor(this.activeSlot)) {
+      this.setVal('pos.x', 0); this.setVal('pos.y', 0); this.setVal('pos.z', 0);
+      this.setVal('rot.x', 0); this.setVal('rot.y', 0); this.setVal('rot.z', 0);
+      this.setVal('scale', 1);
+    } else {
+      const defaults = EQUIP_SLOT_BONES[this.activeSlot];
+      if (!defaults) return;
+      this.setVal('pos.x', defaults.localPosition.x);
+      this.setVal('pos.y', defaults.localPosition.y);
+      this.setVal('pos.z', defaults.localPosition.z);
+      this.setVal('rot.x', defaults.localRotation.x);
+      this.setVal('rot.y', defaults.localRotation.y);
+      this.setVal('rot.z', defaults.localRotation.z);
+      this.setVal('scale', defaults.scale);
+    }
     this.applyToTarget();
     this.updateOverrideStatus();
     this.flashStatus('Reset to slot defaults');

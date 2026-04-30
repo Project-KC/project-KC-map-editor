@@ -457,6 +457,7 @@ export class GameMap {
     else this.openDoorEdges.set(idx, next);
   }
 
+
   getWallHeight(x: number, z: number): number {
     const idx = z * this.width + x;
     return this.wallHeights.get(idx) ?? DEFAULT_WALL_HEIGHT;
@@ -528,8 +529,6 @@ export class GameMap {
    *  block regardless of player Y (editor-authored walls always count as solid). */
   private wallBlocksAtHeight(x: number, z: number, edge: number, playerY?: number): boolean {
     const idx = z * this.width + x;
-    // Open-door edges bypass wall-blocking on every floor, so doors work even when
-    // an editor-painted upper-floor wall sits on the same tile/edge.
     if (((this.openDoorEdges.get(idx) ?? 0) & edge) !== 0) return false;
     if ((this.getWall(x, z) & edge) !== 0) {
       if (playerY == null) return true;
@@ -635,10 +634,19 @@ export class GameMap {
     );
   }
 
+  findPathForNpc(
+    startX: number, startZ: number, goalX: number, goalZ: number,
+    tileBlocked: (x: number, z: number) => boolean,
+    maxSearchSteps: number = 100,
+  ): { x: number; z: number }[] {
+    return this.findPathGeneric(startX, startZ, goalX, goalZ, tileBlocked, this.isWallBlockedCb, maxSearchSteps);
+  }
+
   private findPathGeneric(
     startX: number, startZ: number, goalX: number, goalZ: number,
     tileBlocked: (x: number, z: number) => boolean,
     wallBlocked: (fx: number, fz: number, tx: number, tz: number) => boolean,
+    maxSteps: number = 800,
   ): { x: number; z: number }[] {
     const sx = Math.floor(startX);
     const sz = Math.floor(startZ);
@@ -650,7 +658,6 @@ export class GameMap {
 
     const w = this.width;
     const h = this.height;
-    const maxSteps = 800;
 
     interface PNode { x: number; z: number; g: number; hv: number; f: number; parent: PNode | null; heapIdx: number }
     const heap: PNode[] = [];

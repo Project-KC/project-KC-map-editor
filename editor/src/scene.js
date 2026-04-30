@@ -1084,6 +1084,9 @@ let paintBrushRadius = 1
         </div>
         <div class="hint" style="margin-top:4px;">Scroll = tilt · Ctrl+Scroll = spin · Shift = fine</div>
       </div>
+      <div id="texNoRoofRow" style="display:none;margin-top:8px;border-top:1px solid #444;padding-top:6px;">
+        <label style="font-size:11px;cursor:pointer;"><input id="texNoRoof" type="checkbox" /> No Roof (stays visible indoors)</label>
+      </div>
     </div>
 
     <div class="ctx-panel" id="ctx-texture" style="display:none">
@@ -1919,6 +1922,11 @@ let paintBrushRadius = 1
       const showPlaneRot = (state.tool === ToolMode.SELECT || state.tool === ToolMode.TEXTURE_PLANE) && selectedTexturePlane
       planeRotationRow.style.display = showPlaneRot ? 'block' : 'none'
       if (showPlaneRot) syncPlaneRotationUI()
+    }
+    if (texNoRoofRow) {
+      const showNoRoof = (state.tool === ToolMode.SELECT || state.tool === ToolMode.TEXTURE_PLANE) && selectedTexturePlane
+      texNoRoofRow.style.display = showNoRoof ? 'block' : 'none'
+      if (showNoRoof) texNoRoofCheckbox.checked = !!selectedTexturePlane.noRoof
     }
     const layerAssignRow = sidebar.querySelector('#layerAssignRow')
     if (layerAssignRow) {
@@ -5254,6 +5262,20 @@ function applyToolAtTile(tile, eventLike = null) {
       selectedTexturePlane.uvRepeat = textureScale
       removeTexturePlaneMesh(selectedTexturePlane)
       appendTexturePlane(selectedTexturePlane)
+    }
+  })
+
+  // No-Roof checkbox
+  const texNoRoofCheckbox = sidebar.querySelector('#texNoRoof')
+  const texNoRoofRow = sidebar.querySelector('#texNoRoofRow')
+  texNoRoofCheckbox.addEventListener('change', () => {
+    if (!selectedTexturePlane) return
+    for (const plane of selectedTexturePlanes) {
+      if (texNoRoofCheckbox.checked) {
+        plane.noRoof = true
+      } else {
+        delete plane.noRoof
+      }
     }
   })
 

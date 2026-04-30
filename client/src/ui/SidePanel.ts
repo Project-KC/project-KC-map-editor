@@ -95,6 +95,20 @@ export class SidePanel {
           font-weight: bold;
           box-shadow: inset 0 0 4px rgba(255,200,0,0.5);
         }
+
+        .inv-slot {
+          background: transparent;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          cursor: pointer; font-size: 10px;
+          position: relative;
+          box-sizing: border-box;
+          border-radius: 2px;
+          transition: background 0.1s;
+        }
+        .inv-slot.hovered {
+          background: rgba(255,255,255,0.07);
+        }
       `;
       document.head.appendChild(style);
     }
@@ -154,67 +168,101 @@ export class SidePanel {
     panel.appendChild(hpRow);
 
     // Good Magic bar
-    const magicRow = document.createElement('div');
-    magicRow.style.cssText = `
+    const goodMagicRow = document.createElement('div');
+    goodMagicRow.style.cssText = `
       display: flex; align-items: center; gap: 6px;
-      padding: 5px 10px 7px;
-      border-bottom: 1px solid rgba(0,0,0,0.25);
+      padding: 5px 10px 3px;
     `;
-    const magicIcon = document.createElement('div');
-    magicIcon.textContent = 'Magic';
-    magicIcon.style.cssText = `font-size: 10px; font-weight: bold; color: #4ac; text-shadow: 1px 1px 0 #000; width: 38px; flex-shrink: 0;`;
-    magicRow.appendChild(magicIcon);
+    const goodMagicIcon = document.createElement('div');
+    goodMagicIcon.textContent = 'Good';
+    goodMagicIcon.style.cssText = `font-size: 10px; font-weight: bold; color: #4ac; text-shadow: 1px 1px 0 #000; width: 38px; flex-shrink: 0;`;
+    goodMagicRow.appendChild(goodMagicIcon);
 
-    const magicBarBg = document.createElement('div');
-    magicBarBg.style.cssText = `
+    const goodMagicBarBg = document.createElement('div');
+    goodMagicBarBg.style.cssText = `
       flex: 1; height: 16px; background: #080818;
       border: 1px solid #1a2a4a; border-radius: 3px;
       position: relative; overflow: hidden;
       box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,200,100,0.06);
     `;
-    const magicBarFill = document.createElement('div');
-    magicBarFill.id = 'side-magic-fill';
-    magicBarFill.style.cssText = `
+    const goodMagicBarFill = document.createElement('div');
+    goodMagicBarFill.id = 'side-magic-fill';
+    goodMagicBarFill.style.cssText = `
       height: 100%; width: 100%; background: linear-gradient(180deg, #2a7aaa 0%, #1a5a8a 100%);
       transition: width 0.3s; border-radius: 1px;
     `;
-    magicBarBg.appendChild(magicBarFill);
-    const magicText = document.createElement('div');
-    magicText.id = 'side-magic-text';
-    magicText.style.cssText = `
+    goodMagicBarBg.appendChild(goodMagicBarFill);
+    const goodMagicText = document.createElement('div');
+    goodMagicText.id = 'side-magic-text';
+    goodMagicText.style.cssText = `
       position: absolute; top: 0; left: 0; right: 0; bottom: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 10px; font-weight: bold; color: #fff;
       text-shadow: 1px 1px 0 #000; pointer-events: none;
     `;
-    magicText.textContent = '1';
-    magicBarBg.appendChild(magicText);
-    magicRow.appendChild(magicBarBg);
-    panel.appendChild(magicRow);
+    goodMagicText.textContent = '1';
+    goodMagicBarBg.appendChild(goodMagicText);
+    goodMagicRow.appendChild(goodMagicBarBg);
+    panel.appendChild(goodMagicRow);
+
+    // Evil Magic bar
+    const evilMagicRow = document.createElement('div');
+    evilMagicRow.style.cssText = `
+      display: flex; align-items: center; gap: 6px;
+      padding: 3px 10px 7px;
+      border-bottom: 1px solid rgba(0,0,0,0.25);
+    `;
+    const evilMagicIcon = document.createElement('div');
+    evilMagicIcon.textContent = 'Evil';
+    evilMagicIcon.style.cssText = `font-size: 10px; font-weight: bold; color: #c4a; text-shadow: 1px 1px 0 #000; width: 38px; flex-shrink: 0;`;
+    evilMagicRow.appendChild(evilMagicIcon);
+
+    const evilMagicBarBg = document.createElement('div');
+    evilMagicBarBg.style.cssText = `
+      flex: 1; height: 16px; background: #180818;
+      border: 1px solid #4a1a3a; border-radius: 3px;
+      position: relative; overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,200,100,0.06);
+    `;
+    const evilMagicBarFill = document.createElement('div');
+    evilMagicBarFill.id = 'side-evilmagic-fill';
+    evilMagicBarFill.style.cssText = `
+      height: 100%; width: 100%; background: linear-gradient(180deg, #8a2a6a 0%, #6a1a4a 100%);
+      transition: width 0.3s; border-radius: 1px;
+    `;
+    evilMagicBarBg.appendChild(evilMagicBarFill);
+    const evilMagicText = document.createElement('div');
+    evilMagicText.id = 'side-evilmagic-text';
+    evilMagicText.style.cssText = `
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: bold; color: #fff;
+      text-shadow: 1px 1px 0 #000; pointer-events: none;
+    `;
+    evilMagicText.textContent = '1';
+    evilMagicBarBg.appendChild(evilMagicText);
+    evilMagicRow.appendChild(evilMagicBarBg);
+    panel.appendChild(evilMagicRow);
 
     // Player info strip — combat level + username
     const playerInfo = document.createElement('div');
     playerInfo.id = 'side-player-info';
     playerInfo.style.cssText = `
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 6px 8px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 3px 8px;
       background: rgba(0,0,0,0.3);
       border-top: 1px solid rgba(255,200,100,0.08);
       border-bottom: 1px solid rgba(0,0,0,0.4);
     `;
-    const swordIcon = document.createElement('span');
-    swordIcon.textContent = '\u2694';
-    swordIcon.style.cssText = `font-size: 14px; color: #c8a84a;`;
-    playerInfo.appendChild(swordIcon);
+    const combatIcon = document.createElement('img');
+    combatIcon.src = '/ui/combat.png';
+    combatIcon.style.cssText = `width: 30px; height: auto; image-rendering: pixelated; object-fit: contain;`;
+    playerInfo.appendChild(combatIcon);
     const combatText = document.createElement('span');
     combatText.id = 'side-combat-level';
     combatText.textContent = 'Combat Lv: 3';
     combatText.style.cssText = `font-size: 11px; font-weight: bold; color: #fc0; text-shadow: 1px 1px 0 #000; letter-spacing: 0.5px;`;
     playerInfo.appendChild(combatText);
-    const swordIcon2 = document.createElement('span');
-    swordIcon2.textContent = '\u2694';
-    swordIcon2.style.cssText = `font-size: 14px; color: #c8a84a;`;
-    playerInfo.appendChild(swordIcon2);
     panel.appendChild(playerInfo);
 
     // Top tab row — 4 tabs above content
@@ -226,7 +274,7 @@ export class SidePanel {
     bottomTabs.style.cssText = `display: flex; gap: 1px; padding: 0 2px 2px;`;
 
     const tabStyle = `
-      flex: 1; text-align: center; padding: 6px 0;
+      flex: 1; text-align: center; padding: 2px 0;
       cursor: pointer; font-size: 13px;
       color: #d8d0c0;
       background: #4a4035;
@@ -235,22 +283,34 @@ export class SidePanel {
       border-right: 1px solid #1a1815;
       border-bottom: 1px solid #1a1815;
       transition: background 0.08s;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+      height: 44px;
     `;
 
-    const tabs: { key: string; label: string; pos: 'top' | 'bottom' }[] = [
-      { key: 'inventory', label: '\uD83C\uDF92', pos: 'top' },
-      { key: 'skills', label: '\u2694\uFE0F', pos: 'top' },
-      { key: 'equipment', label: '\uD83D\uDEE1\uFE0F', pos: 'top' },
-      { key: 'quests', label: '\uD83D\uDCDC', pos: 'top' },
-      { key: 'good_magic', label: '\u2728', pos: 'bottom' },
-      { key: 'evil_magic', label: '\uD83D\uDD25', pos: 'bottom' },
-      { key: 'friends', label: '\uD83D\uDC64', pos: 'bottom' },
-      { key: 'ignore', label: '\uD83D\uDEAB', pos: 'bottom' },
+    const tabs: { key: string; label: string; icon?: string; iconScale?: number; iconWidth?: number; pos: 'top' | 'bottom' }[] = [
+      { key: 'attack_style', label: '\uD83D\uDCDC', icon: '/ui/attack style.png', pos: 'top' },
+      { key: 'skills', label: '\u2694\uFE0F', icon: '/ui/Skill tab.png', iconScale: 1.4, iconWidth: 200, pos: 'top' },
+      { key: 'inventory', label: '\uD83C\uDF92', icon: '/ui/Inventory.png', pos: 'top' },
+      { key: 'equipment', label: '\uD83D\uDEE1\uFE0F', icon: '/ui/equipment.png', pos: 'top' },
+      { key: 'good_magic', label: '\u2728', icon: '/ui/good magic.png', pos: 'bottom' },
+      { key: 'evil_magic', label: '\uD83D\uDD25', icon: '/ui/evil magic.png', pos: 'bottom' },
+      { key: 'quests', label: '\uD83D\uDCDC', icon: '/ui/quest icon.png', pos: 'bottom' },
+      { key: 'social', label: '\uD83D\uDC64', icon: '/ui/friendlist.png', iconScale: 1.25, pos: 'bottom' },
     ];
 
     for (const tab of tabs) {
       const btn = document.createElement('div');
-      btn.textContent = tab.label;
+      if (tab.icon) {
+        const img = document.createElement('img');
+        img.src = tab.icon;
+        const scale = (tab.iconScale ?? 1) * 1.2;
+        const w = tab.iconWidth ? `${tab.iconWidth}%` : `${100 * scale}%`;
+        img.style.cssText = `width: ${w}; height: ${100 * scale}%; object-fit: contain; image-rendering: pixelated;`;
+        btn.appendChild(img);
+      } else {
+        btn.textContent = tab.label;
+      }
       btn.dataset.tab = tab.key;
       btn.style.cssText = tabStyle;
       btn.addEventListener('click', () => this.switchTab(tab.key));
@@ -263,14 +323,16 @@ export class SidePanel {
     // Tab contents
     const contentArea = document.createElement('div');
     contentArea.style.cssText = `
-      padding: 8px 6px; overflow-y: auto; height: 400px;
+      padding: 8px 6px; overflow: hidden; flex: 1; min-height: 0;
       background: #1e1a14;
       border: 2px inset #3a3228;
+      display: flex; flex-direction: column;
     `;
 
     // Inventory tab
     this.invGrid = this.buildInventoryContent();
     const invWrap = document.createElement('div');
+    invWrap.style.cssText = 'flex: 1; min-height: 0; display: flex; flex-direction: column;';
     invWrap.appendChild(this.invGrid);
     contentArea.appendChild(invWrap);
     this.tabContents.set('inventory', invWrap);
@@ -291,15 +353,12 @@ export class SidePanel {
     contentArea.appendChild(equipWrap);
     this.tabContents.set('equipment', equipWrap);
 
-    // Quests tab
-    const questsWrap = document.createElement('div');
-    questsWrap.style.display = 'none';
-    questsWrap.innerHTML = `
-      <div style="color: #fc0; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Quest Journal</div>
-      <div style="color: #888; font-size: 11px; font-style: italic;">No quests yet...</div>
-    `;
-    contentArea.appendChild(questsWrap);
-    this.tabContents.set('quests', questsWrap);
+    // Attack Style tab
+    const attackStyleWrap = document.createElement('div');
+    attackStyleWrap.style.display = 'none';
+    attackStyleWrap.appendChild(this.buildAttackStyleContent());
+    contentArea.appendChild(attackStyleWrap);
+    this.tabContents.set('attack_style', attackStyleWrap);
 
     // Good Magic tab
     const goodMagicWrap = document.createElement('div');
@@ -321,25 +380,27 @@ export class SidePanel {
     contentArea.appendChild(evilMagicWrap);
     this.tabContents.set('evil_magic', evilMagicWrap);
 
-    // Friends tab
-    const friendsWrap = document.createElement('div');
-    friendsWrap.style.display = 'none';
-    friendsWrap.innerHTML = `
+    // Quests tab
+    const questsWrap = document.createElement('div');
+    questsWrap.style.display = 'none';
+    questsWrap.innerHTML = `
+      <div style="color: #fc0; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Quest Journal</div>
+      <div style="color: #888; font-size: 11px; font-style: italic;">No quests yet...</div>
+    `;
+    contentArea.appendChild(questsWrap);
+    this.tabContents.set('quests', questsWrap);
+
+    // Social tab (friends + ignore combined)
+    const socialWrap = document.createElement('div');
+    socialWrap.style.display = 'none';
+    socialWrap.innerHTML = `
       <div style="color: #0c0; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Friends List</div>
       <div style="color: #888; font-size: 11px; font-style: italic;">Your friends list is empty.</div>
-    `;
-    contentArea.appendChild(friendsWrap);
-    this.tabContents.set('friends', friendsWrap);
-
-    // Ignore tab
-    const ignoreWrap = document.createElement('div');
-    ignoreWrap.style.display = 'none';
-    ignoreWrap.innerHTML = `
-      <div style="color: #c44; font-weight: bold; font-size: 13px; margin-bottom: 8px; text-shadow: 1px 1px 0 #000;">Ignore List</div>
+      <div style="color: #c44; font-weight: bold; font-size: 13px; margin: 12px 0 8px; padding-top: 8px; border-top: 1px solid #3a3025; text-shadow: 1px 1px 0 #000;">Ignore List</div>
       <div style="color: #888; font-size: 11px; font-style: italic;">Your ignore list is empty.</div>
     `;
-    contentArea.appendChild(ignoreWrap);
-    this.tabContents.set('ignore', ignoreWrap);
+    contentArea.appendChild(socialWrap);
+    this.tabContents.set('social', socialWrap);
 
     panel.appendChild(contentArea);
     panel.appendChild(bottomTabs);
@@ -393,31 +454,30 @@ export class SidePanel {
     const grid = document.createElement('div');
     grid.style.cssText = `
       display: grid; grid-template-columns: repeat(5, 1fr);
-      gap: 2px; justify-items: center;
+      grid-template-rows: repeat(6, 1fr);
+      gap: 0; flex: 1; min-height: 0;
+      position: relative;
+      background: url('/assets/textures/61.png') center / cover;
+      border-radius: 2px;
+      box-shadow:
+        inset 2px 2px 6px rgba(255,255,255,0.04),
+        inset -2px -2px 8px rgba(0,0,0,0.6);
     `;
+
+    // Darken the stone texture so items are readable
+    const darken = document.createElement('div');
+    darken.style.cssText = `position:absolute;inset:0;background:rgba(0,0,0,0.3);pointer-events:none;z-index:1;border-radius:2px;`;
+    grid.appendChild(darken);
 
     this.invSlotElements = [];
     for (let i = 0; i < INVENTORY_SIZE; i++) {
       const slot = document.createElement('div');
-      slot.style.cssText = `
-        width: 48px; height: 44px;
-        background: #2a2218;
-        border: 2px outset #3a3228;
-        border-radius: 2px;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        cursor: pointer; font-size: 10px;
-        position: relative;
-        transition: background 0.1s;
-      `;
-      slot.addEventListener('mouseenter', () => {
-        slot.style.background = '#3a3228';
-        slot.style.borderStyle = 'inset';
-      });
-      slot.addEventListener('mouseleave', () => {
-        slot.style.background = '#2a2218';
-        slot.style.borderStyle = 'outset';
-      });
+      slot.className = 'inv-slot';
+      slot.dataset.filled = '0';
+      slot.style.zIndex = '2';
+
+      slot.addEventListener('mouseenter', () => { slot.classList.add('hovered'); });
+      slot.addEventListener('mouseleave', () => { slot.classList.remove('hovered'); });
 
       slot.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -502,40 +562,6 @@ export class SidePanel {
     clRow.textContent = 'Combat Lv: 3';
     wrap.appendChild(clRow);
 
-    // Stance selector
-    const stanceRow = document.createElement('div');
-    stanceRow.style.cssText = `
-      display: flex; gap: 2px; margin-top: 4px;
-    `;
-
-    const stances: { key: MeleeStance; label: string }[] = [
-      { key: 'accurate', label: 'Acc' },
-      { key: 'aggressive', label: 'Agg' },
-      { key: 'defensive', label: 'Def' },
-      { key: 'controlled', label: 'Ctrl' },
-    ];
-
-    this.stanceButtons = [];
-    const setStance = (i: number) => {
-      this.currentStance = stances[i].key;
-      this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_SET_STANCE, i));
-      this.updateStanceUI();
-    };
-    for (let i = 0; i < stances.length; i++) {
-      const btn = document.createElement('div');
-      btn.textContent = stances[i].label;
-      btn.className = 'stance-btn';
-      btn.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0) return;
-        setStance(i);
-      });
-      stanceRow.appendChild(btn);
-      this.stanceButtons.push(btn);
-    }
-
-    wrap.appendChild(stanceRow);
-    this.updateStanceUI();
-
     return wrap;
   }
 
@@ -569,11 +595,71 @@ export class SidePanel {
     return wrap;
   }
 
+  private buildAttackStyleContent(): HTMLDivElement {
+    const wrap = document.createElement('div');
+
+    const title = document.createElement('div');
+    title.style.cssText = `color: #fc0; font-weight: bold; font-size: 13px; margin-bottom: 10px; text-shadow: 1px 1px 0 #000; text-align: center;`;
+    title.textContent = 'Attack Style';
+    wrap.appendChild(title);
+
+    const stances: { key: MeleeStance; label: string; desc: string }[] = [
+      { key: 'accurate', label: 'Accurate', desc: '+3 Accuracy' },
+      { key: 'aggressive', label: 'Aggressive', desc: '+3 Strength' },
+      { key: 'defensive', label: 'Defensive', desc: '+3 Defence' },
+      { key: 'controlled', label: 'Controlled', desc: '+1 All' },
+    ];
+
+    this.stanceButtons = [];
+    const setStance = (i: number) => {
+      this.currentStance = stances[i].key;
+      this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_SET_STANCE, i));
+      this.updateStanceUI();
+    };
+
+    for (let i = 0; i < stances.length; i++) {
+      const btn = document.createElement('div');
+      btn.className = 'stance-btn';
+      btn.style.cssText += `
+        display: flex; flex-direction: column; align-items: center;
+        padding: 10px 0; margin-bottom: 3px;
+      `;
+      const nameEl = document.createElement('div');
+      nameEl.style.cssText = `font-size: 13px;`;
+      nameEl.textContent = stances[i].label;
+      btn.appendChild(nameEl);
+      const descEl = document.createElement('div');
+      descEl.style.cssText = `font-size: 10px; opacity: 0.7; margin-top: 2px;`;
+      descEl.textContent = stances[i].desc;
+      btn.appendChild(descEl);
+      btn.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        setStance(i);
+      });
+      wrap.appendChild(btn);
+      this.stanceButtons.push(btn);
+    }
+
+    this.updateStanceUI();
+    return wrap;
+  }
+
   switchTab(tab: string): void {
     this.activeTab = tab;
 
     for (const [key, el] of this.tabContents) {
-      el.style.display = key === tab ? 'block' : 'none';
+      if (key === tab) {
+        if (key === 'inventory') {
+          el.style.display = 'flex';
+        } else {
+          el.style.display = 'block';
+          el.style.overflow = 'auto';
+          el.style.flex = '1';
+          el.style.minHeight = '0';
+        }
+      } else {
+        el.style.display = 'none';
+      }
     }
 
     for (const btn of this.tabButtons) {
@@ -613,27 +699,26 @@ export class SidePanel {
 
     if (!slot) {
       el.innerHTML = '';
-      el.style.borderColor = '#3a3025';
+      el.dataset.filled = '0';
       return;
     }
 
+    el.dataset.filled = '1';
     const def = this.itemDefs.get(slot.itemId);
     const name = def?.name || `Item ${slot.itemId}`;
     const sprite = def?.sprite;
     const icon = def?.icon;
 
     const iconHtml = sprite
-      ? `<img src="/sprites/items/${sprite}" style="width:28px;height:28px;image-rendering:pixelated;object-fit:contain;" />`
+      ? `<img src="/sprites/items/${sprite}" style="width:34px;height:34px;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(1px 1px 1px rgba(0,0,0,0.5));" />`
       : icon
-      ? `<img src="/items/${icon}" style="width:28px;height:28px;image-rendering:pixelated;object-fit:contain;" />`
-      : `<div style="width:24px;height:24px;background:#aaa;border-radius:3px;"></div>`;
+      ? `<img src="/items/${icon}" style="width:34px;height:34px;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(1px 1px 1px rgba(0,0,0,0.5));" />`
+      : `<div style="width:28px;height:28px;background:rgba(170,170,170,0.6);border-radius:3px;"></div>`;
 
     el.innerHTML = `
       ${iconHtml}
-      <div style="font-size: 9px; color: #ccc; text-align: center; line-height: 1;">${name.length > 10 ? name.substring(0, 9) + '..' : name}</div>
-      ${slot.quantity > 1 ? `<div style="position: absolute; top: 1px; left: 3px; font-size: 9px; color: #fd0;">${slot.quantity}</div>` : ''}
+      ${slot.quantity > 1 ? `<div style="position: absolute; top: 2px; left: 4px; font-size: 9px; font-weight: bold; color: #ffe066; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000;">${slot.quantity}</div>` : ''}
     `;
-    el.style.borderColor = '#5a4a35';
   }
 
   private onInvSlotClick(index: number): void {

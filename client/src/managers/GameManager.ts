@@ -106,6 +106,8 @@ export class GameManager {
   private worldObjectSprites: Map<number, SpriteEntity> = new Map();
   private worldObjectModels: Map<number, TransformNode> = new Map();
   private worldObjectDefs: Map<number, { defId: number; x: number; z: number; depleted: boolean }> = new Map();
+  private doorPivots: Map<number, { pivot: TransformNode; targetAngle: number; currentAngle: number; closedRotY: number }> = new Map();
+  private doorTiles: Map<number, [number, number]> = new Map();
   /** Tiles blocked by non-depleted world objects (key = `${tileX},${tileZ}`) */
   private blockedObjectTiles: Set<string> = new Set();
   private objectDefsCache: Map<number, WorldObjectDef> = new Map();
@@ -125,6 +127,7 @@ export class GameManager {
   private hiddenRoofNodes: TransformNode[] = [];
   private _lastIndoorTileX: number = -9999;
   private _lastIndoorTileZ: number = -9999;
+  private _outdoorFrameCount: number = 0;
   private _lastBiomeCX: number = -9999;
   private _lastBiomeCZ: number = -9999;
   private _lastBiomeDef: BiomeDef | undefined = undefined;
@@ -147,9 +150,6 @@ export class GameManager {
   private boneDebugPanel: BoneDebugPanel | null = null;
   private armorBrowser: ArmorBrowserPanel | null = null;
   private armorPreviewNodes: Map<string, TransformNode> = new Map();
-  private armorSkeletons: Map<string, Skeleton> = new Map();
-  private _charBoneMap: Map<string, TransformNode> | null = null;
-  private _charBoneMapSkeleton: Skeleton | null = null;
   private shopPanel: ShopPanel | null = null;
   private smithingPanel: SmithingPanel | null = null;
 
@@ -160,6 +160,7 @@ export class GameManager {
   private keysDown: Set<string> = new Set();
 
   constructor(canvas: HTMLCanvasElement, token: string, username: string, onDisconnect?: () => void) {
+    (window as any).gm = this;
     this.token = token;
     this.username = username;
 
@@ -538,9 +539,14 @@ export class GameManager {
   private repositionWorldObjects(): void {
     for (const [objectEntityId, data] of this.worldObjectDefs) {
       const h = this.getHeight(data.x, data.z);
-      const model = this.worldObjectModels.get(objectEntityId);
-      if (model) {
-        model.position.y = h;
+      const doorEntry = this.doorPivots.get(objectEntityId);
+      if (doorEntry) {
+        doorEntry.pivot.position.y = h;
+      } else {
+        const model = this.worldObjectModels.get(objectEntityId);
+        if (model) {
+          model.position.y = h;
+        }
       }
       const sprite = this.worldObjectSprites.get(objectEntityId);
       if (sprite) {
@@ -555,8 +561,12 @@ export class GameManager {
     for (const [entityId, node] of this.worldObjectModels) {
       if (node.isDisposed()) {
         this.worldObjectModels.delete(entityId);
-        // Also dispose stump/depleted model
         this.objectModels.deleteStump(entityId);
+        const doorEntry = this.doorPivots.get(entityId);
+        if (doorEntry) {
+          doorEntry.pivot.dispose();
+          this.doorPivots.delete(entityId);
+        }
       }
     }
   }
@@ -582,7 +592,6 @@ export class GameManager {
     placedNode: TransformNode,
   ): void {
     this.worldObjectModels.set(objectEntityId, placedNode);
-    // Tag all descendants for right-click picking
     if (!placedNode.metadata) placedNode.metadata = {};
     placedNode.metadata.objectEntityId = objectEntityId;
     for (const child of placedNode.getChildMeshes(false)) {
@@ -593,15 +602,43 @@ export class GameManager {
       if (!child.metadata) child.metadata = {};
       child.metadata.objectEntityId = objectEntityId;
     }
-    if (data.depleted) placedNode.setEnabled(false);
 
-    // Create depleted model only if already depleted (lazy — otherwise created on first depletion event)
-    if (data.depleted) {
-      this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
+    const def = this.objectDefsCache.get(data.defId);
+    if (def?.category === 'door') {
+      // Set up wall edges now that we have the model rotation
+      const rotEdge = this.computeDoorEdgeFromModel(placedNode);
+      const tx = Math.floor(data.x), tz = Math.floor(data.z);
+      const fracX = data.x - tx, fracZ = data.z - tz;
+      const wallEdge = (rotEdge === WallEdge.N || rotEdge === WallEdge.S)
+        ? (fracZ > 0.5 ? WallEdge.S : WallEdge.N)
+        : (fracX > 0.5 ? WallEdge.E : WallEdge.W);
+      this.doorTiles.set(objectEntityId, [tx, tz]);
+      const nbLookup: Record<number, { dx: number; dz: number; opposite: number }> = {
+        [WallEdge.N]: { dx: 0, dz: -1, opposite: WallEdge.S },
+        [WallEdge.S]: { dx: 0, dz: 1, opposite: WallEdge.N },
+        [WallEdge.E]: { dx: 1, dz: 0, opposite: WallEdge.W },
+        [WallEdge.W]: { dx: -1, dz: 0, opposite: WallEdge.E },
+      };
+      const nb = nbLookup[wallEdge];
+      if (!data.depleted) {
+        this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) | wallEdge);
+        if (nb) {
+          const nx = tx + nb.dx, nz = tz + nb.dz;
+          this.chunkManager.setWall(nx, nz, this.chunkManager.getWallRawPublic(nx, nz) | nb.opposite);
+        }
+      } else {
+        this.chunkManager.setOpenDoorEdges(tx, tz, wallEdge, true);
+        if (nb) this.chunkManager.setOpenDoorEdges(tx + nb.dx, tz + nb.dz, nb.opposite, true);
+      }
+      this.setupDoorPivot(objectEntityId);
+      // Doors stay visible regardless of depleted state
+    } else {
+      if (data.depleted) placedNode.setEnabled(false);
+      if (data.depleted) {
+        this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
+      }
     }
 
-    // Remove any sprite placeholder that was created before the GLB was linked —
-    // otherwise it leaks and renders on top of the GLB.
     const sprite = this.worldObjectSprites.get(objectEntityId);
     if (sprite) {
       sprite.dispose();
@@ -633,6 +670,7 @@ export class GameManager {
     // Unequip
     if (itemId <= 0) {
       this.localPlayer.detachGear(slotName);
+      this.disposeArmorSlot(slotName);
       return;
     }
 
@@ -646,10 +684,9 @@ export class GameManager {
     // Clear cache for this item so rotation changes take effect immediately
     this.gearTemplateCache.delete(cacheKey);
 
-    // Check cache
+    // Check cache first (only non-skinned gear is cached as templates)
     let template = this.gearTemplateCache.get(cacheKey);
     if (!template) {
-      // Check if already loading
       let promise = this.gearLoadingPromises.get(cacheKey);
       if (!promise) {
         promise = (async () => {
@@ -666,7 +703,7 @@ export class GameManager {
             centerOrigin: override?.centerOrigin ?? false,
             metalColor: TOOL_TIER_METAL_COLOR[itemId],
           };
-          const tmpl = await loadGearTemplate(this.scene, gearDef);
+          const tmpl = await this.loadGearSmart(slotName, itemId, gearDef);
           if (tmpl) {
             this.gearTemplateCache.set(cacheKey, tmpl);
             console.log(`[Gear] Loaded ${slotName} item ${itemId}`);
@@ -679,9 +716,161 @@ export class GameManager {
       template = (await promise) ?? undefined;
     }
 
+    // null template means the skinned path was used (or load failed)
     if (template && this.localPlayer) {
       this.localPlayer.attachGear(slotName, itemId, template);
     }
+  }
+
+  /**
+   * Load a gear GLB. If it has a skeleton, set it up as skinned armor
+   * (bone-sync per frame) and return null. Otherwise return a GearTemplate
+   * for bone-parenting.
+   */
+  private async loadGearSmart(slotName: string, itemId: number, def: GearDef): Promise<GearTemplate | null> {
+    try {
+      const lastSlash = def.file.lastIndexOf('/');
+      const dir = def.file.substring(0, lastSlash + 1);
+      const file = def.file.substring(lastSlash + 1);
+      const result = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
+
+      if (result.skeletons.length > 0 && this.localPlayer) {
+        // Convert PBR → flat for all skinned armor meshes
+        for (const mesh of result.meshes) {
+          const pbrMat = mesh.material as any;
+          if (!pbrMat || !pbrMat.getClassName || pbrMat.getClassName() !== 'PBRMaterial') continue;
+          const flat = new StandardMaterial(`${pbrMat.name}_flat`, this.scene);
+          if (pbrMat.albedoTexture) flat.diffuseTexture = pbrMat.albedoTexture;
+          if (pbrMat.albedoColor) {
+            const b = 1.3;
+            flat.diffuseColor = new Color3(
+              Math.min(1, pbrMat.albedoColor.r * b),
+              Math.min(1, pbrMat.albedoColor.g * b),
+              Math.min(1, pbrMat.albedoColor.b * b),
+            );
+          }
+          flat.specularColor = Color3.Black();
+          const dc = flat.diffuseColor;
+          flat.emissiveColor = new Color3(dc.r * 0.55, dc.g * 0.55, dc.b * 0.55);
+          flat.backFaceCulling = pbrMat.backFaceCulling ?? true;
+          mesh.material = flat;
+        }
+
+        // Head slot: bone-parent to Head bone instead of skinned attachment.
+        // Helmets are rigid — skinned rendering causes drift vs the head mesh.
+        if (slotName === 'head') {
+          // Get the Head bone's bind-pose position from the armor skeleton's IBM
+          // so we can offset the mesh vertices to bone-local space.
+          const armorSkel = result.skeletons[0];
+          const headBone = armorSkel.bones.find(b => b.name === 'mixamorig:Head');
+          let headBindY = 0;
+          if (headBone) {
+            const tn = headBone.getTransformNode();
+            if (tn) {
+              tn.computeWorldMatrix(true);
+              headBindY = tn.absolutePosition.y;
+            }
+          }
+          for (const sk of result.skeletons) sk.dispose();
+          for (const mesh of result.meshes) mesh.skeleton = null;
+          def.boneName = 'mixamorig:Head';
+          def.centerOrigin = true;
+          // Shift mesh children so the head-height vertices sit at bone origin
+          const tmpl = this.buildGearTemplateFromResult(result, def);
+          for (const child of tmpl.template.getChildren()) {
+            (child as TransformNode).position.y -= headBindY;
+          }
+          return tmpl;
+        }
+
+        this.localPlayer.detachGear(slotName);
+        this.disposeArmorSlot(slotName);
+
+        this.localPlayer.attachSkinnedArmor(slotName, result.meshes, result.skeletons[0], itemId);
+        const loaderRoot = result.meshes.find(m => m.name === '__root__');
+        if (loaderRoot) loaderRoot.dispose();
+
+        // Apply saved override transforms for fine-tuning fit
+        const override = this.gearOverrides.get(itemId);
+        if (override) {
+          this.localPlayer.applySkinnedArmorTransform(slotName, override);
+        }
+
+        console.log(`[Gear] Loaded skinned ${slotName} item ${itemId}`);
+        return null;
+      }
+
+      // Non-skinned — build GearTemplate from the loaded result
+      return this.buildGearTemplateFromResult(result, def);
+    } catch (e) {
+      console.warn(`[Gear] Failed to load '${def.file}':`, e);
+      return null;
+    }
+  }
+
+  private buildGearTemplateFromResult(
+    result: { meshes: import('@babylonjs/core/Meshes/abstractMesh').AbstractMesh[] },
+    def: GearDef,
+  ): GearTemplate {
+    const root = new TransformNode(`gearTemplate_${def.itemId}`, this.scene);
+    for (const mesh of result.meshes) {
+      if (!mesh.parent || mesh.parent.name === '__root__') mesh.parent = root;
+    }
+
+    if (def.metalColor) {
+      const [r, g, b] = def.metalColor;
+      const tint = new Color3(r, g, b);
+      const recolored = new Set<string>();
+      for (const mesh of result.meshes) {
+        const mat = mesh.material as any;
+        if (!mat || !mat.name) continue;
+        if (!mat.name.includes('Material.002')) continue;
+        const clonedName = `${mat.name}_tint_${def.itemId}`;
+        let cloned: any;
+        if (recolored.has(clonedName)) {
+          cloned = this.scene.getMaterialByName(clonedName);
+        } else {
+          cloned = mat.clone(clonedName);
+          if (cloned) {
+            if ('albedoColor' in cloned) cloned.albedoColor = tint;
+            if ('diffuseColor' in cloned) cloned.diffuseColor = tint;
+            recolored.add(clonedName);
+          }
+        }
+        if (cloned) mesh.material = cloned;
+      }
+    }
+
+    if (!def.centerOrigin) {
+      let minY = Infinity;
+      for (const mesh of result.meshes) {
+        if (mesh.getTotalVertices() === 0) continue;
+        mesh.computeWorldMatrix(true);
+        const bb = mesh.getBoundingInfo().boundingBox;
+        if (bb.minimumWorld.y < minY) minY = bb.minimumWorld.y;
+      }
+      for (const child of root.getChildren()) {
+        (child as TransformNode).position.y -= minY;
+      }
+    }
+
+    root.setEnabled(false);
+    return {
+      template: root,
+      boneName: def.boneName,
+      localPosition: def.localPosition
+        ? new Vector3(def.localPosition.x, def.localPosition.y, def.localPosition.z)
+        : Vector3.Zero(),
+      localRotation: def.localRotation
+        ? new Vector3(def.localRotation.x, def.localRotation.y, def.localRotation.z)
+        : Vector3.Zero(),
+      scale: def.scale ?? 1,
+    };
+  }
+
+  private disposeArmorSlot(slot: string): void {
+    const node = this.armorPreviewNodes.get(slot);
+    if (node) { node.dispose(); this.armorPreviewNodes.delete(slot); }
   }
 
   /** Get the character model GLB path for a given shirt style index */
@@ -835,7 +1024,13 @@ export class GameManager {
         this.entities.createNpc(entityId, npcDefId, x, z);
       }
 
-      this.entities.npcTargets.set(entityId, { x, z });
+      const prev = this.entities.npcTargets.get(entityId);
+      this.entities.npcTargets.set(entityId, {
+        x, z,
+        prevX: prev ? prev.x : x,
+        prevZ: prev ? prev.z : z,
+        t: performance.now(),
+      });
 
       const sprite = this.entities.npcSprites.get(entityId)!;
       if (health < maxHealth) {
@@ -982,32 +1177,7 @@ export class GameManager {
       // Track blocking tiles for pathfinding
       const tileKey = `${Math.floor(x)},${Math.floor(z)}`;
       if (def?.category === 'door') {
-        // Doors block a specific edge, not the whole tile.
-        // Determine which edge based on fractional position (door sits on tile boundary)
-        const tx = Math.floor(x), tz = Math.floor(z);
-        const fracX = x - tx, fracZ = z - tz;
-        // Door is on the edge closest to its position within the tile
-        let edge = 0;
-        if (fracX < 0.15) edge = WallEdge.W;
-        else if (fracX > 0.85) edge = WallEdge.E;
-        else if (fracZ < 0.15) edge = WallEdge.N;
-        else if (fracZ > 0.85) edge = WallEdge.S;
-        else edge = WallEdge.N | WallEdge.S; // center — fallback to N/S
-
-        if (!isDepleted && edge) {
-          // Closed — set edge on door tile
-          const current = this.chunkManager.getWallRawPublic(tx, tz);
-          this.chunkManager.setWall(tx, tz, current | edge);
-        } else if (isDepleted && edge) {
-          // Already open at spawn — suppress wall-blocking for the door's edges
-          // so upper-floor walls don't block path through the open doorway.
-          this.chunkManager.setOpenDoorEdges(tx, tz, edge, true);
-          if (edge & WallEdge.N) this.chunkManager.setOpenDoorEdges(tx, tz - 1, WallEdge.S, true);
-          if (edge & WallEdge.S) this.chunkManager.setOpenDoorEdges(tx, tz + 1, WallEdge.N, true);
-          if (edge & WallEdge.E) this.chunkManager.setOpenDoorEdges(tx + 1, tz, WallEdge.W, true);
-          if (edge & WallEdge.W) this.chunkManager.setOpenDoorEdges(tx - 1, tz, WallEdge.E, true);
-        }
-        // Don't add to blockedObjectTiles — tile stays walkable
+        // Edge detection deferred until model is linked — handled in linkPlacedNodeToEntity / onChunkObjectsLoaded
       } else if (def?.blocking && !isDepleted) {
         const bx = Math.floor(x), bz = Math.floor(z);
         if (def.category === 'tree') {
@@ -1060,9 +1230,10 @@ export class GameManager {
       // Update depletion visuals
       const model = this.worldObjectModels.get(objectEntityId);
       if (model) {
-        // Trees: handled entirely by WORLD_OBJECT_DEPLETED (show/hide stump)
-        // Other GLB objects: toggle visibility
-        if (def?.category !== 'tree') {
+        if (def?.category === 'door') {
+          // Doors stay visible — animate rotation instead
+          model.setEnabled(true);
+        } else if (def?.category !== 'tree') {
           model.setEnabled(!isDepleted);
         }
       } else {
@@ -1072,7 +1243,7 @@ export class GameManager {
     });
 
     this.network.on(ServerOpcode.WORLD_OBJECT_DEPLETED, (_op, v) => {
-      const [objectEntityId, isDepleted] = v;
+      const [objectEntityId, isDepleted, swingSign] = v;
       const data = this.worldObjectDefs.get(objectEntityId);
       if (data) data.depleted = isDepleted === 1;
 
@@ -1081,14 +1252,14 @@ export class GameManager {
         const def2 = this.objectDefsCache.get(data.defId);
         const tileKey = `${Math.floor(data.x)},${Math.floor(data.z)}`;
         if (def2?.category === 'door') {
-          const tx = Math.floor(data.x), tz = Math.floor(data.z);
+          const dt = this.doorTiles.get(objectEntityId);
+          const tx = dt ? dt[0] : Math.floor(data.x), tz = dt ? dt[1] : Math.floor(data.z);
+          const doorEntry = this.doorPivots.get(objectEntityId);
+          const rotEdge = doorEntry ? this.computeDoorEdgeFromRotY(doorEntry.closedRotY) : WallEdge.N;
           const fracX = data.x - tx, fracZ = data.z - tz;
-          let edge = 0;
-          if (fracX < 0.15) edge = WallEdge.W;
-          else if (fracX > 0.85) edge = WallEdge.E;
-          else if (fracZ < 0.15) edge = WallEdge.N;
-          else if (fracZ > 0.85) edge = WallEdge.S;
-          else edge = WallEdge.N | WallEdge.S;
+          const edge = (rotEdge === WallEdge.N || rotEdge === WallEdge.S)
+            ? (fracZ > 0.5 ? WallEdge.S : WallEdge.N)
+            : (fracX > 0.5 ? WallEdge.E : WallEdge.W);
 
           const opened = isDepleted === 1;
           if (opened) {
@@ -1096,13 +1267,25 @@ export class GameManager {
           } else {
             this.chunkManager.setWall(tx, tz, this.chunkManager.getWallRawPublic(tx, tz) | edge);
           }
-          // Mark (or unmark) the door's edges so upper-floor walls are bypassed too.
-          // Also cover neighbor tiles' opposite edges so bidirectional wall checks pass.
           this.chunkManager.setOpenDoorEdges(tx, tz, edge, opened);
-          if (edge & WallEdge.N) this.chunkManager.setOpenDoorEdges(tx, tz - 1, WallEdge.S, opened);
-          if (edge & WallEdge.S) this.chunkManager.setOpenDoorEdges(tx, tz + 1, WallEdge.N, opened);
-          if (edge & WallEdge.E) this.chunkManager.setOpenDoorEdges(tx + 1, tz, WallEdge.W, opened);
-          if (edge & WallEdge.W) this.chunkManager.setOpenDoorEdges(tx - 1, tz, WallEdge.E, opened);
+          const nbLookup: Record<number, { dx: number; dz: number; opposite: number }> = {
+            [WallEdge.N]: { dx: 0, dz: -1, opposite: WallEdge.S },
+            [WallEdge.S]: { dx: 0, dz: 1, opposite: WallEdge.N },
+            [WallEdge.E]: { dx: 1, dz: 0, opposite: WallEdge.W },
+            [WallEdge.W]: { dx: -1, dz: 0, opposite: WallEdge.E },
+          };
+          const nb = nbLookup[edge];
+          if (nb) {
+            const nx = tx + nb.dx, nz = tz + nb.dz;
+            if (opened) {
+              this.chunkManager.setWall(nx, nz, this.chunkManager.getWallRawPublic(nx, nz) & ~nb.opposite);
+            } else {
+              this.chunkManager.setWall(nx, nz, this.chunkManager.getWallRawPublic(nx, nz) | nb.opposite);
+            }
+            this.chunkManager.setOpenDoorEdges(nx, nz, nb.opposite, opened);
+          }
+
+          this.animateDoor(objectEntityId, opened, swingSign || 0);
         } else if (def2?.blocking && isDepleted === 0) {
           const bx = Math.floor(data.x), bz = Math.floor(data.z);
           if (def2.category === 'tree') {
@@ -1127,26 +1310,28 @@ export class GameManager {
       const def = data ? this.objectDefsCache.get(data.defId) : null;
       const hasDepleteModel = def?.category === 'tree' || def?.category === 'rock';
 
-      const model = this.worldObjectModels.get(objectEntityId);
-      if (hasDepleteModel && data) {
-        // Find placed GLB and toggle visibility
-        const placedNode = model ?? this.chunkManager.findPlacedObjectNear(data.x, data.z, 1.5, data.defId);
-        if (placedNode) {
-          if (!model) this.worldObjectModels.set(objectEntityId, placedNode);
-          placedNode.setEnabled(isDepleted === 0);
-
-          // Create or toggle depleted model (stump / depleted rock)
-          let depleted = this.objectModels.getStump(objectEntityId);
-          if (!depleted && isDepleted === 1) {
-            depleted = this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
-          }
-          if (depleted) depleted.setEnabled(isDepleted === 1);
-        }
-      } else if (model) {
-        model.setEnabled(isDepleted === 0);
+      if (def?.category === 'door') {
+        // Doors stay visible — animation is handled above
       } else {
-        const sprite = this.worldObjectSprites.get(objectEntityId);
-        if (sprite) sprite.getMesh().isVisible = isDepleted === 0;
+        const model = this.worldObjectModels.get(objectEntityId);
+        if (hasDepleteModel && data) {
+          const placedNode = model ?? this.chunkManager.findPlacedObjectNear(data.x, data.z, 1.5, data.defId);
+          if (placedNode) {
+            if (!model) this.worldObjectModels.set(objectEntityId, placedNode);
+            placedNode.setEnabled(isDepleted === 0);
+
+            let depleted = this.objectModels.getStump(objectEntityId);
+            if (!depleted && isDepleted === 1) {
+              depleted = this.objectModels.createDepletedModel(objectEntityId, data.defId, placedNode);
+            }
+            if (depleted) depleted.setEnabled(isDepleted === 1);
+          }
+        } else if (model) {
+          model.setEnabled(isDepleted === 0);
+        } else {
+          const sprite = this.worldObjectSprites.get(objectEntityId);
+          if (sprite) sprite.getMesh().isVisible = isDepleted === 0;
+        }
       }
     });
 
@@ -1322,6 +1507,8 @@ export class GameManager {
     this.objectModels.disposeStumps();
     this.worldObjectDefs.clear();
     this.blockedObjectTiles.clear();
+    for (const [, entry] of this.doorPivots) entry.pivot.dispose();
+    this.doorPivots.clear();
 
     this.isSkilling = false;
     this.skillingObjectId = -1;
@@ -1654,25 +1841,39 @@ export class GameManager {
     // Find a reachable adjacent tile and walk there
     const def = this.objectDefsCache.get(data.defId);
 
-    // Doors: pathfind ignoring the door's wall edges so we can reach the door tile
     if (def?.category === 'door') {
-      const dotx = Math.floor(data.x);
-      const dotz = Math.floor(data.z);
-      // Pathfind with a custom wall check that ignores walls on the door tile
-      const doorWallCheck = (fx: number, fz: number, tx: number, tz: number): boolean => {
-        const ftx = Math.floor(fx), ftz = Math.floor(fz);
-        const ttx = Math.floor(tx), ttz = Math.floor(tz);
-        // Skip wall check if moving to/from the door tile
-        if ((ttx === dotx && ttz === dotz) || (ftx === dotx && ftz === dotz)) return false;
-        return this.isWallBlockedForPath(fx, fz, tx, tz);
-      };
-      const path = findPath(this.playerX, this.playerZ, dotx + 0.5, dotz + 0.5,
-        this.isTileBlocked,
-        this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
-        doorWallCheck);
-      if (path.length > 0) {
-        this.path = path; this.pathIndex = 0; this.tileProgress = 0; this.tileFrom = { x: this.playerX, z: this.playerZ };
-        this.network.sendMove(path);
+      const dt = this.doorTiles.get(objectEntityId);
+      const dotx = dt ? dt[0] : Math.floor(data.x);
+      const dotz = dt ? dt[1] : Math.floor(data.z);
+      const ptx = Math.floor(this.playerX);
+      const ptz = Math.floor(this.playerZ);
+      const alreadyAdj = (ptx === dotx && ptz === dotz) || (Math.abs(ptx - dotx) + Math.abs(ptz - dotz) === 1);
+
+      if (!alreadyAdj) {
+        const doorEntry = this.doorPivots.get(objectEntityId);
+        const rotEdge = doorEntry ? this.computeDoorEdgeFromRotY(doorEntry.closedRotY) : WallEdge.N;
+        const fracX2 = data.x - dotx, fracZ2 = data.z - dotz;
+        const edge = (rotEdge === WallEdge.N || rotEdge === WallEdge.S)
+          ? (fracZ2 > 0.5 ? WallEdge.S : WallEdge.N)
+          : (fracX2 > 0.5 ? WallEdge.E : WallEdge.W);
+        let tx = dotx, tz = dotz;
+        if (!data.depleted) {
+          if (edge === WallEdge.N && this.playerZ < dotz + 0.5) tz = dotz - 1;
+          else if (edge === WallEdge.S && this.playerZ > dotz + 0.5) tz = dotz + 1;
+          else if (edge === WallEdge.E && this.playerX > dotx + 0.5) tx = dotx + 1;
+          else if (edge === WallEdge.W && this.playerX < dotx + 0.5) tx = dotx - 1;
+        }
+        const path = findPath(this.playerX, this.playerZ, tx + 0.5, tz + 0.5,
+          this.isTileBlocked,
+          this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
+          this.isWallBlockedForPath);
+        if (path.length > 0) {
+          this.path = path; this.pathIndex = 0; this.tileProgress = 0;
+          this.tileFrom = { x: this.playerX, z: this.playerZ };
+        }
+      } else {
+        this.path = []; this.pathIndex = 0;
+        this.localPlayer?.stopWalking();
       }
       this.network.sendRaw(encodePacket(ClientOpcode.PLAYER_INTERACT_OBJECT, objectEntityId, actionIndex));
       return;
@@ -1754,22 +1955,27 @@ export class GameManager {
     });
 
     if (!alreadyAdj) {
-      // Find closest valid adjacent tile and pathfind there
-      let bestPath: { x: number; z: number }[] | null = null;
-      let bestLen = Infinity;
+      const candidates: { ax: number; az: number; dist: number }[] = [];
       for (const [tx, tz] of objTiles) {
         for (const [ddx, ddz] of dirs) {
           const ax = tx + ddx, az = tz + ddz;
           if (objTiles.some(([ox, oz]) => ox === ax && oz === az)) continue;
           if (this.isTileBlocked(ax, az)) continue;
-          const path = findPath(this.playerX, this.playerZ, ax + 0.5, az + 0.5,
-            this.isTileBlocked,
-            this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
-            this.isWallBlockedForPath);
-          if (path.length > 0 && path.length < bestLen) {
-            bestLen = path.length;
-            bestPath = path;
-          }
+          const dist = Math.hypot(this.playerX - (ax + 0.5), this.playerZ - (az + 0.5));
+          candidates.push({ ax, az, dist });
+        }
+      }
+      candidates.sort((a, b) => a.dist - b.dist);
+
+      let bestPath: { x: number; z: number }[] | null = null;
+      for (const { ax, az } of candidates) {
+        const path = findPath(this.playerX, this.playerZ, ax + 0.5, az + 0.5,
+          this.isTileBlocked,
+          this.chunkManager.getMapWidth(), this.chunkManager.getMapHeight(), 500,
+          this.isWallBlockedForPath);
+        if (path.length > 0) {
+          bestPath = path;
+          break;
         }
       }
       if (bestPath) {
@@ -1786,7 +1992,7 @@ export class GameManager {
     if (msg === '/geardebug') {
       if (!this.gearDebugPanel) {
         this.gearDebugPanel = new GearDebugPanel();
-        this.gearDebugPanel.setSlotGetter((slot) => this.localPlayer?.getGearNode?.(slot) ?? null);
+        this.gearDebugPanel.setSlotGetter((slot) => this.localPlayer?.getGearNode?.(slot) ?? this.armorPreviewNodes.get(slot) ?? null);
         this.gearDebugPanel.setSlotBoneGetter((slot) => EQUIP_SLOT_BONES[slot]?.boneName ?? '');
         this.gearDebugPanel.setItemInfoGetter((slot) => {
           const itemId = this.localPlayer?.getGearItemId(slot) ?? -1;
@@ -1795,6 +2001,7 @@ export class GameManager {
           return { id: itemId, name: def?.name ?? `item ${itemId}`, toolType: def?.toolType };
         });
         this.gearDebugPanel.setOverrideGetter((itemId) => this.gearOverrides.get(itemId) ?? null);
+        this.gearDebugPanel.setSkinnedChecker((slot) => this.localPlayer?.getSkinnedArmorMeshes?.(slot) != null);
         this.gearDebugPanel.setSaveCallback(async (itemId, override) => {
           this.gearOverrides.set(itemId, override);
           const all: Record<string, any> = {};
@@ -1821,30 +2028,11 @@ export class GameManager {
 
           if (hasSkeleton) {
             this.localPlayer.detachGear(slot);
-            const prevNode = this.armorPreviewNodes.get(slot);
-            if (prevNode) prevNode.dispose();
-            const prevSkel = this.armorSkeletons.get(slot);
-            if (prevSkel) prevSkel.dispose();
+            this.disposeArmorSlot(slot);
 
-            const root = new TransformNode(`gearDebug_${slot}`, this.scene);
+            this.localPlayer.attachSkinnedArmor(slot, result.meshes, result.skeletons[0]);
             const loaderRoot = result.meshes.find(m => m.name === '__root__');
-            for (const mesh of result.meshes) {
-              if (!mesh.parent || mesh.parent.name === '__root__') mesh.parent = root;
-            }
-            if (loaderRoot) {
-              for (const child of loaderRoot.getChildren()) (child as TransformNode).parent = root;
-            }
-
-            const charRoot = this.localPlayer.getRoot?.();
-            if (charRoot) {
-              root.parent = charRoot;
-              root.rotationQuaternion = null;
-              root.position.set(0, 0, 0);
-              root.rotation.set(0, 0, 0);
-              root.scaling.set(1, 1, 1);
-            }
-            this.armorPreviewNodes.set(slot, root);
-            this.armorSkeletons.set(slot, result.skeletons[0]);
+            if (loaderRoot) loaderRoot.dispose();
           } else {
             const gearDef: GearDef = {
               itemId: -999,
@@ -1863,10 +2051,8 @@ export class GameManager {
         this.gearDebugPanel.setUnequipCallback((slot) => {
           if (!this.localPlayer) return;
           this.localPlayer.detachGear(slot);
-          const prevNode = this.armorPreviewNodes.get(slot);
-          if (prevNode) { prevNode.dispose(); this.armorPreviewNodes.delete(slot); }
-          const prevSkel = this.armorSkeletons.get(slot);
-          if (prevSkel) { prevSkel.dispose(); this.armorSkeletons.delete(slot); }
+          this.localPlayer.detachSkinnedArmor(slot);
+          this.disposeArmorSlot(slot);
         });
         this.gearDebugPanel.setAnimCallback((anim) => {
           if (!this.localPlayer) return;
@@ -1904,27 +2090,28 @@ export class GameManager {
         this.armorBrowser = new ArmorBrowserPanel();
         this.armorBrowser.setScene(this.scene);
         this.armorBrowser.setEquipCallback((category, item, root, armorSkeleton) => {
-          const prev = this.armorPreviewNodes.get(category);
-          if (prev) prev.dispose();
-          const prevSkel = this.armorSkeletons.get(category);
-          if (prevSkel) prevSkel.dispose();
-          this.armorSkeletons.delete(category);
-          const charRoot = this.localPlayer?.getRoot?.();
-          if (charRoot) {
-            root.parent = charRoot;
-            root.rotationQuaternion = null;
-            root.position.set(0, 0, 0);
-            root.rotation.set(0, 0, 0);
-            root.scaling.set(1, 1, 1);
+          this.disposeArmorSlot(category);
+          this.localPlayer?.detachSkinnedArmor?.(category);
+
+          if (armorSkeleton && this.localPlayer) {
+            const meshes = root.getChildMeshes();
+            this.localPlayer.attachSkinnedArmor(category, meshes, armorSkeleton);
+            root.dispose();
+          } else {
+            const charRoot = this.localPlayer?.getRoot?.();
+            if (charRoot) {
+              root.parent = charRoot;
+              root.rotationQuaternion = null;
+              root.position.set(0, this.localPlayer?.getChildYOffset?.() ?? 0, 0);
+              root.rotation.set(0, 0, 0);
+              root.scaling.set(1, 1, 1);
+            }
+            this.armorPreviewNodes.set(category, root);
           }
-          this.armorPreviewNodes.set(category, root);
-          if (armorSkeleton) this.armorSkeletons.set(category, armorSkeleton);
         });
         this.armorBrowser.setUnequipCallback((category) => {
-          const node = this.armorPreviewNodes.get(category);
-          if (node) { node.dispose(); this.armorPreviewNodes.delete(category); }
-          const skel = this.armorSkeletons.get(category);
-          if (skel) { skel.dispose(); this.armorSkeletons.delete(category); }
+          this.localPlayer?.detachSkinnedArmor?.(category);
+          this.disposeArmorSlot(category);
         });
       }
       this.armorBrowser.toggle();
@@ -1936,7 +2123,7 @@ export class GameManager {
   }
 
   private showPlayerChatBubble(fromName: string, message: string): void {
-    if (!fromName) return;
+    if (!fromName || !this.username) return;
 
     if (fromName.toLowerCase() === this.username.toLowerCase()) {
       if (this.localPlayer) {
@@ -2235,6 +2422,7 @@ export class GameManager {
   }
 
   destroy(): void {
+    if (this.minimap) { this.minimap.dispose(); this.minimap = null; }
     if (this.characterCreator) { this.characterCreator.destroy(); this.characterCreator = null; }
     if (this.resizeObserver) { this.resizeObserver.disconnect(); this.resizeObserver = null; }
     if (this.onWindowResize) { window.removeEventListener('resize', this.onWindowResize); this.onWindowResize = null; }
@@ -2373,43 +2561,11 @@ export class GameManager {
     this.thinkingBubble.style.top = `${this._overlayScreenPos.y - 48}px`;
   }
 
-  private syncArmorBones(): void {
-    const charSkeleton = this.localPlayer?.getSkeleton?.();
-    if (!charSkeleton) return;
-    if (this._charBoneMapSkeleton !== charSkeleton) {
-      this._charBoneMapSkeleton = charSkeleton;
-      this._charBoneMap = new Map();
-      for (const bone of charSkeleton.bones) {
-        const tn = bone.getTransformNode();
-        if (tn) this._charBoneMap.set(bone.name, tn);
-      }
-    }
-    const boneMap = this._charBoneMap!;
-    for (const armorSkeleton of this.armorSkeletons.values()) {
-      for (const armorBone of armorSkeleton.bones) {
-        const charTN = boneMap.get(armorBone.name);
-        if (!charTN) continue;
-        const armorTN = armorBone.getTransformNode();
-        if (!armorTN) continue;
-        if (charTN.rotationQuaternion) {
-          if (!armorTN.rotationQuaternion) {
-            armorTN.rotationQuaternion = charTN.rotationQuaternion.clone();
-          } else {
-            armorTN.rotationQuaternion.copyFrom(charTN.rotationQuaternion);
-          }
-        }
-        armorTN.position.copyFrom(charTN.position);
-      }
-    }
-  }
-
   private update(dt: number): void {
     this.updateCameraKeys(dt);
 
     if (this.localPlayer) this.localPlayer.updateAnimation(dt);
     this.entities.updateAnimations(dt);
-
-    if (this.armorSkeletons.size > 0) this.syncArmorBones();
 
     const camPos = this.scene.activeCamera?.position ?? null;
 
@@ -2434,6 +2590,7 @@ export class GameManager {
     this.entities.interpolateNpcs(dt, camPos, this.localPlayerId, this.localPlayer?.position ?? null);
 
     this.updateIndoorDetection();
+    this.updateDoorAnimations(dt);
 
     if (this.localPlayer) {
       this._tempVec.set(this.playerX, this.localPlayer.position.y, this.playerZ);
@@ -2583,17 +2740,24 @@ export class GameManager {
 
   private updateIndoorDetection(): void {
     const playerY = this.localPlayer?.position.y ?? this.getHeight(this.playerX, this.playerZ);
-    const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ, playerY);
-    if (underRoof && !this.isIndoors) {
-      this.isIndoors = true;
-      this._lastIndoorTileX = -9999;
-      this._lastIndoorTileZ = -9999;
-    } else if (!underRoof && this.isIndoors) {
-      this.isIndoors = false;
-      for (const node of this.hiddenRoofNodes) node.setEnabled(true);
-      this.hiddenRoofNodes = [];
-      this._lastIndoorTileX = -9999;
-      this._lastIndoorTileZ = -9999;
+    const floor = this.currentFloor;
+    const underRoof = this.chunkManager.isUnderRoof(this.playerX, this.playerZ, playerY, floor);
+    if (underRoof) {
+      this._outdoorFrameCount = 0;
+      if (!this.isIndoors) {
+        this.isIndoors = true;
+        this._lastIndoorTileX = -9999;
+        this._lastIndoorTileZ = -9999;
+      }
+    } else {
+      this._outdoorFrameCount++;
+      if (this._outdoorFrameCount >= 6 && this.isIndoors) {
+        this.isIndoors = false;
+        for (const node of this.hiddenRoofNodes) node.setEnabled(true);
+        this.hiddenRoofNodes = [];
+        this._lastIndoorTileX = -9999;
+        this._lastIndoorTileZ = -9999;
+      }
     }
     if (this.isIndoors) {
       const ptx = Math.floor(this.playerX);
@@ -2603,9 +2767,11 @@ export class GameManager {
         this._lastIndoorTileZ = ptz;
         for (const node of this.hiddenRoofNodes) node.setEnabled(true);
         const py = this.localPlayer?.position.y ?? 0;
+        const ceilingY = this.chunkManager.getCeilingHeight(this.playerX, this.playerZ, py);
+        const hideAboveY = ceilingY < Infinity ? ceilingY - 0.1 : py + 1.5;
         this.hiddenRoofNodes = [
-          ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, py + 0.5),
-          ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, py + 1.5),
+          ...this.chunkManager.getRoofNodesNear(this.playerX, this.playerZ, 8, py + 0.5, floor),
+          ...this.chunkManager.getNodesAboveHeight(this.playerX, this.playerZ, 8, hideAboveY),
         ];
         this._roofDedup.clear();
         this.hiddenRoofNodes = this.hiddenRoofNodes.filter(n => {
@@ -2615,6 +2781,108 @@ export class GameManager {
         });
         for (const node of this.hiddenRoofNodes) node.setEnabled(false);
       }
+    }
+  }
+
+  private computeDoorEdgeFromRotY(rotY: number): number {
+    const deg = Math.round((rotY * 180 / Math.PI) % 360 + 360) % 360;
+    if (deg === 0) return WallEdge.N;
+    if (deg === 90) return WallEdge.E;
+    if (deg === 180) return WallEdge.S;
+    if (deg === 270) return WallEdge.W;
+    return (deg < 45 || deg > 315) ? WallEdge.N
+         : (deg < 135) ? WallEdge.E
+         : (deg < 225) ? WallEdge.S
+         : WallEdge.W;
+  }
+
+  private computeDoorEdgeFromModel(model: TransformNode): number {
+    let rotY = 0;
+    if (model.rotationQuaternion) {
+      const q = model.rotationQuaternion;
+      rotY = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+    } else {
+      rotY = model.rotation.y;
+    }
+    return this.computeDoorEdgeFromRotY(rotY);
+  }
+
+  private setupDoorPivot(objectEntityId: number): void {
+    const model = this.worldObjectModels.get(objectEntityId);
+    if (!model || this.doorPivots.has(objectEntityId)) return;
+
+    model.computeWorldMatrix(true);
+
+    let closedRotY = 0;
+    if (model.rotationQuaternion) {
+      const q = model.rotationQuaternion;
+      closedRotY = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+    } else {
+      closedRotY = model.rotation.y;
+    }
+
+    // Find the door panel mesh (tallest child = the door, not the handle)
+    // Its absolute position is the hinge point in world space because
+    // the GLB origin was placed at the hinge corner in Blender.
+    let hingeWorldPos = model.getAbsolutePosition().clone();
+    const childMeshes = model.getChildMeshes();
+    let bestHeight = 0;
+    for (const m of childMeshes) {
+      const bb = m.getBoundingInfo()?.boundingBox;
+      if (!bb) continue;
+      const h = bb.maximum.y - bb.minimum.y;
+      if (h > bestHeight) {
+        bestHeight = h;
+        m.computeWorldMatrix(true);
+        hingeWorldPos = m.getAbsolutePosition().clone();
+      }
+    }
+
+    const modelWorldPos = model.getAbsolutePosition().clone();
+
+    const pivot = new TransformNode("doorPivot_" + objectEntityId, this.scene);
+    pivot.position = hingeWorldPos;
+    pivot.rotationQuaternion = null;
+    pivot.rotation.y = 0;
+
+    model.rotationQuaternion = null;
+    const savedParent = model.parent;
+    model.parent = pivot;
+    model.position = modelWorldPos.subtract(hingeWorldPos);
+    model.rotation.set(0, closedRotY, 0);
+
+    if (savedParent) {
+      pivot.parent = savedParent;
+    }
+
+    const data = this.worldObjectDefs.get(objectEntityId);
+    const startAngle = (data && data.depleted) ? -Math.PI / 2 : 0;
+
+    this.doorPivots.set(objectEntityId, {
+      pivot,
+      targetAngle: startAngle,
+      currentAngle: startAngle,
+      closedRotY,
+    });
+
+    pivot.rotation.y = startAngle;
+  }
+
+  private animateDoor(objectEntityId: number, opening: boolean, swingSign: number = 0): void {
+    const entry = this.doorPivots.get(objectEntityId);
+    if (!entry) return;
+    if (opening) {
+      const dir = swingSign >= 0 ? -1 : 1;
+      entry.targetAngle = dir * Math.PI / 2;
+    } else {
+      entry.targetAngle = 0;
+    }
+  }
+
+  private updateDoorAnimations(_dt: number): void {
+    for (const [, entry] of this.doorPivots) {
+      entry.currentAngle = entry.targetAngle;
+      entry.pivot.rotation.y = entry.targetAngle;
     }
   }
 

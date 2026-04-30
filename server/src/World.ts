@@ -166,8 +166,8 @@ export class World {
           this.blockedObjectTiles.add(this.blockedKeyFor(mapId, spawn.x, spawn.z));
         }
       }
-      // Doors: set initial wall edges (closed state)
       if (objDef.category === 'door') {
+        this.initDoorEdge(obj);
         this.setDoorWallEdges(obj, gameMap);
       }
       cm.addEntity(obj.id, spawn.x, spawn.z);
@@ -295,7 +295,6 @@ export class World {
         this.worldObjects.set(obj.id, obj);
         if (objDef.blocking && objDef.category !== 'door') {
           if (objDef.category === 'tree') {
-            // Trees block a 2x2 area around their trunk
             const bx = Math.floor(spawn.x);
             const bz = Math.floor(spawn.z);
             for (const [dx, dz] of [[-1,-1],[0,-1],[-1,0],[0,0]]) {
@@ -306,6 +305,7 @@ export class World {
           }
         }
         if (objDef.category === 'door') {
+          this.initDoorEdge(obj);
           this.setDoorWallEdges(obj, gameMap);
         }
         const cm = this.chunkManagers.get(mapId);
@@ -433,71 +433,120 @@ export class World {
 
   /** Check if a world position is within chunk load radius of a player */
   /** Find the best tool of a given type that the player can use (checks equipped weapon + inventory) */
-  private doorEdgeMask(rotationY: number): number {
-    const degRaw = Math.round((rotationY * 180 / Math.PI) % 360 + 360) % 360;
-    return (degRaw === 0 || degRaw === 180) ? (WallEdge.N | WallEdge.S) : (WallEdge.E | WallEdge.W);
+  private computeDoorEdge(rotationY: number): number {
+    const deg = Math.round((rotationY * 180 / Math.PI) % 360 + 360) % 360;
+    if (deg === 0) return WallEdge.N;
+    if (deg === 90) return WallEdge.E;
+    if (deg === 180) return WallEdge.S;
+    if (deg === 270) return WallEdge.W;
+    return (deg < 45 || deg > 315) ? WallEdge.N
+         : (deg < 135) ? WallEdge.E
+         : (deg < 225) ? WallEdge.S
+         : WallEdge.W;
   }
 
-  /** Set wall edges for a closed door on spawn */
+  private static readonly EDGE_NEIGHBOR: Record<number, { dx: number; dz: number; opposite: number }> = {
+    [WallEdge.N]: { dx: 0, dz: -1, opposite: WallEdge.S },
+    [WallEdge.S]: { dx: 0, dz: 1, opposite: WallEdge.N },
+    [WallEdge.E]: { dx: 1, dz: 0, opposite: WallEdge.W },
+    [WallEdge.W]: { dx: -1, dz: 0, opposite: WallEdge.E },
+  };
+
+  private initDoorEdge(obj: WorldObject): void {
+    obj.closedEdge = this.computeDoorEdge(obj.rotationY);
+  }
+
+  private doorTile(obj: WorldObject): [number, number] {
+    return [Math.floor(obj.x), Math.floor(obj.z)];
+  }
+
+  /** Compute the actual wall edge based on which tile boundary the door is closest to.
+   *  closedEdge (from rotation) tells us N/S vs E/W axis; fractional position picks the side. */
+  private doorWallEdge(obj: WorldObject): number {
+    const rotEdge = obj.closedEdge;
+    const fracX = obj.x - Math.floor(obj.x);
+    const fracZ = obj.z - Math.floor(obj.z);
+    if (rotEdge === WallEdge.N || rotEdge === WallEdge.S) {
+      return fracZ > 0.5 ? WallEdge.S : WallEdge.N;
+    }
+    return fracX > 0.5 ? WallEdge.E : WallEdge.W;
+  }
+
   private setDoorWallEdges(obj: WorldObject, map: GameMap): void {
-    const tx = Math.floor(obj.x);
-    const tz = Math.floor(obj.z);
-    const edgeMask = this.doorEdgeMask(obj.rotationY);
-    map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
+    const [tx, tz] = this.doorTile(obj);
+    const edge = this.doorWallEdge(obj);
+    map.setWall(tx, tz, map.getWall(tx, tz) | edge);
+    const nb = World.EDGE_NEIGHBOR[edge];
+    if (nb) {
+      const nx = tx + nb.dx, nz = tz + nb.dz;
+      if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
+        map.setWall(nx, nz, map.getWall(nx, nz) | nb.opposite);
+      }
+    }
   }
 
-  private toggleDoor(obj: WorldObject): void {
+  private clearDoorWallEdges(obj: WorldObject, map: GameMap): void {
+    const [tx, tz] = this.doorTile(obj);
+    const edge = this.doorWallEdge(obj);
+    map.setWall(tx, tz, map.getWall(tx, tz) & ~edge);
+    map.setOpenDoorEdges(tx, tz, edge, true);
+    const nb = World.EDGE_NEIGHBOR[edge];
+    if (nb) {
+      const nx = tx + nb.dx, nz = tz + nb.dz;
+      if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
+        map.setWall(nx, nz, map.getWall(nx, nz) & ~nb.opposite);
+        map.setOpenDoorEdges(nx, nz, nb.opposite, true);
+      }
+    }
+  }
+
+  private restoreDoorWallEdges(obj: WorldObject, map: GameMap): void {
+    const [tx, tz] = this.doorTile(obj);
+    const edge = this.doorWallEdge(obj);
+    map.setWall(tx, tz, map.getWall(tx, tz) | edge);
+    map.setOpenDoorEdges(tx, tz, edge, false);
+    const nb = World.EDGE_NEIGHBOR[edge];
+    if (nb) {
+      const nx = tx + nb.dx, nz = tz + nb.dz;
+      if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
+        map.setWall(nx, nz, map.getWall(nx, nz) | nb.opposite);
+        map.setOpenDoorEdges(nx, nz, nb.opposite, false);
+      }
+    }
+  }
+
+  private computeSwingSign(player: Player, obj: WorldObject): number {
+    const [tx, tz] = this.doorTile(obj);
+    const px = player.position.x, pz = player.position.y;
+    const edge = obj.closedEdge;
+    if (edge === WallEdge.N) return pz < tz + 0.5 ? -1 : 1;
+    if (edge === WallEdge.S) return pz > tz + 0.5 ? -1 : 1;
+    if (edge === WallEdge.E) return px > tx + 0.5 ? -1 : 1;
+    if (edge === WallEdge.W) return px < tx + 0.5 ? -1 : 1;
+    return 0;
+  }
+
+  private toggleDoor(obj: WorldObject, swingSign: number = 0): void {
     const map = this.maps.get(obj.mapLevel);
     if (!map) return;
-    const tx = Math.floor(obj.x);
-    const tz = Math.floor(obj.z);
 
-    // Derive wall edge from door rotation
-    const edgeMask = this.doorEdgeMask(obj.rotationY);
-
-    const isOpen = obj.depleted;
-
-    // Toggle edges on the door tile AND on neighboring tiles (bidirectional)
-    // This ensures both sides of the edge are cleared/set
-    const edgePairs: { dx: number; dz: number; selfEdge: number; neighborEdge: number }[] = [];
-    if (edgeMask & WallEdge.N) edgePairs.push({ dx: 0, dz: -1, selfEdge: WallEdge.N, neighborEdge: WallEdge.S });
-    if (edgeMask & WallEdge.S) edgePairs.push({ dx: 0, dz: 1, selfEdge: WallEdge.S, neighborEdge: WallEdge.N });
-    if (edgeMask & WallEdge.E) edgePairs.push({ dx: 1, dz: 0, selfEdge: WallEdge.E, neighborEdge: WallEdge.W });
-    if (edgeMask & WallEdge.W) edgePairs.push({ dx: -1, dz: 0, selfEdge: WallEdge.W, neighborEdge: WallEdge.E });
-
-    if (isOpen) {
-      // Close door — restore door edges
-      map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
-      map.setOpenDoorEdges(tx, tz, edgeMask, false);
-      for (const ep of edgePairs) {
-        const nx = tx + ep.dx, nz = tz + ep.dz;
-        if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
-          map.setWall(nx, nz, map.getWall(nx, nz) | ep.neighborEdge);
-          map.setOpenDoorEdges(nx, nz, ep.neighborEdge, false);
-        }
-      }
+    if (obj.doorOpen) {
+      this.restoreDoorWallEdges(obj, map);
+      obj.doorOpen = false;
       obj.depleted = false;
+      this.depletedObjectIds.delete(obj.id);
       obj.def = { ...obj.def, actions: ['Open', 'Examine'] };
+      swingSign = 0;
     } else {
-      // Open door — clear ALL edges on door tile + neighbor edges pointing at door
-      map.setWall(tx, tz, 0);
-      map.setOpenDoorEdges(tx, tz, edgeMask, true);
-      for (const ep of edgePairs) {
-        const nx = tx + ep.dx, nz = tz + ep.dz;
-        if (nx >= 0 && nz >= 0 && nx < map.width && nz < map.height) {
-          map.setWall(nx, nz, map.getWall(nx, nz) & ~ep.neighborEdge);
-          map.setOpenDoorEdges(nx, nz, ep.neighborEdge, true);
-        }
-      }
+      this.clearDoorWallEdges(obj, map);
+      obj.doorOpen = true;
       obj.depleted = true;
-      obj.respawnTimer = obj.def.category === 'door' ? 200 : (obj.def.respawnTime ?? 15);
+      obj.respawnTimer = obj.def.respawnTime ?? 200;
       this.depletedObjectIds.add(obj.id);
-      // Update action to "Close"
       obj.def = { ...obj.def, actions: ['Close', 'Examine'] };
     }
 
-    // Broadcast state to nearby players
-    this.broadcastNearby(obj.mapLevel, obj.x, obj.z, ServerOpcode.WORLD_OBJECT_DEPLETED, obj.id, obj.depleted ? 1 : 0);
+    this.broadcastNearby(obj.mapLevel, obj.x, obj.z, ServerOpcode.WORLD_OBJECT_DEPLETED, obj.id, obj.depleted ? 1 : 0, swingSign);
   }
 
   private findBestTool(player: Player, toolType: string, playerSkillLevel: number): ItemDef | null {
@@ -604,7 +653,7 @@ export class World {
 
     this.clearCombatTarget(playerId);
     player.attackTarget = null;
-    // Don't clear pendingInteraction — player may be walking TO an object to interact
+    player.pendingInteraction = null;
     this.cancelSkilling(playerId);
 
     const map = this.getPlayerMap(player);
@@ -862,36 +911,51 @@ export class World {
     // Doors can be interacted with when open (to close) — other objects can't when depleted
     if (obj.depleted && obj.def.category !== 'door') return;
 
+    // Doors: cancel current movement so adjacency check uses where the player actually stopped
+    if (obj.def.category === 'door') {
+      player.moveQueue = [];
+      player.pendingInteraction = null;
+    }
+
     // Check adjacency — player must be on a tile next to the object
     if (!this.isAdjacentToObject(player, obj)) {
-      // For doors, temporarily clear wall edges so pathfinding can reach the door tile
       if (obj.def.category === 'door') {
+        const swingSign = obj.doorOpen ? 0 : this.computeSwingSign(player, obj);
         const map = this.getPlayerMap(player);
-        const dtx = Math.floor(obj.x);
-        const dtz = Math.floor(obj.z);
-        // Save and clear the door's wall edges
-        const savedWall = map.getWall(dtx, dtz);
-        map.setWall(dtx, dtz, 0);
-        // Also clear neighbor edges pointing at the door
-        const edgeMask = this.doorEdgeMask(obj.rotationY);
-        const savedNeighbors: { x: number; z: number; wall: number; neighborEdge: number }[] = [];
-        // Mark the door's edges as "temporarily open" so pathfinding also ignores upper-floor walls
-        map.setOpenDoorEdges(dtx, dtz, edgeMask, true);
-        if (edgeMask & WallEdge.N) { const w = map.getWall(dtx, dtz - 1); savedNeighbors.push({ x: dtx, z: dtz - 1, wall: w, neighborEdge: WallEdge.S }); map.setWall(dtx, dtz - 1, w & ~WallEdge.S); map.setOpenDoorEdges(dtx, dtz - 1, WallEdge.S, true); }
-        if (edgeMask & WallEdge.S) { const w = map.getWall(dtx, dtz + 1); savedNeighbors.push({ x: dtx, z: dtz + 1, wall: w, neighborEdge: WallEdge.N }); map.setWall(dtx, dtz + 1, w & ~WallEdge.N); map.setOpenDoorEdges(dtx, dtz + 1, WallEdge.N, true); }
-        if (edgeMask & WallEdge.E) { const w = map.getWall(dtx + 1, dtz); savedNeighbors.push({ x: dtx + 1, z: dtz, wall: w, neighborEdge: WallEdge.W }); map.setWall(dtx + 1, dtz, w & ~WallEdge.W); map.setOpenDoorEdges(dtx + 1, dtz, WallEdge.W, true); }
-        if (edgeMask & WallEdge.W) { const w = map.getWall(dtx - 1, dtz); savedNeighbors.push({ x: dtx - 1, z: dtz, wall: w, neighborEdge: WallEdge.E }); map.setWall(dtx - 1, dtz, w & ~WallEdge.E); map.setOpenDoorEdges(dtx - 1, dtz, WallEdge.E, true); }
+        const [dtx, dtz] = this.doorTile(obj);
 
-        const path = map.findPathOnFloor(player.position.x, player.position.y, dtx + 0.5, dtz + 0.5, player.currentFloor);
-
-        // Restore wall edges + clear the temporary open-door marks
-        map.setWall(dtx, dtz, savedWall);
-        map.setOpenDoorEdges(dtx, dtz, edgeMask, false);
-        for (const n of savedNeighbors) { map.setWall(n.x, n.z, n.wall); map.setOpenDoorEdges(n.x, n.z, n.neighborEdge, false); }
+        let path: { x: number; z: number }[];
+        if (obj.doorOpen) {
+          const px = player.position.x, pz = player.position.y;
+          const candidates: [number, number][] = [
+            [dtx + 0.5, dtz - 0.5],
+            [dtx + 0.5, dtz + 1.5],
+            [dtx + 1.5, dtz + 0.5],
+            [dtx - 0.5, dtz + 0.5],
+            [dtx + 0.5, dtz + 0.5],
+          ];
+          candidates.sort((a, b) =>
+            (Math.abs(a[0] - px) + Math.abs(a[1] - pz)) - (Math.abs(b[0] - px) + Math.abs(b[1] - pz)));
+          path = [];
+          for (const [cx, cz] of candidates) {
+            path = map.findPathOnFloor(px, pz, cx, cz, player.currentFloor);
+            if (path.length > 0) break;
+          }
+        } else {
+          const edge = this.doorWallEdge(obj);
+          const nb = World.EDGE_NEIGHBOR[edge];
+          let tx = dtx, tz = dtz;
+          const px = player.position.x, pz = player.position.y;
+          if (edge === WallEdge.N && pz < dtz + 0.5 && nb) { tx = dtx + nb.dx; tz = dtz + nb.dz; }
+          else if (edge === WallEdge.S && pz > dtz + 0.5 && nb) { tx = dtx + nb.dx; tz = dtz + nb.dz; }
+          else if (edge === WallEdge.E && px > dtx + 0.5 && nb) { tx = dtx + nb.dx; tz = dtz + nb.dz; }
+          else if (edge === WallEdge.W && px < dtx + 0.5 && nb) { tx = dtx + nb.dx; tz = dtz + nb.dz; }
+          path = map.findPathOnFloor(px, pz, tx + 0.5, tz + 0.5, player.currentFloor);
+        }
 
         if (path.length > 0) {
           player.moveQueue = path;
-          player.pendingInteraction = { objectEntityId, actionIndex };
+          player.pendingInteraction = { objectEntityId, actionIndex, swingSign };
         }
       } else {
         player.pendingInteraction = { objectEntityId, actionIndex };
@@ -919,7 +983,7 @@ export class World {
     }
 
     if (obj.def.category === 'door' && (action === 'Open' || action === 'Close')) {
-      this.toggleDoor(obj);
+      this.toggleDoor(obj, this.computeSwingSign(player, obj));
       return;
     }
 
@@ -1190,6 +1254,18 @@ export class World {
 
   private tickPlayerMovement(): void {
     for (const [playerId, player] of this.players) {
+      if (player.moveQueue.length > 0) {
+        const next = player.moveQueue[0];
+        const map = this.getPlayerMap(player);
+        const pFloor = player.currentFloor;
+        const wallBlocked = pFloor === 0
+          ? map.isWallBlocked(player.position.x, player.position.y, next.x, next.z)
+          : map.isWallBlockedOnFloor(player.position.x, player.position.y, next.x, next.z, pFloor);
+        if (wallBlocked) {
+          player.moveQueue = [];
+          player.pendingInteraction = null;
+        }
+      }
       player.processMovement();
       this.updateEntityChunk(player);
       if (player.pendingPickup >= 0 && player.moveQueue.length === 0) {
@@ -1198,7 +1274,7 @@ export class World {
         this.handlePlayerPickup(playerId, pickupId);
       }
       if (player.pendingInteraction && player.moveQueue.length === 0) {
-        const { objectEntityId, actionIndex } = player.pendingInteraction;
+        const { objectEntityId, actionIndex, swingSign } = player.pendingInteraction;
         player.pendingInteraction = null;
         const obj = this.worldObjects.get(objectEntityId);
         if (obj && obj.mapLevel === player.currentMapLevel) {
@@ -1208,7 +1284,7 @@ export class World {
             this.clearCombatTarget(playerId);
             const action = obj.def.actions[actionIndex];
             if (action && obj.def.category === 'door' && (action === 'Open' || action === 'Close')) {
-              this.toggleDoor(obj);
+              this.toggleDoor(obj, swingSign ?? 0);
             } else if (action) {
               this.handlePlayerInteractObject(playerId, objectEntityId, actionIndex);
             }
@@ -1248,7 +1324,9 @@ export class World {
       const mapId = npc.currentMapLevel;
       const npcBlocked = (x: number, z: number) =>
         map.isBlocked(x, z) || this.blockedObjectTiles.has(this.blockedKeyFor(mapId, x, z));
-      npc.processAI(npcBlocked, map.isWallBlockedCb);
+      const npcFindPath = (sx: number, sz: number, gx: number, gz: number) =>
+        map.findPathForNpc(sx, sz, gx, gz, npcBlocked);
+      npc.processAI(npcBlocked, map.isWallBlockedCb, npcFindPath);
 
       const cm = this.chunkManagers.get(npc.currentMapLevel);
       if (cm) cm.updateEntity(npc.id, npc.position.x, npc.position.y);
@@ -1553,11 +1631,8 @@ export class World {
         }
         if (obj.def.category === 'door') {
           const map = this.maps.get(obj.mapLevel);
-          if (map) {
-            const tx = Math.floor(obj.x), tz = Math.floor(obj.z);
-            const edgeMask = this.doorEdgeMask(obj.rotationY);
-            map.setWall(tx, tz, map.getWall(tx, tz) | edgeMask);
-          }
+          if (map) this.restoreDoorWallEdges(obj, map);
+          obj.doorOpen = false;
           obj.def = { ...obj.def, actions: ['Open', 'Examine'] };
         }
         this.broadcastNearby(obj.mapLevel, obj.x, obj.z, ServerOpcode.WORLD_OBJECT_DEPLETED, obj.id, 0);

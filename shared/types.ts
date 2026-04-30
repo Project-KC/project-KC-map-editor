@@ -305,6 +305,7 @@ export interface TexturePlane {
   uvRepeat: number;
   texRotation: number;
   tintColor?: { r: number; g: number; b: number }; // RGB 0-1, default white
+  noRoof?: boolean; // If true, never treated as a roof/ceiling for indoor detection
 }
 
 export interface PlacedObject {

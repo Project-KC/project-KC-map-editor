@@ -34,6 +34,7 @@ export interface TexturePlane {
   uvRepeat: number
   texRotation: number
   tintColor?: { r: number; g: number; b: number }
+  noRoof?: boolean
 }
 
 export type MapType = 'overworld' | 'dungeon'

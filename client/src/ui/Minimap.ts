@@ -62,6 +62,7 @@ export class Minimap {
       border: 2px solid #1a1510;
       box-shadow: inset 0 0 6px rgba(0,0,0,0.6);
       background: #0c0a06;
+      image-rendering: pixelated;
     `;
 
     this.ctx = this.canvas.getContext('2d', { alpha: false })!;
@@ -96,6 +97,10 @@ export class Minimap {
   clearDestination(): void {
     this.destX = null;
     this.destZ = null;
+  }
+
+  dispose(): void {
+    this.canvas.remove();
   }
 
   private handleClick(e: MouseEvent): void {
@@ -149,6 +154,7 @@ export class Minimap {
       const walls = queried.walls;
       const roofs = queried.roofs;
       const textured = queried.textured;
+      const voidTiles = queried.voidTiles;
       const tcBuf = this.tileColorBuf;
 
       const clamp = (v: number) => v < 0 ? 0 : v > 255 ? 255 : v | 0;
@@ -171,6 +177,12 @@ export class Minimap {
         for (let dx = 0; dx < tileSize; dx++) {
           const tIdx = dz * tileSize + dx;
           const cIdx = tIdx * 4;
+
+          if (voidTiles[tIdx]) {
+            tcBuf[cIdx] = 0; tcBuf[cIdx + 1] = 0; tcBuf[cIdx + 2] = 0; tcBuf[cIdx + 3] = 255;
+            continue;
+          }
+
           const tileType = tiles[tIdx];
 
           const wallMask = walls[tIdx];
@@ -206,14 +218,13 @@ export class Minimap {
       for (let dz = 0; dz < tileSize; dz++) {
         for (let dx = 0; dx < tileSize; dx++) {
           const tIdx = dz * tileSize + dx;
-          if (tcBuf[tIdx * 4 + 3] === 0) continue; // skip unloaded
+          if (voidTiles[tIdx]) continue;
           const tileType = tiles[tIdx];
           const wallMask = walls[tIdx];
           if (tileType === TileType.WALL
             || (wallMask & 5) === 5
             || (wallMask & 10) === 10
           ) {
-            // Average the 4 corner heights of nearby non-collision tiles
             let sum = 0, cnt = 0;
             for (let nz = -1; nz <= 1; nz++) {
               for (let nx = -1; nx <= 1; nx++) {
@@ -284,23 +295,29 @@ export class Minimap {
           const inv = 1 / tw;
           r *= inv; g *= inv; b *= inv;
 
-          // Per-pixel hillshade from vertex height grid
-          const htX = px / pxPerTile;
-          const hTx = Math.floor(htX);
-          const hFx = htX - hTx;
-          const hTxClamped = hTx < 0 ? 0 : hTx >= tileSize ? tileSize - 1 : hTx;
+          // Skip hillshade for water tiles
+          const nearTx = Math.round(px / pxPerTile - 0.5);
+          const nearTz = Math.round(py / pxPerTile - 0.5);
+          const isWater = nearTx >= 0 && nearTx < tileSize && nearTz >= 0 && nearTz < tileSize
+            && tiles[nearTz * tileSize + nearTx] === TileType.WATER;
 
-          const h00 = heights[hTzClamped * hGridW + hTxClamped];
-          const h10 = heights[hTzClamped * hGridW + hTxClamped + 1];
-          const h01 = heights[(hTzClamped + 1) * hGridW + hTxClamped];
-          const h11 = heights[(hTzClamped + 1) * hGridW + hTxClamped + 1];
+          let hillshade = 0;
+          if (!isWater) {
+            const htX = px / pxPerTile;
+            const hTx = Math.floor(htX);
+            const hFx = htX - hTx;
+            const hTxClamped = hTx < 0 ? 0 : hTx >= tileSize ? tileSize - 1 : hTx;
 
-          // Analytical gradient of bilinear surface
-          const dhdx = (h10 - h00) * (1 - hFz) + (h11 - h01) * hFz;
-          const dhdz = (h01 - h00) * (1 - hFx) + (h11 - h10) * hFx;
+            const h00 = heights[hTzClamped * hGridW + hTxClamped];
+            const h10 = heights[hTzClamped * hGridW + hTxClamped + 1];
+            const h01 = heights[(hTzClamped + 1) * hGridW + hTxClamped];
+            const h11 = heights[(hTzClamped + 1) * hGridW + hTxClamped + 1];
 
-          // NW directional hillshade (like cartographic relief shading)
-          const hillshade = (-dhdx * 0.7 - dhdz * 0.7) * 30;
+            const dhdx = (h10 - h00) * (1 - hFz) + (h11 - h01) * hFz;
+            const dhdz = (h01 - h00) * (1 - hFx) + (h11 - h10) * hFx;
+
+            hillshade = (-dhdx * 0.7 - dhdz * 0.7) * 30;
+          }
 
           const pidx = (py * RENDER_SIZE + px) * 4;
           data[pidx]     = clamp(r + hillshade);

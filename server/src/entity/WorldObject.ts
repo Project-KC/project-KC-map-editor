@@ -13,8 +13,9 @@ export class WorldObject {
 
   depleted: boolean = false;
   respawnTimer: number = 0;
-  /** For doors: the Y rotation from the editor, used to derive wall edge direction */
   rotationY: number = 0;
+  doorOpen: boolean = false;
+  closedEdge: number = 0;
   /** Per-instance transition override from editor trigger data */
   trigger?: { type: string; destChunk: string; entryX: number; entryY: number; entryZ: number };
 

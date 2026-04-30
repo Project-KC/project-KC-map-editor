@@ -14,9 +14,9 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { type PlayerAppearance, type AppearanceColorSlot, APPEARANCE_MATERIAL_MAP, getPalette, BELT_NO_BELT, SHIRT_COLORS } from '@projectrs/shared';
 import '@babylonjs/loaders/glTF';
+import { quantizeAnimationGroup, rs2Rotation, ANIM_DURATIONS, DEFAULT_QUANTIZE_FRAMES } from './AnimationQuantizer';
 
-/** Number of keyframes to quantize animations down to (RS-style choppy look) */
-const QUANTIZE_FRAMES = 8;
+const HAIR_MATERIAL_NAMES = new Set(['hair_1']);
 
 /**
  * Constant rotation offsets applied to specific bones during retargeting.
@@ -26,20 +26,6 @@ const QUANTIZE_FRAMES = 8;
  */
 const BONE_ROTATION_OFFSETS: Record<string, { x: number; y: number; z: number }> = {};
 
-/** Target durations in seconds — tuned so each pose holds long enough to read */
-const ANIM_DURATIONS: Record<string, number> = {
-  idle: 3.6,          // 6 ticks — slow gentle sway, ~450ms per pose
-  walk: 1.2,          // 2 ticks — full stride (both feet) over 2 tiles, half-cycle per tile
-  run: 1.2,           // 2 ticks
-  attack: 1.2,        // 2 ticks — wind up + swing
-  attack_slash: 1.2,
-  attack_punch: 1.2,
-  bow_attack: 1.2,    // 2 ticks — draw and release
-  chop: 1.2,          // 2 ticks — faster rhythmic chop
-  mine: 1.8,          // 3 ticks — rhythmic mining swing
-  skill: 1.8,         // 3 ticks
-  death: 1.8,         // 3 ticks — dramatic fall
-};
 
 /**
  * Animation state priority (higher = takes precedence).
@@ -131,10 +117,11 @@ export class CharacterEntity {
   private meshes: AbstractMesh[] = [];
   private skeleton: Skeleton | null = null;
   private _position: Vector3 = Vector3.Zero();
-  private _rotationY: number = 0; // facing direction in radians
+  private _rotationY: number = 0;
   private targetRotationY: number = 0;
   private modelScale: number = 1;
   private yOffset: number = 0; // half model height, for health bar positioning
+  private childYOffset: number = 0; // -minY applied to root children so feet are at y=0
 
   // Animations — keyed by name as exported from Blender NLA strips
   private animGroups: Map<string, AnimationGroup> = new Map();
@@ -149,6 +136,12 @@ export class CharacterEntity {
   // Gear — per equipment slot
   private gearAttachments: Map<string, GearAttachment> = new Map(); // slot name → attachment
   private boneRestRotations: Map<string, Quaternion> = new Map();
+  private armatureNode: TransformNode | null = null;
+  private skinnedArmorMeshes: Map<string, AbstractMesh[]> = new Map();
+  private skinnedArmorItemIds: Map<string, number> = new Map();
+
+  // Head meshes — collected during load for hide/show under full helmets
+  private headMeshes: AbstractMesh[] = [];
 
   // Health bar (HTML overlay — same pattern as SpriteEntity)
   private healthBarEl: HTMLDivElement | null = null;
@@ -188,6 +181,17 @@ export class CharacterEntity {
 
       const result = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
 
+      // Apply nearest-neighbor filtering to character textures
+      for (const mesh of result.meshes) {
+        const mat = mesh.material;
+        if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+        if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        }
+      }
+
       // Root transform node (GLB __root__)
       this.root = new TransformNode(options.name, this.scene);
       for (const mesh of result.meshes) {
@@ -201,6 +205,14 @@ export class CharacterEntity {
         // Re-parent its children first
         for (const child of loaderRoot.getChildren()) {
           (child as TransformNode).parent = this.root;
+        }
+      }
+
+      // Find the Armature TransformNode — skinned armor meshes are parented here
+      for (const child of this.root.getChildren()) {
+        if (child.name === 'Armature' && child instanceof TransformNode) {
+          this.armatureNode = child;
+          break;
         }
       }
 
@@ -230,6 +242,7 @@ export class CharacterEntity {
       this.yOffset = targetH / 2;
 
       // Adjust root so feet are at y=0
+      this.childYOffset = -minY;
       for (const child of this.root.getChildren()) {
         (child as TransformNode).position.y -= minY;
       }
@@ -274,6 +287,14 @@ export class CharacterEntity {
         mesh.material = flat;
       }
 
+      // Identify hair meshes for hide/show under full helmets
+      for (const mesh of this.meshes) {
+        const matBase = mesh.material?.name.replace(/_flat$/, '').replace(/\.\d+$/, '').toLowerCase() ?? '';
+        if (HAIR_MATERIAL_NAMES.has(matBase)) {
+          this.headMeshes.push(mesh);
+        }
+      }
+
       // Collect animation groups from the main GLB
       for (const group of result.animationGroups) {
         const name = group.name.toLowerCase().replace(/\s+/g, '_');
@@ -287,10 +308,9 @@ export class CharacterEntity {
         await this.loadAdditionalAnimations(options.additionalAnimations);
       }
 
-      // Quantize all animations to QUANTIZE_FRAMES stepped keyframes (RS-style choppy look)
       for (const [name, group] of this.animGroups) {
-        this.quantizeAnimationGroup(group, name);
-        console.log(`[CharacterEntity] Quantized '${name}' → ${QUANTIZE_FRAMES} frames, ${(ANIM_DURATIONS[name] ?? 1.2).toFixed(1)}s`);
+        quantizeAnimationGroup(group, name);
+        console.log(`[CharacterEntity] Quantized '${name}' → ${DEFAULT_QUANTIZE_FRAMES} frames, ${(ANIM_DURATIONS[name] ?? 1.2).toFixed(1)}s`);
       }
 
       // Start idle by default
@@ -546,52 +566,16 @@ export class CharacterEntity {
     console.warn(`[CharacterEntity] No animation found for state ${AnimState[state]}, tried: ${names.join(', ')}`);
   }
 
-  private blendInterval: ReturnType<typeof setInterval> | null = null;
-
   /** Low-level: play a named animation group. */
   private playAnim(name: string, loop: boolean, onEnd?: () => void): void {
-    // Don't restart the same looping animation — prevents jarring resets mid-walk
     if (name === this.currentAnimName && loop) return;
-
-    // Clear any active blend
-    if (this.blendInterval) {
-      clearInterval(this.blendInterval);
-      this.blendInterval = null;
-    }
 
     const oldGroup = this.currentAnimName ? this.animGroups.get(this.currentAnimName) : null;
     const group = this.animGroups.get(name);
     if (!group) return;
 
-    // Cross-fade for skill animations (chop, mine) — blend over 300ms
-    const isSkillAnim = name === 'chop' || name === 'mine';
-    if (isSkillAnim && oldGroup && oldGroup !== group) {
-      // Start from the beginning, longer cross-fade handles the transition
-      group.start(loop, 1.0, group.from, group.to, false);
-      group.setWeightForAllAnimatables(0);
-      oldGroup.setWeightForAllAnimatables(1);
-
-      const blendDuration = 500; // ms
-      const stepMs = 16;
-      let elapsed = 0;
-      this.blendInterval = setInterval(() => {
-        elapsed += stepMs;
-        const t = Math.min(elapsed / blendDuration, 1);
-        group.setWeightForAllAnimatables(t);
-        oldGroup.setWeightForAllAnimatables(1 - t);
-        if (t >= 1) {
-          oldGroup.stop();
-          if (this.blendInterval) {
-            clearInterval(this.blendInterval);
-            this.blendInterval = null;
-          }
-        }
-      }, stepMs);
-    } else {
-      // Hard cut for all other animations
-      if (oldGroup) oldGroup.stop();
-      group.start(loop, 1.0, group.from, group.to, false);
-    }
+    if (oldGroup) oldGroup.stop();
+    group.start(loop, 1.0, group.from, group.to, false);
 
     this.currentAnimName = name;
     this.oneShotCallback = onEnd ?? null;
@@ -682,7 +666,6 @@ export class CharacterEntity {
   // Facing / rotation
   // ---------------------------------------------------------------------------
 
-  /** Set facing direction instantly (radians, 0 = +Z / south). */
   setFacingAngle(radians: number): void {
     this._rotationY = radians;
     this.targetRotationY = radians;
@@ -691,12 +674,10 @@ export class CharacterEntity {
     }
   }
 
-  /** Set target facing direction (smoothly interpolated in update). */
   setTargetFacing(radians: number): void {
     this.targetRotationY = radians;
   }
 
-  /** Face toward a world position. */
   faceToward(target: Vector3, _cameraPos?: Vector3): void {
     const dx = target.x - this._position.x;
     const dz = target.z - this._position.z;
@@ -704,11 +685,6 @@ export class CharacterEntity {
     this.targetRotationY = Math.atan2(dx, dz);
   }
 
-  /**
-   * Update facing from movement direction.
-   * For 3D characters we rotate the model to face the movement direction.
-   * cameraPos is accepted for API compatibility with SpriteEntity but not used.
-   */
   updateMovementDirection(dx: number, dz: number, _cameraPos?: Vector3): void {
     if (Math.abs(dx) < 0.001 && Math.abs(dz) < 0.001) return;
     this.targetRotationY = Math.atan2(dx, dz);
@@ -745,22 +721,13 @@ export class CharacterEntity {
   // Per-frame update
   // ---------------------------------------------------------------------------
 
-  /** Call every frame with delta time. Handles rotation smoothing. */
   updateAnimation(dt: number): void {
     if (!this.root) return;
 
-    // Smooth rotation toward target
-    let diff = this.targetRotationY - this._rotationY;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-
-    if (Math.abs(diff) > 0.01) {
-      const rotSpeed = 10.0;
-      this._rotationY += diff * Math.min(1, rotSpeed * dt);
-      this.root.rotation.y = this._rotationY;
-    } else if (this._rotationY !== this.targetRotationY) {
-      this._rotationY = this.targetRotationY;
-      this.root.rotation.y = this._rotationY;
+    const newYaw = rs2Rotation(this._rotationY, this.targetRotationY, dt);
+    if (newYaw !== this._rotationY) {
+      this._rotationY = newYaw;
+      this.root.rotation.y = newYaw;
     }
   }
 
@@ -829,6 +796,7 @@ export class CharacterEntity {
     clone.scaling.set(s, s, s);
 
     this.gearAttachments.set(slot, { itemId, node: clone });
+    if (slot === 'head') this.setHeadVisible(false);
   }
 
   /** Remove gear from a slot. */
@@ -837,24 +805,96 @@ export class CharacterEntity {
     if (existing) {
       existing.node.dispose();
       this.gearAttachments.delete(slot);
+      if (slot === 'head') this.setHeadVisible(true);
+    }
+  }
+
+  /**
+   * Attach skinned armor by parenting meshes directly under the Armature TransformNode.
+   * This ensures the mesh world matrix chain is identical to the character mesh,
+   * so GPU skinning produces correct results with no clipping.
+   */
+  attachSkinnedArmor(slot: string, meshes: AbstractMesh[], armorSkeleton: Skeleton, itemId: number = -1): void {
+    this.detachSkinnedArmor(slot);
+    if (!this.skeleton || !this.armatureNode) {
+      console.warn('[CharacterEntity] Cannot attach skinned armor: no skeleton or armature');
+      return;
+    }
+
+    const kept: AbstractMesh[] = [];
+    for (const mesh of meshes) {
+      if (mesh.getTotalVertices() === 0) continue;
+      if (mesh.skeleton === armorSkeleton) {
+        mesh.skeleton = this.skeleton;
+      }
+      mesh.parent = this.armatureNode;
+      mesh.rotationQuaternion = null;
+      mesh.position.set(0, 0, 0);
+      mesh.rotation.set(0, 0, 0);
+      mesh.scaling.set(1, 1, 1);
+      kept.push(mesh);
+    }
+    armorSkeleton.dispose();
+    this.skinnedArmorMeshes.set(slot, kept);
+    this.skinnedArmorItemIds.set(slot, itemId);
+    if (slot === 'head') this.setHeadVisible(false);
+    console.log(`[SkinnedArmor] Attached ${kept.length} meshes in slot '${slot}' itemId=${itemId}`);
+  }
+
+  detachSkinnedArmor(slot: string): void {
+    const meshes = this.skinnedArmorMeshes.get(slot);
+    if (meshes) {
+      for (const mesh of meshes) mesh.dispose();
+      this.skinnedArmorMeshes.delete(slot);
+    }
+    this.skinnedArmorItemIds.delete(slot);
+    if (slot === 'head') this.setHeadVisible(true);
+  }
+
+  applySkinnedArmorTransform(slot: string, override: { localPosition?: { x: number; y: number; z: number }; localRotation?: { x: number; y: number; z: number }; scale?: number }): void {
+    const meshes = this.skinnedArmorMeshes.get(slot);
+    if (!meshes) return;
+    for (const mesh of meshes) {
+      if (override.localPosition) {
+        mesh.position.set(override.localPosition.x, override.localPosition.y, override.localPosition.z);
+      }
+      if (override.localRotation) {
+        mesh.rotation.set(override.localRotation.x, override.localRotation.y, override.localRotation.z);
+      }
+      if (override.scale != null) {
+        mesh.scaling.set(override.scale, override.scale, override.scale);
+      }
     }
   }
 
   /** Get the transform node for gear in a slot (for debug panel). */
   getGearNode(slot: string): import('@babylonjs/core/Meshes/transformNode').TransformNode | null {
-    return this.gearAttachments.get(slot)?.node ?? null;
+    return this.gearAttachments.get(slot)?.node ?? this.skinnedArmorMeshes.get(slot)?.[0] ?? null;
   }
 
-  /** Remove all gear. */
+  getSkinnedArmorMeshes(slot: string): AbstractMesh[] | undefined {
+    return this.skinnedArmorMeshes.get(slot);
+  }
+
+  setHeadVisible(visible: boolean): void {
+    for (const mesh of this.headMeshes) {
+      mesh.setEnabled(visible);
+    }
+  }
+
+  /** Remove all gear (bone-parented + skinned). */
   detachAllGear(): void {
     for (const [slot] of this.gearAttachments) {
       this.detachGear(slot);
+    }
+    for (const [slot] of this.skinnedArmorMeshes) {
+      this.detachSkinnedArmor(slot);
     }
   }
 
   /** Get currently attached gear item ID for a slot, or -1. */
   getGearItemId(slot: string): number {
-    return this.gearAttachments.get(slot)?.itemId ?? -1;
+    return this.gearAttachments.get(slot)?.itemId ?? this.skinnedArmorItemIds.get(slot) ?? -1;
   }
 
   // ---------------------------------------------------------------------------
@@ -1005,6 +1045,16 @@ export class CharacterEntity {
     return this.skeleton;
   }
 
+  /** Y offset applied to root children so model feet sit at y=0. */
+  getChildYOffset(): number {
+    return this.childYOffset;
+  }
+
+  /** The Armature TransformNode — skinned armor meshes are parented here. */
+  getArmatureNode(): TransformNode | null {
+    return this.armatureNode;
+  }
+
   /** List all bone names in the skeleton (useful for debugging gear attachment). */
   getBoneNames(): string[] {
     if (!this.skeleton) return [];
@@ -1078,6 +1128,7 @@ export class CharacterEntity {
       mesh.dispose();
     }
     this.meshes = [];
+    this.headMeshes = [];
 
     if (this.root) {
       this.root.dispose();
@@ -1086,92 +1137,6 @@ export class CharacterEntity {
     this.skeleton = null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Animation quantization — resample to N stepped keyframes (RS-style)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Resample an AnimationGroup to QUANTIZE_FRAMES stepped keyframes.
-   * This gives animations the choppy, low-frame look of RuneScape Classic.
-   * The animation is also retimed to match tick-aligned durations.
-   */
-  /**
-   * Non-uniform sample curves for specific animations.
-   * Values are 0-1 positions in the source timeline, sampled at each of the QUANTIZE_FRAMES.
-   * Bunching values together = fast motion, spreading = slow/held pose.
-   */
-  private static readonly ANIM_SAMPLE_CURVES: Record<string, number[]> = {
-    idle: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
-    walk: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
-    run: [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
-    attack: [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
-    attack_slash: [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
-    attack_punch: [0, 0.10, 0.30, 0.50, 0.65, 0.78, 0.90, 1.0],
-    bow_attack: [0, 0.12, 0.28, 0.42, 0.55, 0.70, 0.85, 1.0],
-    chop: [0, 0.15, 0.35, 0.50, 0.60, 0.72, 0.85, 1.0],
-    mine: [0, 0.2, 0.42, 0.55, 0.65, 0.77, 0.88, 1.0],
-    death: [0, 0.08, 0.20, 0.35, 0.55, 0.75, 0.90, 1.0],
-  };
-
-  private quantizeAnimationGroup(group: AnimationGroup, animName: string): void {
-    const targetDuration = ANIM_DURATIONS[animName] ?? 1.2;
-    // Target frame rate: QUANTIZE_FRAMES over targetDuration seconds
-    const targetFps = QUANTIZE_FRAMES / targetDuration;
-    const sampleCurve = CharacterEntity.ANIM_SAMPLE_CURVES[animName];
-
-    for (const ta of group.targetedAnimations) {
-      const anim = ta.animation;
-      const keys = anim.getKeys();
-      if (keys.length < 2) continue;
-
-      const srcFrom = keys[0].frame;
-      const srcTo = keys[keys.length - 1].frame;
-      const srcRange = srcTo - srcFrom;
-      if (srcRange <= 0) continue;
-
-      // Sample the animation at QUANTIZE_FRAMES points
-      const newKeys: any[] = [];
-      for (let i = 0; i < QUANTIZE_FRAMES; i++) {
-        // Use custom sample curve if available, otherwise evenly spaced
-        const t = sampleCurve ? sampleCurve[i] : (i / (QUANTIZE_FRAMES - 1));
-        const srcFrame = srcFrom + t * srcRange;
-
-        // Find the two surrounding keyframes and interpolate
-        const value = this.sampleAnimationAt(keys, srcFrame, anim.dataType);
-
-        // Map to new timeline: frames 0..QUANTIZE_FRAMES-1
-        newKeys.push({ frame: i, value });
-      }
-
-      // Replace keys and set frame rate so total duration matches target
-      anim.setKeys(newKeys);
-      anim.framePerSecond = targetFps;
-    }
-  }
-
-  /**
-   * Sample an animation value at a fractional frame by finding the nearest keyframe.
-   * Uses step interpolation (nearest-neighbor) — no blending between frames.
-   */
-  private sampleAnimationAt(keys: any[], frame: number, dataType: number): any {
-    // Find the nearest keyframe (step/snap, not lerp)
-    let best = keys[0];
-    let bestDist = Infinity;
-    for (const key of keys) {
-      const dist = Math.abs(key.frame - frame);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = key;
-      }
-    }
-
-    // Deep-clone the value to avoid sharing references
-    const v = best.value;
-    if (v == null) return v;
-    if (typeof v === 'number') return v;
-    if (v.clone) return v.clone();
-    return v;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,6 +1157,17 @@ export async function loadGearTemplate(
     const file = def.file.substring(lastSlash + 1);
 
     const result = await SceneLoader.ImportMeshAsync('', dir, file, scene);
+
+    // Apply nearest-neighbor filtering to gear textures
+    for (const mesh of result.meshes) {
+      const mat = mesh.material;
+      if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
+        (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+      }
+      if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
+        (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+      }
+    }
 
     const root = new TransformNode(`gearTemplate_${def.itemId}`, scene);
     for (const mesh of result.meshes) {

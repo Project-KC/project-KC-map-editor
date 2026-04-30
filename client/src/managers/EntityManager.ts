@@ -100,7 +100,7 @@ export class EntityManager {
 
   // NPCs
   readonly npcSprites: Map<number, SpriteEntity | Npc3DEntity> = new Map();
-  readonly npcTargets: Map<number, { x: number; z: number }> = new Map();
+  readonly npcTargets: Map<number, { x: number; z: number; prevX: number; prevZ: number; t: number }> = new Map();
   readonly npcDefs: Map<number, number> = new Map();
   readonly npcCombatTargets: Map<number, number> = new Map();
 
@@ -407,21 +407,39 @@ export class EntityManager {
     }
   }
 
+  private static readonly SERVER_TICK_MS = 600;
+  private static readonly NPC_TILES_PER_SEC = 1000 / EntityManager.SERVER_TICK_MS;
+
   interpolateNpcs(dt: number, camPos: Vector3 | null, localPlayerId: number, localPlayerPos: Vector3 | null): void {
+    const now = performance.now();
     for (const [entityId, sprite] of this.npcSprites) {
       const target = this.npcTargets.get(entityId);
       if (!target) continue;
+
+      const velX = target.x - target.prevX;
+      const velZ = target.z - target.prevZ;
+      const elapsed = now - target.t;
+      const moving = Math.abs(velX) > 0.01 || Math.abs(velZ) > 0.01;
+
       const c = sprite.position;
       const dx = target.x - c.x;
       const dz = target.z - c.z;
       const dist = Math.hypot(dx, dz);
+
+      // NPC is considered walking if server sent velocity recently
+      const serverMoving = moving && elapsed < EntityManager.SERVER_TICK_MS * 2;
+
       if (dist > 0.05) {
         if (!sprite.isWalking()) sprite.startWalking();
         if (camPos) sprite.updateMovementDirection(dx, dz, camPos);
-        const step = Math.min(3.0 * dt, dist);
+        // Move at ~1 tile per tick so the NPC arrives right as the next update comes
+        const speed = serverMoving ? EntityManager.NPC_TILES_PER_SEC : 3.0;
+        const step = Math.min(speed * dt, dist);
         const nx = c.x + (dx / dist) * step;
         const nz = c.z + (dz / dist) * step;
         sprite.setPositionXYZ(nx, this.getHeight(nx, nz), nz);
+      } else if (serverMoving) {
+        if (!sprite.isWalking()) sprite.startWalking();
       } else {
         if (sprite.isWalking()) sprite.stopWalking();
         const combatTarget = this.npcCombatTargets.get(entityId);
