@@ -461,6 +461,29 @@ function tuneModelLighting(model) {
   let blockLineStart = null // {x, z} for Ctrl+click block line drawing
   let collisionFloor = 0
   let stairDirection = 'N'
+
+  // Diagonal floor placement
+  let diagFloorMode = false
+  let diagFloorStart = null   // {x, z} world coords of first click
+  let diagFloorWidth = 3      // perpendicular width in tiles
+  let diagFloorPreview = null  // Babylon Mesh for ghost preview
+
+  function snapAngle(angle, snapDeg = 45) {
+    const snap = snapDeg * Math.PI / 180
+    return Math.round(angle / snap) * snap
+  }
+
+  function disposeDiagFloorPreview() {
+    if (diagFloorPreview) {
+      diagFloorPreview.dispose()
+      diagFloorPreview = null
+    }
+  }
+
+  function cancelDiagFloor() {
+    diagFloorStart = null
+    disposeDiagFloorPreview()
+  }
   const collisionGroup = new TransformNode('collisionGroup', scene)
 
   function getCollisionLayer() {
@@ -975,6 +998,14 @@ let paintBrushRadius = 1
         <label style="font-size:11px;color:rgba(255,255,255,0.45);">Scale <span id="paintTextureScaleVal">1</span></label>
         <input id="paintTextureScale" type="range" min="1" max="8" step="1" value="1" style="width:100%;" />
       </div>
+      <div id="paintDiagFloorRow" style="margin-top:6px;border-top:1px solid #444;padding-top:6px;">
+        <label><input id="paintToggleDiagFloor" type="checkbox" /> Diagonal Floor (D)</label>
+        <div id="paintDiagFloorOptions" style="display:none;margin-top:4px;">
+          <label style="font-size:11px;color:rgba(255,255,255,0.45);">Width <span id="paintDiagFloorWidthVal">3</span></label>
+          <input id="paintDiagFloorWidthSlider" type="range" min="1" max="20" step="1" value="3" style="width:100%;" />
+          <div class="hint" style="margin-top:3px;">Click start → click end to place rotated floor<br>Shift = free angle · Esc = cancel</div>
+        </div>
+      </div>
     </div>
 
     <div class="ctx-panel" id="ctx-place" style="display:none">
@@ -1099,6 +1130,14 @@ let paintBrushRadius = 1
       <label style="margin-top:6px;font-size:11px;color:rgba(255,255,255,0.45);">Scale <span id="textureScaleVal">1</span></label>
       <input id="textureScale" type="range" min="1" max="8" step="1" value="1" />
       <label style="margin-top:5px;"><input id="toggleTexturePlaneV" type="checkbox" checked /> Vertical plane (V)</label>
+      <div id="diagFloorRow" style="margin-top:6px;border-top:1px solid #444;padding-top:6px;">
+        <label><input id="toggleDiagFloor" type="checkbox" /> Diagonal Floor (D)</label>
+        <div id="diagFloorOptions" style="display:none;margin-top:4px;">
+          <label style="font-size:11px;color:rgba(255,255,255,0.45);">Width <span id="diagFloorWidthVal">3</span></label>
+          <input id="diagFloorWidthSlider" type="range" min="1" max="20" step="1" value="3" style="width:100%;" />
+          <div class="hint" style="margin-top:3px;">Click start → click end to place rotated floor<br>Shift = free angle · Esc = cancel</div>
+        </div>
+      </div>
       <div id="texTintRow" style="margin-top:8px;border-top:1px solid #444;padding-top:6px;">
         <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:3px;">Tint Color</div>
         <div style="display:flex;gap:4px;align-items:center;">
@@ -1880,8 +1919,21 @@ let paintBrushRadius = 1
       paintTextureScaleRow.style.display = showScale ? 'block' : 'none'
     }
     if (state.tool === ToolMode.TEXTURE_PLANE) {
-      status += ` · ${texturePlaneVertical ? 'vertical' : 'horizontal'}`
+      status += ` · ${diagFloorMode ? 'diagonal floor' : texturePlaneVertical ? 'vertical' : 'horizontal'}`
+      if (diagFloorMode && diagFloorStart) status += ' · click end point'
     }
+    if (state.tool === ToolMode.PAINT && diagFloorMode && paintTabTextureId && paintTabTextureId !== '__erase__') {
+      status += ' · diagonal floor'
+      if (diagFloorStart) status += ' · click end point'
+    }
+    const diagOpts = sidebar.querySelector('#diagFloorOptions')
+    if (diagOpts) diagOpts.style.display = diagFloorMode ? 'block' : 'none'
+    const diagCb = sidebar.querySelector('#toggleDiagFloor')
+    if (diagCb) diagCb.checked = diagFloorMode
+    const paintDiagOpts = sidebar.querySelector('#paintDiagFloorOptions')
+    if (paintDiagOpts) paintDiagOpts.style.display = diagFloorMode ? 'block' : 'none'
+    const paintDiagCb = sidebar.querySelector('#paintToggleDiagFloor')
+    if (paintDiagCb) paintDiagCb.checked = diagFloorMode
     if (state.tool === ToolMode.TERRAIN && state.smoothMode) status += ' · Smooth Mode'
     if (state.tool === ToolMode.TERRAIN && state.levelMode) {
       status += ' · Level Mode'
@@ -1995,6 +2047,7 @@ let paintBrushRadius = 1
   function setTool(mode) {
     const wasCollision = state.tool === ToolMode.COLLISION
     state.tool = mode
+    cancelDiagFloor()
     if (hoverEdgeHelper) { hoverEdgeHelper.dispose(); hoverEdgeHelper = null }
     npcSpawnGroup.setEnabled(mode === ToolMode.NPC_SPAWN)
     itemSpawnGroup.setEnabled(mode === ToolMode.ITEM_SPAWN)
@@ -4515,6 +4568,19 @@ function applyToolAtTile(tile, eventLike = null) {
     updateToolUI()
   })
 
+  sidebar.querySelector('#paintToggleDiagFloor')?.addEventListener('change', (e) => {
+    diagFloorMode = e.target.checked
+    if (!diagFloorMode) cancelDiagFloor()
+    updateToolUI()
+  })
+
+  sidebar.querySelector('#paintDiagFloorWidthSlider')?.addEventListener('input', (e) => {
+    diagFloorWidth = Number(e.target.value)
+    sidebar.querySelector('#paintDiagFloorWidthVal').textContent = diagFloorWidth
+    sidebar.querySelector('#diagFloorWidthVal').textContent = diagFloorWidth
+    sidebar.querySelector('#diagFloorWidthSlider').value = diagFloorWidth
+  })
+
   const allTabs = [tabProps, tabModular, tabWalls, tabRoofs, tabBought]
   const clearTabs = () => allTabs.forEach(t => t.classList.remove('active'))
 
@@ -5191,7 +5257,32 @@ function applyToolAtTile(tile, eventLike = null) {
 
   sidebar.querySelector('#toggleTexturePlaneV').addEventListener('change', (e) => {
     texturePlaneVertical = e.target.checked
+    if (texturePlaneVertical) {
+      diagFloorMode = false
+      cancelDiagFloor()
+      const cb = sidebar.querySelector('#toggleDiagFloor')
+      if (cb) cb.checked = false
+    }
     updateToolUI()
+  })
+
+  sidebar.querySelector('#toggleDiagFloor').addEventListener('change', (e) => {
+    diagFloorMode = e.target.checked
+    if (diagFloorMode) {
+      texturePlaneVertical = false
+      const cb = sidebar.querySelector('#toggleTexturePlaneV')
+      if (cb) cb.checked = false
+    } else {
+      cancelDiagFloor()
+    }
+    updateToolUI()
+  })
+
+  sidebar.querySelector('#diagFloorWidthSlider').addEventListener('input', (e) => {
+    diagFloorWidth = Number(e.target.value)
+    sidebar.querySelector('#diagFloorWidthVal').textContent = diagFloorWidth
+    sidebar.querySelector('#paintDiagFloorWidthVal').textContent = diagFloorWidth
+    sidebar.querySelector('#paintDiagFloorWidthSlider').value = diagFloorWidth
   })
 
   topBar.querySelector('#helpBtn').addEventListener('click', () => {
@@ -5334,6 +5425,41 @@ function applyToolAtTile(tile, eventLike = null) {
       previewObject.position.copyFrom(pos)
     }
     updateHoverEdgeHelper()
+
+    // Diagonal floor preview
+    if (diagFloorMode && diagFloorStart && (state.tool === ToolMode.TEXTURE_PLANE || state.tool === ToolMode.PAINT)) {
+      let cursorX = tile.x + tile.u
+      let cursorZ = tile.z + tile.v
+      if (!event.shiftKey) {
+        cursorX = Math.floor(cursorX) + 0.5
+        cursorZ = Math.floor(cursorZ) + 0.5
+      }
+      const dx = cursorX - diagFloorStart.x
+      const dz = cursorZ - diagFloorStart.z
+      const length = Math.sqrt(dx * dx + dz * dz)
+      if (length > 0.1) {
+        let angle = Math.atan2(dz, dx)
+        if (!event.shiftKey) angle = snapAngle(angle)
+        const midX = (diagFloorStart.x + cursorX) / 2
+        const midZ = (diagFloorStart.z + cursorZ) / 2
+        const midY = map.getAverageTileHeight(Math.floor(midX), Math.floor(midZ)) + 0.06
+
+        disposeDiagFloorPreview()
+        diagFloorPreview = MeshBuilder.CreatePlane('diagFloorPreview', {
+          width: length,
+          height: diagFloorWidth,
+          sideOrientation: Mesh.DOUBLESIDE
+        }, scene)
+        diagFloorPreview.position.set(midX, midY, midZ)
+        diagFloorPreview.rotation.set(-Math.PI / 2, angle, 0)
+        const mat = new StandardMaterial('diagFloorPreviewMat', scene)
+        mat.diffuseColor = new Color3(0.3, 0.6, 1.0)
+        mat.alpha = 0.35
+        mat.backFaceCulling = false
+        diagFloorPreview.material = mat
+        diagFloorPreview.isPickable = false
+      }
+    }
 
     const terrainPoint = transformMode === 'move' ? pickTerrainPoint(event) : null
 
@@ -5686,6 +5812,54 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
     if (state.tool === ToolMode.TEXTURE_PLANE) {
       if (!selectedTextureId || typeof map.addTexturePlane !== 'function') return
 
+      // Diagonal floor mode: two-click placement
+      if (diagFloorMode) {
+        let worldX = tile.x + tile.u
+        let worldZ = tile.z + tile.v
+        if (!event.shiftKey) {
+          worldX = Math.floor(worldX) + 0.5
+          worldZ = Math.floor(worldZ) + 0.5
+        }
+        if (!diagFloorStart) {
+          diagFloorStart = { x: worldX, z: worldZ }
+          statusText.textContent = 'Diagonal floor start — click end point (Esc to cancel)'
+          updateToolUI()
+          return
+        }
+        // Second click: place the rotated floor plane
+        const dx = worldX - diagFloorStart.x
+        const dz = worldZ - diagFloorStart.z
+        const length = Math.sqrt(dx * dx + dz * dz)
+        if (length < 0.1) { cancelDiagFloor(); updateToolUI(); return }
+
+        let angle = Math.atan2(dz, dx)
+        if (!event.shiftKey) angle = snapAngle(angle)
+
+        const midX = (diagFloorStart.x + worldX) / 2
+        const midZ = (diagFloorStart.z + worldZ) / 2
+        const midY = map.getAverageTileHeight(Math.floor(midX), Math.floor(midZ)) + 0.05
+
+        pushUndoState('terrain')
+
+        const plane = map.addTexturePlane(
+          selectedTextureId,
+          midX, midY, midZ,
+          length,
+          diagFloorWidth,
+          false
+        )
+        plane.rotation = { x: -Math.PI / 2, y: angle, z: 0 }
+        plane.uvRepeat = textureScale
+        plane.texRotation = textureRotation
+        selectedTexturePlane = plane
+        selectedTexturePlanes = [plane]
+        selectedPlacedObject = null
+        appendTexturePlane(plane)
+        cancelDiagFloor()
+        updateToolUI()
+        return
+      }
+
       const planeSize = getTexturePlaneSize(selectedTextureId)
       const y = map.getAverageTileHeight(tile.x, tile.z) + (texturePlaneVertical ? planeSize.height / 2 : 0.05)
 
@@ -5898,6 +6072,53 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
       state.isPainting = true
       state.draggedTiles.clear()
       state.draggedTiles.add(`${tile.x},${tile.z}`)
+      return
+    }
+
+    // Diagonal floor mode intercept for PAINT tool
+    if (diagFloorMode && state.tool === ToolMode.PAINT && paintTabTextureId && paintTabTextureId !== '__erase__') {
+      let worldX = tile.x + tile.u
+      let worldZ = tile.z + tile.v
+      if (!event.shiftKey) {
+        worldX = Math.floor(worldX) + 0.5
+        worldZ = Math.floor(worldZ) + 0.5
+      }
+      if (!diagFloorStart) {
+        diagFloorStart = { x: worldX, z: worldZ }
+        statusText.textContent = 'Diagonal floor start — click end point (Esc to cancel)'
+        updateToolUI()
+        return
+      }
+      const dx = worldX - diagFloorStart.x
+      const dz = worldZ - diagFloorStart.z
+      const length = Math.sqrt(dx * dx + dz * dz)
+      if (length < 0.1) { cancelDiagFloor(); updateToolUI(); return }
+
+      let angle = Math.atan2(dz, dx)
+      if (!event.shiftKey) angle = snapAngle(angle)
+
+      const midX = (diagFloorStart.x + worldX) / 2
+      const midZ = (diagFloorStart.z + worldZ) / 2
+      const midY = map.getAverageTileHeight(Math.floor(midX), Math.floor(midZ)) + 0.05
+
+      pushUndoState('terrain')
+
+      const plane = map.addTexturePlane(
+        paintTabTextureId,
+        midX, midY, midZ,
+        length,
+        diagFloorWidth,
+        false
+      )
+      plane.rotation = { x: -Math.PI / 2, y: angle, z: 0 }
+      plane.uvRepeat = textureScale
+      plane.texRotation = textureRotation
+      selectedTexturePlane = plane
+      selectedTexturePlanes = [plane]
+      selectedPlacedObject = null
+      appendTexturePlane(plane)
+      cancelDiagFloor()
+      updateToolUI()
       return
     }
 
@@ -6314,6 +6535,11 @@ if (state.isPainting && state.tool !== ToolMode.PLACE && state.tool !== ToolMode
     }
 
     if (key === 'escape') {
+      if (diagFloorStart) {
+        cancelDiagFloor()
+        updateToolUI()
+        return
+      }
       cancelTransform()
       return
     }
@@ -6423,6 +6649,23 @@ if (key === 'e') {
 
     if (key === 'v') {
       texturePlaneVertical = !texturePlaneVertical
+      if (texturePlaneVertical) {
+        diagFloorMode = false
+        cancelDiagFloor()
+      }
+      updateToolUI()
+      return
+    }
+
+    if (key === 'd' && !event.ctrlKey && !event.metaKey && (state.tool === ToolMode.TEXTURE_PLANE || state.tool === ToolMode.PAINT)) {
+      diagFloorMode = !diagFloorMode
+      if (diagFloorMode) {
+        texturePlaneVertical = false
+        const cb = sidebar.querySelector('#toggleTexturePlaneV')
+        if (cb) cb.checked = false
+      } else {
+        cancelDiagFloor()
+      }
       updateToolUI()
       return
     }
