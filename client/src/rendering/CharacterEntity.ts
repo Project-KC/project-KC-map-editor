@@ -478,9 +478,14 @@ export class CharacterEntity {
           }
 
           if (!ourTarget) {
-            missCount++;
-            if (missCount <= 5) {
-              console.log(`[CharacterEntity] Retarget miss: '${target.name}'`);
+            // Thumb bones are intentionally absent on our 57-bone rig (we use
+            // Mixamo's 32-bone skeleton plus Polysplit's Index/Middle/Ring/Pinky
+            // fingers — no thumbs). Don't spam the console for those.
+            if (!target.name.includes('Thumb')) {
+              missCount++;
+              if (missCount <= 5) {
+                console.log(`[CharacterEntity] Retarget miss: '${target.name}'`);
+              }
             }
             continue;
           }

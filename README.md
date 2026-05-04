@@ -1,4 +1,4 @@
-# ProjectRS
+# evilMUD
 
 A multiplayer browser MMORPG inspired by RuneScape Classic. Built with Bun, TypeScript, and Babylon.js.
 
@@ -17,7 +17,7 @@ A multiplayer browser MMORPG inspired by RuneScape Classic. Built with Bun, Type
 - **Editor:** Vite + TypeScript (2D canvas-based map editor)
 - **3D Style:** Low-poly terrain with 2D billboard sprites + 3D models (GLB)
 - **Protocol:** Binary WebSocket (opcode + int16 values)
-- **Maps:** PNG-based (heightmap grayscale + tilemap RGB) + walls.json for building data
+- **Maps:** Two formats coexist — PNG-based (legacy `overworld`, `underground`) and chunked JSON (KC editor — `kcmap`, `the_sultans_mine`)
 
 ## Windows Setup
 
@@ -114,7 +114,7 @@ Player height automatically follows floors and interpolates along stairs via `ge
 ## Project Structure
 
 ```
-ProjectRS/
+evilMUD/
 ├── shared/          # Types, opcodes, protocol, skills, constants
 ├── server/          # Bun game server
 │   ├── src/         # World, GameMap, entities, combat, networking
@@ -126,4 +126,4 @@ ProjectRS/
 └── tools/           # Map generation script
 ```
 
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.
+See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation, [docs/contributing.md](docs/contributing.md) for a contributor onboarding guide, and [docs/animation-guide.md](docs/animation-guide.md) for the OSRS-style animation pipeline.

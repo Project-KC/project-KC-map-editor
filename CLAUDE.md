@@ -188,11 +188,44 @@ Auth: `POST /api/signup`, `/api/login`, `/api/logout`. WebSocket upgrade require
 
 ### Character / skinned GLBs
 
-`client/public/Character models/main character.glb` — 65-joint UAL rig (Universal Animation Library, NOT UE5/Mixamo despite matching bone names). Animations live in `Character models/animations/` and `Universal Animation Library[Standard]/`.
+`client/public/Character models/main character.glb` — **57-joint `mixamorig:*` rig**. Originally a Polytope (Low Poly Medieval Fantasy Heroes) modular character, with bones renamed to Mixamo convention and 8 thumb bones removed. Animations are stock Mixamo FBX→GLB at `Character models/new animations/` (active folder — `Character models/animations/` is the older/dead set referenced only by `DEFAULT_PROFILE.additionalAnimations` which is bypassed at runtime).
+
+The 32 base Mixamo bones drive animations directly. The 25 extra finger bones (Index/Middle/Ring/Pinky × 4 each side) idle in rest pose since vanilla Mixamo anims don't keyframe fingers — that's expected.
 
 **Never run `tools/split-glb.ts` on a skinned GLB.** It refuses with an error since `prune()` strips skin bindings and turns characters into scattered vertex planes. If a future GLB script touches multiple files, exclude `Character models/` or check `doc.getRoot().listSkins().length > 0` first.
 
 Don't script-modify Rigify rigs — control bones override deformation bone keyframes.
+
+### Character pipeline
+
+End-to-end customization is in `shared/appearance.ts`:
+
+- **`PlayerAppearance`** carries 9 indices: `shirtColor`, `pantsColor`, `shoesColor`, `hairColor`, `beltColor`, `skinColor`, `shirtStyle` (currently dead — predates Polysplit), `hairStyle`, `gearColor`. Synced in PLAYER_SYNC and SET_APPEARANCE binary opcodes. `normalizeAppearance` fills missing fields so older saved JSON still loads.
+- **Color recoloring** — `APPEARANCE_MATERIAL_MAP` lists which GLB material names get overridden per appearance slot. Names match case-insensitive with `.001` suffixes stripped. `Hair_1`, `Skin`, `Shirt`, `pants`, `socks`, `belt`, `mat_4550`, `shirt openings`. Handled in `CharacterEntity.applyAppearance` — only fires for non-textured materials (`if albedoColor && !hasTexture`).
+- **Hair selection** — `CharacterEntity` auto-indexes any mesh prefixed `M_hair_` and disables them on load. `applyAppearance` re-enables `M_hair_${hairStyle}`. 15 hair styles (`HAIR_STYLE_COUNT = 15`); `M_hair_15` is the renamed-and-rebound original `Hair` mesh from main character.glb. Hair suppression: when a head gear is equipped, `applyAppearance` skips enabling hair so it doesn't poke through the helmet.
+- **Gear color (`genericRGBMat_Objects`)** — Polytope-derived equipment uses a UV-palette texture system. The character creator picker maps `gearColor` (0–13) to one of 14 small palette PNGs in `client/public/Character models/gear-colors/`. At load time, `CharacterEntity` collects materials starting with `genericRGBMat_Objects` into `objectMaterials` and swaps their `diffuseTexture` on appearance change. Note: this currently only applies to materials on the *main character GLB* — separately-loaded gear pieces would need extra wiring.
+
+### Animation retargeting
+
+`CharacterEntity.loadAdditionalAnimations` re-targets each loaded animation track onto the character's skeleton by **bone name**, with two offset systems:
+
+- **Rest-pose correction** — automatic. If a source bone's rest rotation differs from our skeleton's rest rotation, every keyframe gets transformed so the animation plays correctly on our rest. Skipped if the profile sets `skipAnimRestCorrection: true`.
+- **`BONE_ROTATION_OFFSETS`** — manual constant offsets layered on top, structured as `Record<animName, Record<boneName, {x,y,z}>>` (Euler radians). Use `'*'` as anim name to apply globally. Use this to pull shoulders back, bend elbows, etc. without re-authoring the source GLB.
+
+Animation `animName` lookup: each `additionalAnimations` entry's `animName` field is matched against animation group names *inside* the GLB. If the GLB has multiple actions, only the named one is picked up. Single-action GLBs can omit `animName`. When converting Mixamo FBX, rename the action to a clean name (e.g. `'idle'`) before exporting — Blender otherwise names it `'Armature|mixamo.com|Layer0'` which won't match the lookup.
+
+### Loading screen
+
+`client/src/ui/LoadingScreen.ts` covers the gap between `LOGIN_OK` and `whenReady()` so refreshes don't show the T-pose flash. Wired in `GameManager.setupAuthHandlers`. Hides automatically when the character + all 7 animation GLBs are loaded and idle starts.
+
+### Equipment / gear
+
+Gear lives at `client/public/assets/equipment/{slot}/{itemId}.glb`. `equipSlot` values: `weapon`, `shield`, `head`, `body`, `legs`, `feet`, `hands`, `neck`, `ring`, `cape` (`EQUIP_SLOT_NAMES` in `EquipmentConfig.ts`). Two render paths in `loadGearSmart`:
+
+- **Skinned armor** (GLB has a skeleton): retargeted to the character's skeleton via `attachSkinnedArmor` — bone indices must match in order, and the armor's IBMs must be computed against a skeleton that has the same bone tree as the character's. The `Armature` lookup matches `Armature` or `Armature.NNN` (Blender's auto-rename suffix).
+- **Bone-attached** (no skeleton): static mesh parented to a single bone with `localPosition`/`localRotation`/`scale` from `EQUIP_SLOT_BONES`. Used for helmets, weapons, shields. Supports per-item overrides in `gearOverrides` for fine-tuning fit.
+
+**Polytope armor extraction is hard.** We tried and parked it: their character pack was authored against their own RGBRecolor shader graph and slightly different rest pose, so the meshes don't fit cleanly when bound to our 57-bone rig — gauntlets in particular create visible deformation at the wrist when idle plays. See git log for our deleted attempt.
 
 ### gltf-transform splitter
 
@@ -229,4 +262,8 @@ For a legitimate "wipe everything" (e.g. flatten a map), delete the `tiles/` or 
 
 ## What's stable vs. in-flight
 
-This section moves fast — `git log --oneline` is more authoritative. Areas of recent active work: biome system, character customization, multi-floor walls/doors, smithing UI, asset pipeline / pack splitting, animation retargeting (UAL).
+This section moves fast — `git log --oneline` is more authoritative. Recent areas: appearance system (skin/hair color pickers + protocol), Polysplit retirement (skeleton kept, body code removed), character animations (Mixamo native), idle pose tweaks via `BONE_ROTATION_OFFSETS`, loading screen.
+
+**Known dead code worth a future pass:**
+- `shirtStyle` / `SHIRT_STYLES` — predates Polysplit, threaded through protocol but unused. Safe to remove with synchronized client/server change.
+- `experimental.ts` Quaternius `?char=quat` toggle — referenced GLB doesn't exist; harmless but unused.
