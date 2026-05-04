@@ -126,7 +126,7 @@ function checkGlb(path: string, refJoints: string[]): Report {
 
   // Compatibility checks
   if (skinJoints.length > 0) {
-    const nonMixamo = skinJoints.filter((n) => !n.startsWith('mixamorig:') && n !== 'neutral_bone');
+    const nonMixamo = skinJoints.filter((n: string) => !n.startsWith('mixamorig:') && n !== 'neutral_bone');
     if (nonMixamo.length > 0) {
       issues.push({
         level: 'fail',
@@ -152,7 +152,7 @@ function checkGlb(path: string, refJoints: string[]): Report {
         });
       } else if (skinJoints.length > refJoints.length) {
         const extra = skinJoints.slice(refJoints.length);
-        const onlyNeutral = extra.every((n) => n === 'neutral_bone');
+        const onlyNeutral = extra.every((n: string) => n === 'neutral_bone');
         if (!onlyNeutral) {
           issues.push({
             level: 'warn',

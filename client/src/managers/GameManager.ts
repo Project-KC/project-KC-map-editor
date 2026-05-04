@@ -7,6 +7,7 @@ import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
@@ -817,6 +818,36 @@ export class GameManager {
     const root = new TransformNode(`gearTemplate_${def.itemId}`, this.scene);
     for (const mesh of result.meshes) {
       if (!mesh.parent || mesh.parent.name === '__root__') mesh.parent = root;
+    }
+
+    // PBR → flat conversion (matches main character + skinned-armor paths so the
+    // gear-color texture-swap system can apply uniformly). Polytope-derived
+    // gear ships with `genericRGBMat_Objects` materials; we register those with
+    // the local player so future gearColor changes update them.
+    for (const mesh of result.meshes) {
+      const pbr = mesh.material as any;
+      if (!pbr || !pbr.getClassName || pbr.getClassName() !== 'PBRMaterial') continue;
+      const flat = new StandardMaterial(`${pbr.name}_flat`, this.scene);
+      if (pbr.albedoTexture) {
+        flat.diffuseTexture = pbr.albedoTexture;
+        pbr.albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+      }
+      if (pbr.albedoColor) {
+        const b = 1.3;
+        flat.diffuseColor = new Color3(
+          Math.min(1, pbr.albedoColor.r * b),
+          Math.min(1, pbr.albedoColor.g * b),
+          Math.min(1, pbr.albedoColor.b * b),
+        );
+      }
+      flat.specularColor = Color3.Black();
+      const dc = flat.diffuseColor;
+      flat.emissiveColor = new Color3(dc.r * 0.55, dc.g * 0.55, dc.b * 0.55);
+      flat.backFaceCulling = pbr.backFaceCulling ?? true;
+      mesh.material = flat;
+      if (pbr.name && pbr.name.startsWith('genericRGBMat_Objects')) {
+        this.localPlayer?.registerObjectMaterial(flat);
+      }
     }
 
     if (def.metalColor) {

@@ -1170,21 +1170,41 @@ export class CharacterEntity {
 
     // Gear color: swap diffuseTexture on all genericRGBMat_Objects materials
     if (this.objectMaterials.length > 0 && appearance.gearColor >= 0 && appearance.gearColor < GEAR_COLOR_COUNT) {
-      const colorIdx = appearance.gearColor + 1; // textures are 1-indexed (objectColor1.png)
-      const cacheKey = `${this.scene.uid}_${colorIdx}`;
-      let tex = CharacterEntity.gearColorTextures.get(cacheKey);
-      if (!tex || !tex.getScene()) {
-        tex = new Texture(
-          `/Character models/gear-colors/objectColor${colorIdx}.png`,
-          this.scene,
-          false, true, Texture.NEAREST_NEAREST,
-        );
-        CharacterEntity.gearColorTextures.set(cacheKey, tex);
-      }
-      for (const mat of this.objectMaterials) {
-        mat.diffuseTexture = tex;
-      }
+      const tex = this.getGearColorTexture(appearance.gearColor);
+      if (tex) for (const mat of this.objectMaterials) mat.diffuseTexture = tex;
     }
+  }
+
+  /**
+   * Return the cached `objectColor<N+1>.png` Texture for a given gearColor index,
+   * loading it lazily. The same texture is shared across all gear pieces.
+   */
+  private getGearColorTexture(gearColor: number): Texture | null {
+    if (gearColor < 0 || gearColor >= GEAR_COLOR_COUNT) return null;
+    const colorIdx = gearColor + 1;
+    const cacheKey = `${this.scene.uid}_${colorIdx}`;
+    let tex = CharacterEntity.gearColorTextures.get(cacheKey);
+    if (!tex || !tex.getScene()) {
+      tex = new Texture(
+        `/Character models/gear-colors/objectColor${colorIdx}.png`,
+        this.scene,
+        false, true, Texture.NEAREST_NEAREST,
+      );
+      CharacterEntity.gearColorTextures.set(cacheKey, tex);
+    }
+    return tex;
+  }
+
+  /**
+   * Register a `genericRGBMat_Objects` material from a separately-loaded gear
+   * piece. The current gearColor texture is applied immediately, and future
+   * gearColor changes will update the material via applyAppearance.
+   */
+  registerObjectMaterial(mat: StandardMaterial): void {
+    if (this.objectMaterials.includes(mat)) return;
+    this.objectMaterials.push(mat);
+    const tex = this.lastAppearance ? this.getGearColorTexture(this.lastAppearance.gearColor) : null;
+    if (tex) mat.diffuseTexture = tex;
   }
 
   // ---------------------------------------------------------------------------
