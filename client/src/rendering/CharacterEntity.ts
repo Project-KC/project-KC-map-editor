@@ -19,12 +19,20 @@ import { quantizeAnimationGroup, rs2Rotation, ANIM_DURATIONS, DEFAULT_QUANTIZE_F
 const HAIR_MATERIAL_NAMES = new Set(['hair_1']);
 
 /**
- * Constant rotation offsets applied to specific bones during retargeting.
- * Values are Euler angles (radians) converted to a quaternion and post-multiplied
- * onto every keyframe for that bone. Use /bonedebug in-game to find values,
- * then paste them here.
+ * Per-animation, per-bone rotation offsets applied during retargeting.
+ * Outer key = animation name from additionalAnimations[].name ('idle', 'walk', …).
+ * Use '*' to apply to every animation.
+ * Inner values are Euler offsets (radians) post-multiplied onto every keyframe.
+ * ~0.087 rad = 5°.
  */
-const BONE_ROTATION_OFFSETS: Record<string, { x: number; y: number; z: number }> = {};
+const BONE_ROTATION_OFFSETS: Record<string, Record<string, { x: number; y: number; z: number }>> = {
+  idle: {
+    'mixamorig:LeftShoulder':  { x: 0, y: 0, z: -0.261 },  // ~15° back
+    'mixamorig:RightShoulder': { x: 0, y: 0, z:  0.261 },
+    'mixamorig:LeftForeArm':   { x: 0, y: 0, z:  0.122 },  // ~7° bend (testing Z)
+    'mixamorig:RightForeArm':  { x: 0, y: 0, z: -0.122 },
+  },
+};
 
 
 /**
@@ -493,8 +501,10 @@ export class CharacterEntity {
             }
           }
 
-          // Apply constant bone rotation offsets (e.g. pull shoulders back)
-          const offset = BONE_ROTATION_OFFSETS[ourTarget.name];
+          // Apply constant bone rotation offsets (e.g. pull shoulders back).
+          // Per-animation entries take priority; '*' applies to all.
+          const offset = BONE_ROTATION_OFFSETS[anim.name]?.[ourTarget.name]
+            ?? BONE_ROTATION_OFFSETS['*']?.[ourTarget.name];
           if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
             const offsetQuat = Quaternion.FromEulerAngles(offset.x, offset.y, offset.z);
             const keys = ta.animation.getKeys();

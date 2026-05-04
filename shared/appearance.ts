@@ -10,6 +10,7 @@ export interface PlayerAppearance {
   shoesColor: number;
   hairColor: number;
   beltColor: number;
+  skinColor: number;
   shirtStyle: number;
   hairStyle: number;
   gearColor: number;
@@ -79,6 +80,17 @@ export const BELT_COLORS: [number, number, number][] = [
   [0.500, 0.500, 0.500],  // 9  white
 ];
 
+export const SKIN_COLORS: [number, number, number][] = [
+  [0.343, 0.213, 0.104],  // 0  default tan (matches authored Skin material)
+  [0.560, 0.380, 0.260],  // 1  fair
+  [0.420, 0.270, 0.150],  // 2  light brown
+  [0.260, 0.150, 0.080],  // 3  brown
+  [0.150, 0.080, 0.050],  // 4  dark brown
+  [0.090, 0.045, 0.030],  // 5  very dark
+  [0.500, 0.290, 0.180],  // 6  golden
+  [0.380, 0.220, 0.130],  // 7  olive
+];
+
 export const HAIR_COLORS: [number, number, number][] = [
   [0.130, 0.063, 0.028],  // 0  brown (default)
   [0.180, 0.140, 0.050],  // 1  blonde
@@ -107,6 +119,7 @@ export const DEFAULT_APPEARANCE: PlayerAppearance = {
   shoesColor: 0,
   hairColor: 0,
   beltColor: 1,
+  skinColor: 0,
   shirtStyle: 0,
   hairStyle: 1,
   gearColor: 0,
@@ -120,6 +133,7 @@ export function isValidAppearance(a: PlayerAppearance): boolean {
     Number.isInteger(a.shoesColor) && a.shoesColor >= 0 && a.shoesColor < SHOES_COLORS.length &&
     Number.isInteger(a.hairColor)  && a.hairColor >= 0  && a.hairColor < HAIR_COLORS.length &&
     Number.isInteger(a.beltColor)  && a.beltColor >= 0  && a.beltColor < BELT_COLORS.length &&
+    Number.isInteger(a.skinColor)  && a.skinColor >= 0  && a.skinColor < SKIN_COLORS.length &&
     Number.isInteger(a.shirtStyle) && a.shirtStyle >= 0 && a.shirtStyle < SHIRT_STYLES.length &&
     Number.isInteger(a.hairStyle)  && a.hairStyle >= 0  && a.hairStyle <= HAIR_STYLE_COUNT &&
     Number.isInteger(a.gearColor) && a.gearColor >= 0 && a.gearColor < GEAR_COLOR_COUNT
@@ -134,6 +148,7 @@ export function normalizeAppearance(a: Partial<PlayerAppearance>): PlayerAppeara
     shoesColor: a.shoesColor ?? 0,
     hairColor:  a.hairColor ?? 0,
     beltColor:  a.beltColor ?? 0,
+    skinColor:  a.skinColor ?? 0,
     shirtStyle: a.shirtStyle ?? 0,
     hairStyle:  a.hairStyle ?? 1,
     gearColor: a.gearColor ?? 0,
@@ -146,7 +161,7 @@ export function normalizeAppearance(a: Partial<PlayerAppearance>): PlayerAppeara
  * Names are matched case-insensitively, with optional .001 suffix stripped.
  */
 /** Color slots that map to GLB material names (excludes non-color fields like shirtStyle) */
-export type AppearanceColorSlot = 'shirtColor' | 'pantsColor' | 'shoesColor' | 'hairColor' | 'beltColor';
+export type AppearanceColorSlot = 'shirtColor' | 'pantsColor' | 'shoesColor' | 'hairColor' | 'beltColor' | 'skinColor';
 
 export const APPEARANCE_MATERIAL_MAP: Record<AppearanceColorSlot, string[]> = {
   shirtColor: ['Shirt', 'shirt openings', 'mat_4550'],
@@ -154,6 +169,7 @@ export const APPEARANCE_MATERIAL_MAP: Record<AppearanceColorSlot, string[]> = {
   shoesColor: ['socks'],
   hairColor:  ['Hair_1'],
   beltColor:  ['belt'],
+  skinColor:  ['Skin'],
 };
 
 /** Get the palette array for a given color slot */
@@ -164,5 +180,6 @@ export function getPalette(slot: AppearanceColorSlot): [number, number, number][
     case 'shoesColor': return SHOES_COLORS;
     case 'hairColor':  return HAIR_COLORS;
     case 'beltColor':  return BELT_COLORS;
+    case 'skinColor':  return SKIN_COLORS;
   }
 }

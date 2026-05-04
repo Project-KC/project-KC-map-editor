@@ -1815,8 +1815,8 @@ export class World {
           player.id, sx, sz,
           player.health, player.maxHealth,
           a ? a.shirtColor : -1, a ? a.pantsColor : -1, a ? a.shoesColor : -1,
-          a ? a.hairColor  : -1, a ? a.beltColor  : -1, a ? a.shirtStyle : -1,
-          a ? a.hairStyle  : -1, a ? a.gearColor  : -1,
+          a ? a.hairColor  : -1, a ? a.beltColor  : -1, a ? a.skinColor  : -1,
+          a ? a.shirtStyle : -1, a ? a.hairStyle  : -1, a ? a.gearColor  : -1,
         ));
       }
     }
@@ -1907,6 +1907,7 @@ export class World {
       a ? a.shoesColor : -1,
       a ? a.hairColor  : -1,
       a ? a.beltColor  : -1,
+      a ? a.skinColor  : -1,
       a ? a.shirtStyle : -1,
       a ? a.hairStyle  : -1,
       a ? a.gearColor  : -1,

@@ -5,7 +5,7 @@ import {
   PANTS_COLORS,
   SHOES_COLORS,
   HAIR_COLORS,
-  BELT_COLORS,
+  SKIN_COLORS,
   SHIRT_STYLES,
   HAIR_STYLE_COUNT,
   GEAR_COLOR_COUNT,
@@ -104,6 +104,8 @@ export class CharacterCreator {
     swatchCol.style.cssText = `display: flex; flex-direction: column; min-width: 280px; max-height: 420px; overflow-y: auto;`;
 
     this.addIndexRow(swatchCol, 'Hair', 'hairStyle', HAIR_STYLE_COUNT, true);
+    this.addColorRow(swatchCol, 'Hair Color', 'hairColor', HAIR_COLORS);
+    this.addColorRow(swatchCol, 'Skin', 'skinColor', SKIN_COLORS);
     if (GEAR_COLOR_COUNT > 0) this.addGearColorRow(swatchCol);
     this.addColorRow(swatchCol, 'Shirt', 'shirtColor', SHIRT_COLORS);
     this.addColorRow(swatchCol, 'Pants', 'pantsColor', PANTS_COLORS);

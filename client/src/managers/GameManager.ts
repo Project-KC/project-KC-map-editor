@@ -30,6 +30,7 @@ import { Minimap } from '../ui/Minimap';
 // StatsPanel removed — HP now shown in side panel
 import { ShopPanel, type ShopItem } from '../ui/ShopPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
+import { LoadingScreen } from '../ui/LoadingScreen';
 import { SmithingPanel } from '../ui/SmithingPanel';
 import { getExperimentalCharacterPath } from '../experimental';
 import { NPC_NAMES } from '../data/NpcConfig';
@@ -55,6 +56,7 @@ export class GameManager {
   // Local player
   private localPlayer: CharacterEntity | null = null;
   private localPlayerId: number = -1;
+  private loadingScreen: LoadingScreen | null = null;
   private currentFloor: number = 0;
   private playerX: number = 512;
   private playerZ: number = 512;
@@ -931,6 +933,10 @@ export class GameManager {
       this.playerZ = v[2] / 10;
       this.network.setLocalPlayerId(this.localPlayerId);
 
+      this.loadingScreen = new LoadingScreen();
+      this.loadingScreen.show();
+      this.loadingScreen.setStatus('Loading character…');
+
       this.localPlayer = this.createLocalCharacterEntity(this.localAppearance?.shirtStyle ?? 0);
       const spawnH = this.getHeight(this.playerX, this.playerZ);
       this.localPlayer.setPositionXYZ(this.playerX, spawnH, this.playerZ);
@@ -941,6 +947,8 @@ export class GameManager {
         if (this.localAppearance && this.localPlayer) {
           this.localPlayer.applyAppearance(this.localAppearance);
         }
+        this.loadingScreen?.hide();
+        this.loadingScreen = null;
       });
     });
 
@@ -955,10 +963,10 @@ export class GameManager {
       const x = x10 / 10;
       const z = z10 / 10;
 
-      const hasAppearance = v.length >= 13 && v[5] >= 0;
+      const hasAppearance = v.length >= 14 && v[5] >= 0;
       const syncAppearance: PlayerAppearance | null = hasAppearance ? {
-        shirtColor: v[5], pantsColor: v[6], shoesColor: v[7], hairColor: v[8], beltColor: v[9], shirtStyle: v[10],
-        hairStyle: v[11], gearColor: v[12] ?? 0,
+        shirtColor: v[5], pantsColor: v[6], shoesColor: v[7], hairColor: v[8], beltColor: v[9], skinColor: v[10],
+        shirtStyle: v[11], hairStyle: v[12], gearColor: v[13] ?? 0,
       } : null;
 
       if (entityId === this.localPlayerId) {
@@ -2115,6 +2123,7 @@ export class GameManager {
         appearance.shoesColor,
         appearance.hairColor,
         appearance.beltColor,
+        appearance.skinColor,
         appearance.shirtStyle,
         appearance.hairStyle,
         appearance.gearColor,

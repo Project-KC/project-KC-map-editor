@@ -174,9 +174,10 @@ export function handleGameSocketMessage(
         shoesColor: values[2] ?? 0,
         hairColor:  values[3] ?? 0,
         beltColor:  values[4] ?? 0,
-        shirtStyle: values[5] ?? 0,
-        hairStyle:  values[6] ?? 1,
-        gearColor:  values[7] ?? 0,
+        skinColor:  values[5] ?? 0,
+        shirtStyle: values[6] ?? 0,
+        hairStyle:  values[7] ?? 1,
+        gearColor:  values[8] ?? 0,
       };
       world.handleSetAppearance(playerId, appearance);
       break;
