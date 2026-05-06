@@ -374,14 +374,6 @@ export class CharacterEntity {
 
       for (const [name, group] of this.animGroups) {
         quantizeAnimationGroup(group, name);
-        // Enable per-animation blending so transitions between groups interpolate
-        // from the current pose into the new one (instead of snapping). Without
-        // this, mismatched starting poses (e.g. feet at slightly different widths
-        // between idle/walk/attack) produce a visible cut at every state change.
-        for (const ta of group.targetedAnimations) {
-          ta.animation.enableBlending = true;
-          ta.animation.blendingSpeed = 0.1;  // ~10 frames at 60fps to fully blend
-        }
         console.log(`[CharacterEntity] Quantized '${name}' → ${DEFAULT_QUANTIZE_FRAMES} frames, ${(ANIM_DURATIONS[name] ?? 1.2).toFixed(1)}s`);
       }
 
@@ -1029,7 +1021,9 @@ export class CharacterEntity {
       const positions = hairMesh.getVerticesData(VertexBuffer.PositionKind);
       if (!positions) continue;
 
-      hairMesh.refreshBoundingInfo();
+      // Pass `false` for applySkeleton — these are static hair meshes and
+      // recomputing in skeleton-space here would yield bad bounds.
+      hairMesh.refreshBoundingInfo(false, false);
       const bbox = hairMesh.getBoundingInfo().boundingBox;
       const minY = bbox.minimum.y;
       const maxY = bbox.maximum.y;

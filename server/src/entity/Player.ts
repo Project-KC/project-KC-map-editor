@@ -28,6 +28,12 @@ export class Player extends Entity {
   moveSpeed: number = 1;
   pendingPickup: number = -1;
   pendingInteraction: { objectEntityId: number; actionIndex: number; swingSign?: number } | null = null;
+  /** World tick on which this player last consumed a movement waypoint. Used
+   *  to defer adjacency-triggered actions (interact/pickup) by one tick when
+   *  the player just arrived — gives the client's smooth visual interpolation
+   *  time to catch up to the server's authoritative tile, so an interaction
+   *  doesn't fire while the character is still mid-step. */
+  lastMovedTick: number = -1;
 
   // Chunk tracking
   currentChunkX: number = -1;
@@ -183,12 +189,13 @@ export class Player extends Entity {
     return { itemId: item.itemId, quantity };
   }
 
-  processMovement(): void {
+  processMovement(currentTick: number): void {
     // Process 1 waypoint per tick to match RS2 walk speed (~1.67 tiles/sec)
     for (let i = 0; i < 1 && this.moveQueue.length > 0; i++) {
       const target = this.moveQueue.shift()!;
       this.position.x = target.x;
       this.position.y = target.z;
+      this.lastMovedTick = currentTick;
     }
   }
 

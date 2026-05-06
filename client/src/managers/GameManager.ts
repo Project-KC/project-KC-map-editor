@@ -1232,6 +1232,9 @@ export class GameManager {
             height,
           });
           sprite.position = new Vector3(x, this.getHeight(x, z), z);
+          // Stamp metadata so picking can resolve via metadata.objectEntityId
+          // (uniform with 3D-modeled world objects).
+          sprite.getMesh().metadata = { kind: 'worldObject', objectEntityId };
           this.worldObjectSprites.set(objectEntityId, sprite);
         }
       }
@@ -1559,37 +1562,72 @@ export class GameManager {
       const meshName = pickResult.pickedMesh.name;
       const options: { label: string; action: () => void }[] = [];
 
-      for (const [entityId, sprite] of this.entities.npcSprites) {
-        if (sprite.getMesh().name === meshName) {
-          const npcDefId = this.entities.npcDefs.get(entityId);
-          const name = NPC_NAMES[npcDefId || 0] || 'NPC';
-          if (npcDefId === 8 || npcDefId === 11 || npcDefId === 12 || npcDefId === 13 || npcDefId === 14) {
-            // Shopkeeper — trade instead of attack
-            options.push({
-              label: `Trade ${name}`,
-              action: () => this.talkToNpc(entityId),
-            });
-          } else {
-            options.push({
-              label: `Attack ${name}`,
-              action: () => this.attackNpc(entityId),
-            });
+      // Identify the picked NPC. 3D-modeled NPCs (e.g. cows) all share mesh
+      // names from their source GLB, so name matching is ambiguous — every
+      // cow click would route to whichever cow happened to be first in the
+      // npcSprites map. Check metadata.entityId (stamped by Npc3DEntity.
+      // setEntityIdMetadata) by walking up the picked node's parents first;
+      // fall back to mesh-name matching for sprite-based NPCs (which already
+      // carry unique `npc_<entityId>` mesh names).
+      let pickedNpcEntityId: number | null = null;
+      {
+        let walk: TransformNode | null = pickResult.pickedMesh;
+        while (walk) {
+          if (walk.metadata?.kind === 'npc' && typeof walk.metadata?.entityId === 'number') {
+            pickedNpcEntityId = walk.metadata.entityId;
+            break;
           }
-          break;
+          walk = walk.parent as TransformNode | null;
+        }
+      }
+      if (pickedNpcEntityId == null) {
+        for (const [entityId, sprite] of this.entities.npcSprites) {
+          if (sprite.getMesh()?.name === meshName) {
+            pickedNpcEntityId = entityId;
+            break;
+          }
+        }
+      }
+      if (pickedNpcEntityId != null) {
+        const entityId = pickedNpcEntityId;
+        const npcDefId = this.entities.npcDefs.get(entityId);
+        const name = NPC_NAMES[npcDefId || 0] || 'NPC';
+        if (npcDefId === 8 || npcDefId === 11 || npcDefId === 12 || npcDefId === 13 || npcDefId === 14) {
+          options.push({ label: `Trade ${name}`, action: () => this.talkToNpc(entityId) });
+        } else {
+          options.push({ label: `Attack ${name}`, action: () => this.attackNpc(entityId) });
         }
       }
 
-      for (const [groundItemId, sprite] of this.entities.groundItemSprites) {
-        if (sprite.getMesh().name === meshName) {
-          const gItem = this.entities.groundItems.get(groundItemId);
-          const iDef = gItem ? this.itemDefsCache.get(gItem.itemId) : null;
-          const iName = iDef?.name ?? 'item';
-          options.push({
-            label: `Pick up ${iName}`,
-            action: () => this.pickupItem(groundItemId),
-          });
-          break;
+      // Ground item: prefer metadata, fall back to name match.
+      let pickedGroundItemId: number | null = null;
+      {
+        let walk: TransformNode | null = pickResult.pickedMesh;
+        while (walk) {
+          if (walk.metadata?.kind === 'groundItem' && typeof walk.metadata?.groundItemId === 'number') {
+            pickedGroundItemId = walk.metadata.groundItemId;
+            break;
+          }
+          walk = walk.parent as TransformNode | null;
         }
+      }
+      if (pickedGroundItemId == null) {
+        for (const [groundItemId, sprite] of this.entities.groundItemSprites) {
+          if (sprite.getMesh()?.name === meshName) {
+            pickedGroundItemId = groundItemId;
+            break;
+          }
+        }
+      }
+      if (pickedGroundItemId != null) {
+        const groundItemId = pickedGroundItemId;
+        const gItem = this.entities.groundItems.get(groundItemId);
+        const iDef = gItem ? this.itemDefsCache.get(gItem.itemId) : null;
+        const iName = iDef?.name ?? 'item';
+        options.push({
+          label: `Pick up ${iName}`,
+          action: () => this.pickupItem(groundItemId),
+        });
       }
 
       // Check 3D models (trees, rocks, placed objects) — walk up parent chain looking for objectEntityId metadata
@@ -1654,24 +1692,43 @@ export class GameManager {
         }
       }
 
-      // Check sprite-based world objects
-      for (const [objectEntityId, sprite] of this.worldObjectSprites) {
-        if (sprite.getMesh().name === meshName) {
-          const data = this.worldObjectDefs.get(objectEntityId);
-          if (data) {
-            const def = this.objectDefsCache.get(data.defId);
-            if (def && (!data.depleted || def.category === 'door')) {
-              for (let i = 0; i < def.actions.length; i++) {
-                const actionName = def.actions[i];
-                const actionIdx = i;
-                options.push({
-                  label: `${actionName} ${def.name}`,
-                  action: () => this.interactObject(objectEntityId, actionIdx),
-                });
-              }
+      // Check sprite-based world objects (metadata first, name match fallback).
+      // The sprite's plane is stamped with { kind:'worldObject', objectEntityId }
+      // when created, so picking resolves uniformly with the 3D-model path above.
+      let pickedSpriteWorldObjectId: number | null = null;
+      {
+        let walk: TransformNode | null = pickResult.pickedMesh;
+        while (walk) {
+          if (walk.metadata?.kind === 'worldObject' && typeof walk.metadata?.objectEntityId === 'number') {
+            pickedSpriteWorldObjectId = walk.metadata.objectEntityId;
+            break;
+          }
+          walk = walk.parent as TransformNode | null;
+        }
+      }
+      if (pickedSpriteWorldObjectId == null) {
+        for (const [objectEntityId, sprite] of this.worldObjectSprites) {
+          if (sprite.getMesh()?.name === meshName) {
+            pickedSpriteWorldObjectId = objectEntityId;
+            break;
+          }
+        }
+      }
+      if (pickedSpriteWorldObjectId != null && pickedObjectEntityId == null) {
+        const objectEntityId = pickedSpriteWorldObjectId;
+        const data = this.worldObjectDefs.get(objectEntityId);
+        if (data) {
+          const def = this.objectDefsCache.get(data.defId);
+          if (def && (!data.depleted || def.category === 'door')) {
+            for (let i = 0; i < def.actions.length; i++) {
+              const actionName = def.actions[i];
+              const actionIdx = i;
+              options.push({
+                label: `${actionName} ${def.name}`,
+                action: () => this.interactObject(objectEntityId, actionIdx),
+              });
             }
           }
-          break;
         }
       }
 

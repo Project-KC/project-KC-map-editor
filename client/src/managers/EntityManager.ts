@@ -283,6 +283,9 @@ export class EntityManager {
     if (modelCfg) {
       const npc3d = new Npc3DEntity(this.scene, modelCfg.file, modelCfg.scale, modelCfg.anims, name);
       npc3d.position = new Vector3(x, this.getHeight(x, z), z);
+      // Stamp entityId on every mesh's metadata so picking can disambiguate
+      // multiple instances of the same GLB (every cow shares mesh names).
+      npc3d.setEntityIdMetadata(entityId);
       this.npcSprites.set(entityId, npc3d);
       return npc3d;
     }
@@ -300,6 +303,10 @@ export class EntityManager {
       directionalSprites: npcSpriteSet ?? undefined,
     });
     sprite.position = new Vector3(x, this.getHeight(x, z), z);
+    // Stamp identity metadata so picking can resolve the entity without
+    // relying on mesh names. Mirrors the Npc3DEntity stamp — keeps the
+    // picking flow uniform whether the NPC is a sprite or a 3D model.
+    sprite.getMesh().metadata = { kind: 'npc', entityId };
     const attackAnim = this.npcAttackAnims.get(defId);
     if (attackAnim) sprite.setAttackAnimation(attackAnim);
     const walkAnim = this.npcWalkAnims.get(defId);
@@ -324,6 +331,7 @@ export class EntityManager {
       iconUrl: iconPath ?? undefined,
     });
     sprite.position = new Vector3(x, this.getHeight(x, z), z);
+    sprite.getMesh().metadata = { kind: 'groundItem', groundItemId };
     this.groundItems.set(groundItemId, { id: groundItemId, itemId, quantity, x, z });
     this.groundItemSprites.set(groundItemId, sprite);
     return sprite;

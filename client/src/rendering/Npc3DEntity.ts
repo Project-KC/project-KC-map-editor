@@ -34,6 +34,10 @@ export class Npc3DEntity {
   private yOffset: number = 0.5;
 
   private _ready = false;
+  /** Entity ID stamped on every loaded mesh's metadata. Set via
+   *  setEntityIdMetadata so picking can resolve the clicked instance even
+   *  when multiple NPCs share the same source GLB (e.g. multiple cows). */
+  private pendingEntityId: number | null = null;
 
   constructor(
     scene: Scene,
@@ -87,6 +91,12 @@ export class Npc3DEntity {
       glbRoot.position.y -= minY;
 
       this.root.scaling.set(this.modelScale, this.modelScale, this.modelScale);
+
+      // If setEntityIdMetadata was called before the GLB finished loading,
+      // apply the queued id now that meshes exist.
+      if (this.pendingEntityId !== null) {
+        this.setEntityIdMetadata(this.pendingEntityId);
+      }
       this.yOffset = (maxY - minY) * this.modelScale / 2;
 
       // Map animations by role
@@ -242,6 +252,26 @@ export class Npc3DEntity {
   setDirectionalSprites(_sprites: any): void { }
   addAttackAnimation(_name: string, _anim: any): void { }
   getMesh(): any { return this.meshes[0] ?? null; }
+
+  /**
+   * Stamp the entityId onto every mesh's metadata so picking can identify
+   * which 3D-modeled NPC was clicked. Without this, cows (and any other
+   * shared-GLB NPCs) all carry the same mesh names from the source GLB,
+   * which makes name-based picking-to-entity matching ambiguous and routes
+   * every click to whichever NPC happens to be first in the lookup map.
+   *
+   * Safe to call before the GLB finishes loading — the id is queued and
+   * applied as soon as meshes exist.
+   */
+  setEntityIdMetadata(entityId: number): void {
+    this.pendingEntityId = entityId;
+    if (this.root) {
+      this.root.metadata = { ...(this.root.metadata ?? {}), entityId, kind: 'npc' };
+    }
+    for (const mesh of this.meshes) {
+      mesh.metadata = { ...(mesh.metadata ?? {}), entityId, kind: 'npc' };
+    }
+  }
   isAnimating(): boolean { return this.currentAnim === 'attack'; }
 
   dispose(): void {

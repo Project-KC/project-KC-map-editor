@@ -1266,14 +1266,24 @@ export class World {
           player.pendingInteraction = null;
         }
       }
-      player.processMovement();
+      player.processMovement(this.currentTick);
       this.updateEntityChunk(player);
-      if (player.pendingPickup >= 0 && player.moveQueue.length === 0) {
+
+      // Defer adjacency-triggered actions one tick if the player just consumed
+      // a waypoint this tick — server's authoritative tile updates instantly
+      // when a step finishes, but the client interpolates the visual character
+      // smoothly, so firing immediately makes interactions register while the
+      // character is still visually mid-step (looks like you're chopping a tree
+      // a tile away from where you're standing). Holding the action for the
+      // next tick (~600ms) lets the client catch up.
+      const justArrived = player.lastMovedTick === this.currentTick && player.moveQueue.length === 0;
+
+      if (player.pendingPickup >= 0 && player.moveQueue.length === 0 && !justArrived) {
         const pickupId = player.pendingPickup;
         player.pendingPickup = -1;
         this.handlePlayerPickup(playerId, pickupId);
       }
-      if (player.pendingInteraction && player.moveQueue.length === 0) {
+      if (player.pendingInteraction && player.moveQueue.length === 0 && !justArrived) {
         const { objectEntityId, actionIndex, swingSign } = player.pendingInteraction;
         player.pendingInteraction = null;
         const obj = this.worldObjects.get(objectEntityId);
