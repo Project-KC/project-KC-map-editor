@@ -126,6 +126,15 @@ export interface CharacterEntityOptions {
    * Each GLB should contain the same armature with a single animation.
    */
   additionalAnimations?: AdditionalAnimation[];
+
+  /**
+   * Babylon layer-mask applied to every mesh of the character (body, hair,
+   * gear, etc.). Use to isolate this character from cameras whose layerMask
+   * doesn't share a bit with this value — e.g. the CharacterCreator preview
+   * sets a unique mask so its character is invisible to the world camera.
+   * Default = no override (Babylon's default 0x0FFFFFFF).
+   */
+  layerMask?: number;
 }
 
 /**
@@ -144,6 +153,7 @@ export class CharacterEntity {
   private modelScale: number = 1;
   private yOffset: number = 0; // half model height, for health bar positioning
   private childYOffset: number = 0; // -minY applied to root children so feet are at y=0
+  private layerMask: number | undefined = undefined;
 
   // Animations — keyed by name as exported from Blender NLA strips
   private animGroups: Map<string, AnimationGroup> = new Map();
@@ -195,6 +205,7 @@ export class CharacterEntity {
 
   constructor(scene: Scene, options: CharacterEntityOptions) {
     this.scene = scene;
+    this.layerMask = options.layerMask;
     this._readyPromise = new Promise((resolve) => {
       this._resolveReady = resolve;
     });
@@ -379,6 +390,9 @@ export class CharacterEntity {
 
       // Apply initial position
       this.root.position.set(this._position.x, this._position.y, this._position.z);
+
+      // Propagate layerMask (if any) to all body+hair meshes
+      this.applyLayerMask();
 
       this._ready = true;
       this._resolveReady();
@@ -1305,6 +1319,10 @@ export class CharacterEntity {
       const tex = this.getGearColorTexture(appearance.gearColor);
       if (tex) for (const mat of this.objectMaterials) mat.diffuseTexture = tex;
     }
+
+    // Hair show/hide may have re-enabled meshes; re-propagate layerMask so
+    // any newly-enabled hair stays scoped to the right camera.
+    this.applyLayerMask();
   }
 
   /**
@@ -1343,6 +1361,19 @@ export class CharacterEntity {
   }
 
   // ---------------------------------------------------------------------------
+  /**
+   * Walk all descendant meshes and apply this.layerMask if set. Idempotent —
+   * safe to call after gear attach, hair switch, or any operation that adds
+   * new meshes to the rig. No-op if layerMask is undefined.
+   */
+  private applyLayerMask(): void {
+    if (this.layerMask === undefined || !this.root) return;
+    const mask = this.layerMask;
+    for (const mesh of this.root.getChildMeshes(false)) {
+      mesh.layerMask = mask;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------

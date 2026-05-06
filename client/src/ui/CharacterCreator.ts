@@ -8,32 +8,60 @@ import {
   SKIN_COLORS,
   HAIR_STYLE_COUNT,
 } from '@projectrs/shared';
-import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
+import { Vector3, Color3 } from '@babylonjs/core/Maths/math';
+import type { Observer } from '@babylonjs/core/Misc/observable';
+import type { Camera } from '@babylonjs/core/Cameras/camera';
 import { CharacterEntity } from '../rendering/CharacterEntity';
 
 export type CharacterCreatorCallback = (appearance: PlayerAppearance) => void;
 
 /**
+ * Layer-mask bit reserved for the CharacterCreator preview. Meshes/lights
+ * marked with this mask are visible only to the preview camera; the main
+ * world camera ignores them (default mask 0x0FFFFFFF doesn't include this
+ * bit). Picked outside Babylon's default mask so it can't collide with
+ * unset meshes.
+ */
+const PREVIEW_LAYER_MASK = 0x10000000;
+
+/**
+ * Far-away anchor where the preview character lives so it never overlaps
+ * the playable world. Picked deep below the world floor.
+ */
+const PREVIEW_ANCHOR = new Vector3(0, -1000, 0);
+
+/**
  * Full-screen character creation overlay shown to new accounts.
- * Renders a live 3D preview in its own Babylon Engine + Scene.
+ *
+ * Renders the live 3D preview INTO the main game's existing Babylon engine +
+ * scene by registering the preview canvas as an additional view (see
+ * `engine.registerView`). The preview character lives at PREVIEW_ANCHOR with
+ * a unique layer mask so the world camera doesn't see it. Sharing the engine
+ * avoids creating a second WebGL context (browser context cap is ~16; opening
+ * the creator a few times under the old design would evict the main game's
+ * context and cause multi-second hitches).
  */
 export class CharacterCreator {
   private container: HTMLDivElement;
   private onConfirm: CharacterCreatorCallback;
   private appearance: PlayerAppearance;
 
-  // 3D preview — own engine to avoid fog/lighting conflicts with game scene
+  private gameScene: Scene;
   private previewCanvas: HTMLCanvasElement | null = null;
-  private previewEngine: Engine | null = null;
-  private previewScene: Scene | null = null;
+  private previewCamera: ArcRotateCamera | null = null;
+  private previewLights: { hemi: HemisphericLight; dir: DirectionalLight } | null = null;
   private previewCharacter: CharacterEntity | null = null;
 
-  constructor(_gameScene: Scene, onConfirm: CharacterCreatorCallback) {
+  // Saved fog state restored after the preview camera renders each frame
+  private fogObserver: Observer<Camera> | null = null;
+  private fogObserverAfter: Observer<Camera> | null = null;
+
+  constructor(gameScene: Scene, onConfirm: CharacterCreatorCallback) {
+    this.gameScene = gameScene;
     this.onConfirm = onConfirm;
     this.appearance = { ...DEFAULT_APPEARANCE };
     this.container = this.buildUI();
@@ -135,48 +163,72 @@ export class CharacterCreator {
   private initPreview(): void {
     if (!this.previewCanvas) return;
 
-    this.previewEngine = new Engine(this.previewCanvas, true, {
-      preserveDrawingBuffer: true,
-      stencil: false,
-      antialias: true,
-    });
-    this.previewScene = new Scene(this.previewEngine);
-    this.previewScene.clearColor = new Color4(0.1, 0.1, 0.1, 1);
+    const engine = this.gameScene.getEngine();
 
+    // Camera lives in the main scene. layerMask scopes it to preview-tagged
+    // meshes only — anything in the playable world (default mask) is invisible
+    // to this camera, so the preview window never shows world geometry.
     const cam = new ArcRotateCamera(
       'previewCam', Math.PI * 0.75, Math.PI * 0.4, 3.0,
-      new Vector3(0, 0.7, 0), this.previewScene,
+      PREVIEW_ANCHOR.add(new Vector3(0, 0.7, 0)),
+      this.gameScene,
     );
+    cam.layerMask = PREVIEW_LAYER_MASK;
     cam.lowerRadiusLimit = 2;
     cam.upperRadiusLimit = 5;
     cam.lowerBetaLimit = 0.3;
     cam.upperBetaLimit = Math.PI * 0.55;
     cam.attachControl(this.previewCanvas, true);
     cam.inputs.removeByType('ArcRotateCameraKeyboardMoveInput');
+    this.previewCamera = cam;
 
-    const hemi = new HemisphericLight('previewHemi', new Vector3(0, 1, 0), this.previewScene);
+    // Preview-only lights. includeOnlyWithLayerMask makes them affect *only*
+    // preview-tagged meshes, so they don't double up on the world's lighting.
+    const hemi = new HemisphericLight('previewHemi', new Vector3(0, 1, 0), this.gameScene);
     hemi.intensity = 0.6;
     hemi.groundColor = new Color3(0.15, 0.15, 0.15);
-    const dir = new DirectionalLight('previewDir', new Vector3(-0.5, -1, 0.5), this.previewScene);
+    hemi.includeOnlyWithLayerMask = PREVIEW_LAYER_MASK;
+    const dir = new DirectionalLight('previewDir', new Vector3(-0.5, -1, 0.5), this.gameScene);
     dir.intensity = 0.5;
+    dir.includeOnlyWithLayerMask = PREVIEW_LAYER_MASK;
+    this.previewLights = { hemi, dir };
+
+    // Disable scene fog only while the preview camera is rendering so the
+    // creator backdrop stays clean (the world's fog tints meshes by depth and
+    // would muddy the preview at PREVIEW_ANCHOR's distance from origin).
+    let savedFogEnabled = false;
+    this.fogObserver = this.gameScene.onBeforeCameraRenderObservable.add((c: Camera) => {
+      if (c === cam) {
+        savedFogEnabled = this.gameScene.fogEnabled;
+        this.gameScene.fogEnabled = false;
+      }
+    });
+    this.fogObserverAfter = this.gameScene.onAfterCameraRenderObservable.add((c: Camera) => {
+      if (c === cam) {
+        this.gameScene.fogEnabled = savedFogEnabled;
+      }
+    });
+
+    // Register the preview canvas as a second view of the same engine. The
+    // engine renders the scene once to its main canvas, then again per
+    // registered view (with the view's camera) to that view's canvas. Same
+    // GL context, same materials, same parsed GLBs.
+    engine.registerView(this.previewCanvas, cam);
 
     this.loadPreviewCharacter();
-
-    this.previewEngine.runRenderLoop(() => {
-      this.previewScene?.render();
-    });
   }
 
   private loadPreviewCharacter(): void {
-    if (!this.previewScene) return;
-    this.previewCharacter = new CharacterEntity(this.previewScene, {
+    this.previewCharacter = new CharacterEntity(this.gameScene, {
       name: 'previewChar',
       modelPath: this.getModelPath(),
       targetHeight: 1.53,
+      layerMask: PREVIEW_LAYER_MASK,
       additionalAnimations: [
         { name: 'idle', path: '/Character models/new animations/idle.glb' },
       ],
     });
+    this.previewCharacter.setPositionXYZ(PREVIEW_ANCHOR.x, PREVIEW_ANCHOR.y, PREVIEW_ANCHOR.z);
     this.previewCharacter.whenReady().then(() => {
       if (this.previewCharacter) {
         this.previewCharacter.applyAppearance(this.appearance);
@@ -305,12 +357,27 @@ export class CharacterCreator {
 
   destroy(): void {
     if (this.previewCharacter) { this.previewCharacter.dispose(); this.previewCharacter = null; }
-    if (this.previewEngine) {
-      this.previewEngine.stopRenderLoop();
-      this.previewScene?.dispose();
-      this.previewEngine.dispose();
-      this.previewEngine = null;
-      this.previewScene = null;
+
+    if (this.fogObserver) {
+      this.gameScene.onBeforeCameraRenderObservable.remove(this.fogObserver);
+      this.fogObserver = null;
+    }
+    if (this.fogObserverAfter) {
+      this.gameScene.onAfterCameraRenderObservable.remove(this.fogObserverAfter);
+      this.fogObserverAfter = null;
+    }
+
+    if (this.previewCanvas) {
+      this.gameScene.getEngine().unRegisterView(this.previewCanvas);
+    }
+    if (this.previewCamera) {
+      this.previewCamera.dispose();
+      this.previewCamera = null;
+    }
+    if (this.previewLights) {
+      this.previewLights.hemi.dispose();
+      this.previewLights.dir.dispose();
+      this.previewLights = null;
     }
     this.container.remove();
   }
