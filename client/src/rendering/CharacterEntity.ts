@@ -10,6 +10,9 @@ import { Vector3, Quaternion } from '@babylonjs/core/Maths/math.vector';
 import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import { Matrix } from '@babylonjs/core/Maths/math.vector';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { MorphTarget } from '@babylonjs/core/Morph/morphTarget';
+import { MorphTargetManager } from '@babylonjs/core/Morph/morphTargetManager';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { type PlayerAppearance, type AppearanceColorSlot, APPEARANCE_MATERIAL_MAP, getPalette, BELT_NO_BELT, SHIRT_COLORS, HAIR_STYLE_COUNT, GEAR_COLOR_COUNT } from '@projectrs/shared';
@@ -18,6 +21,10 @@ import { quantizeAnimationGroup, rs2Rotation, ANIM_DURATIONS, DEFAULT_QUANTIZE_F
 
 const HAIR_MATERIAL_NAMES = new Set(['hair_1']);
 
+// Head items that show hair around/below the brim — wide-brimmed/open hats don't
+// fully enclose the skull, so suppressing hair under them looks bald, not helmeted.
+const HAIR_VISIBLE_HEAD_ITEMS = new Set<number>([202, 220]); // Kettle Hat, Kettle Hat (F)
+
 /**
  * Per-animation, per-bone rotation offsets applied during retargeting.
  * Outer key = animation name from additionalAnimations[].name ('idle', 'walk', …).
@@ -25,14 +32,21 @@ const HAIR_MATERIAL_NAMES = new Set(['hair_1']);
  * Inner values are Euler offsets (radians) post-multiplied onto every keyframe.
  * ~0.087 rad = 5°.
  */
-const BONE_ROTATION_OFFSETS: Record<string, Record<string, { x: number; y: number; z: number }>> = {
-  idle: {
-    'mixamorig:LeftShoulder':  { x: 0, y: 0, z: -0.261 },  // ~15° back
-    'mixamorig:RightShoulder': { x: 0, y: 0, z:  0.261 },
-    'mixamorig:LeftForeArm':   { x: 0, y: 0, z:  0.122 },  // ~7° bend (testing Z)
-    'mixamorig:RightForeArm':  { x: 0, y: 0, z: -0.122 },
-  },
-};
+const BONE_ROTATION_OFFSETS: Record<string, Record<string, { x: number; y: number; z: number }>> = {};
+
+/**
+ * In dev mode, append a cache-busting query param to GLB filenames so the
+ * browser refetches them after each page load. Lets you overwrite a GLB on
+ * disk and see the change with a hard refresh — without it, the browser HTTP
+ * cache + Babylon's loader cache combine to serve the stale version.
+ *
+ * Per-page-load timestamp (not per-call) so multiple loads of the same anim
+ * within one session share the same cache entry.
+ */
+const CACHE_BUST_TOKEN: string = import.meta.env.DEV ? `?v=${Date.now()}` : '';
+function devCacheBust(file: string): string {
+  return CACHE_BUST_TOKEN ? `${file}${CACHE_BUST_TOKEN}` : file;
+}
 
 
 /**
@@ -151,6 +165,7 @@ export class CharacterEntity {
   // Head meshes — collected during load for hide/show under full helmets
   private headMeshes: AbstractMesh[] = [];
 
+
   // Modular mesh parts — keyed by mesh name for show/hide
   private modularMeshes: Map<string, AbstractMesh> = new Map();
 
@@ -195,7 +210,7 @@ export class CharacterEntity {
       // Split path into directory + filename for SceneLoader
       const lastSlash = options.modelPath.lastIndexOf('/');
       const dir = options.modelPath.substring(0, lastSlash + 1);
-      const file = options.modelPath.substring(lastSlash + 1);
+      const file = devCacheBust(options.modelPath.substring(lastSlash + 1));
 
       const result = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
 
@@ -255,6 +270,12 @@ export class CharacterEntity {
           mesh.setEnabled(false);
         }
       }
+
+      // Bake a "tucked under brim" morph target on each hair mesh — vertices in
+      // the upper half get pulled down to brim level and squeezed toward the
+      // local centre, so wide-brim hats (kettle hat etc.) sit flush on the head
+      // with the hair compressed underneath instead of poking through.
+      this.buildHelmetHairMorphs();
 
       // Compute model bounds for scaling — only use enabled base body meshes
       let minY = Infinity, maxY = -Infinity;
@@ -342,6 +363,14 @@ export class CharacterEntity {
 
       for (const [name, group] of this.animGroups) {
         quantizeAnimationGroup(group, name);
+        // Enable per-animation blending so transitions between groups interpolate
+        // from the current pose into the new one (instead of snapping). Without
+        // this, mismatched starting poses (e.g. feet at slightly different widths
+        // between idle/walk/attack) produce a visible cut at every state change.
+        for (const ta of group.targetedAnimations) {
+          ta.animation.enableBlending = true;
+          ta.animation.blendingSpeed = 0.1;  // ~10 frames at 60fps to fully blend
+        }
         console.log(`[CharacterEntity] Quantized '${name}' → ${DEFAULT_QUANTIZE_FRAMES} frames, ${(ANIM_DURATIONS[name] ?? 1.2).toFixed(1)}s`);
       }
 
@@ -416,7 +445,7 @@ export class CharacterEntity {
           try {
             const lastSlash = anim.path.lastIndexOf('/');
             const dir = anim.path.substring(0, lastSlash + 1);
-            const file = anim.path.substring(lastSlash + 1);
+            const file = devCacheBust(anim.path.substring(lastSlash + 1));
             const imported = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
 
             // Capture source bone rest rotations from TransformNodes
@@ -443,12 +472,20 @@ export class CharacterEntity {
           }
         }
 
-        // Find the animation group (by name, or first)
+        // Find the animation group. If animName is set, prefer that — but fall
+        // back to the first action if the lookup fails. Mixamo-exported GLBs
+        // with only one action often come out with a default Blender name like
+        // 'Armature.001Action' that changes between re-exports, so requiring an
+        // exact name match is brittle. The fallback covers the common case of
+        // single-action anim GLBs without forcing the author to rename.
         let group: AnimationGroup | undefined;
         if (anim.animName) {
           group = result.animationGroups.find(g => g.name === anim.animName);
-          if (!group) {
-            console.warn(`[CharacterEntity] Animation '${anim.animName}' not found in '${anim.path}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
+          if (!group && result.animationGroups.length === 1) {
+            group = result.animationGroups[0];
+            console.log(`[CharacterEntity] '${anim.name}': animName '${anim.animName}' not found, using sole action '${group.name}'`);
+          } else if (!group) {
+            console.warn(`[CharacterEntity] '${anim.name}': animName '${anim.animName}' not found in '${anim.path}'. Available: ${result.animationGroups.map(g => g.name).join(', ')}`);
             continue;
           }
         } else {
@@ -464,10 +501,37 @@ export class CharacterEntity {
           const target = ta.target as TransformNode;
           if (!target?.name) continue;
 
-          // Only rotation tracks
+          // Rotation tracks are always allowed.
+          // Translation tracks are normally skipped because Mixamo bakes cm-scale
+          // bone-bind offsets into them — replaying those on our meter-scale rig
+          // blows the skin out into a giant plane. For spine-chain bones we
+          // allow translation so hand-authored breathing (subtle vertical lift)
+          // reads correctly, but only when the values are sub-meter — that
+          // catches Blender-authored anims (m-scale, ~1cm magnitude) and rejects
+          // Mixamo FBX→GLB exports (cm-scale, ~1000-magnitude bind data).
           const prop = ta.animation.targetProperty;
-          if (prop !== 'rotationQuaternion' && !prop.startsWith('rotationQuaternion')) {
-            continue;
+          const isRotation = prop === 'rotationQuaternion' || prop.startsWith('rotationQuaternion');
+          const isTranslation = prop === 'position' || prop.startsWith('position');
+          const TRANSLATION_BONE_WHITELIST = new Set([
+            'mixamorig:Spine',
+            'mixamorig:Spine1',
+            'mixamorig:Spine2',
+          ]);
+          if (!isRotation && !isTranslation) continue;
+          if (isTranslation) {
+            if (!TRANSLATION_BONE_WHITELIST.has(target.name)) continue;
+            // Reject cm-scale Mixamo bind tracks — anything > 1m on any axis is
+            // not real animation, it's bind-pose data exported in cm.
+            const keys = ta.animation.getKeys();
+            let maxMag = 0;
+            for (const k of keys) {
+              const v = k.value as any;
+              if (v && typeof v.x === 'number') {
+                const m = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
+                if (m > maxMag) maxMag = m;
+              }
+            }
+            if (maxMag > 1.0) continue;
           }
 
           // Match source bone → our bone by name
@@ -917,6 +981,11 @@ export class CharacterEntity {
 
   setHeadVisible(visible: boolean): void {
     if (!visible) {
+      // Wide-brimmed/open hats (kettle hat, etc.) leave hair visible (compressed via morph).
+      if (HAIR_VISIBLE_HEAD_ITEMS.has(this.getGearItemId('head'))) {
+        this.setHelmetHairMorph(true);
+        return;
+      }
       for (const mesh of this.headMeshes) {
         mesh.setEnabled(false);
       }
@@ -930,7 +999,69 @@ export class CharacterEntity {
         mesh.setEnabled(true);
       }
     }
+    this.setHelmetHairMorph(false);
   }
+
+  /**
+   * Build a "tucked under brim" morph target for each indexed M_hair_N mesh.
+   * Vertices in the upper half of the local-space hair bbox get clamped down
+   * to mid-height and squeezed toward the local centre on X/Z, producing a
+   * skullcap silhouette that fits under a wide-brim hat. Influence stays at 0
+   * until a kettle-hat-style helm is equipped (see setHelmetHairMorph).
+   */
+  private buildHelmetHairMorphs(): void {
+    for (const [name, hairMesh] of this.modularMeshes) {
+      if (!name.startsWith('M_hair_')) continue;
+      const positions = hairMesh.getVerticesData(VertexBuffer.PositionKind);
+      if (!positions) continue;
+
+      hairMesh.refreshBoundingInfo();
+      const bbox = hairMesh.getBoundingInfo().boundingBox;
+      const minY = bbox.minimum.y;
+      const maxY = bbox.maximum.y;
+      // Cut at 50% up the hair — top half collapses to brim height.
+      const brimY = minY + (maxY - minY) * 0.5;
+
+      const tucked = new Float32Array(positions.length);
+      for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const y = positions[i + 1];
+        const z = positions[i + 2];
+        if (y > brimY) {
+          // Clamp Y to brim, squeeze X/Z toward centre so it doesn't widen out.
+          tucked[i] = x * 0.65;
+          tucked[i + 1] = brimY;
+          tucked[i + 2] = z * 0.65;
+        } else {
+          tucked[i] = x;
+          tucked[i + 1] = y;
+          tucked[i + 2] = z;
+        }
+      }
+
+      const morph = new MorphTarget(`${name}_tucked`, 0, this.scene);
+      morph.setPositions(tucked);
+
+      let mgr = hairMesh.morphTargetManager;
+      if (!mgr) {
+        mgr = new MorphTargetManager(this.scene);
+        hairMesh.morphTargetManager = mgr;
+      }
+      mgr.addTarget(morph);
+    }
+  }
+
+  /** Toggle the tucked-under-brim morph target on every hair mesh (influence 0/1). */
+  private setHelmetHairMorph(active: boolean): void {
+    for (const [name, hairMesh] of this.modularMeshes) {
+      if (!name.startsWith('M_hair_')) continue;
+      const mgr = hairMesh.morphTargetManager;
+      if (!mgr || mgr.numTargets === 0) continue;
+      const target = mgr.getTarget(0);
+      if (target) target.influence = active ? 1 : 0;
+    }
+  }
+
 
   /** Remove all gear (bone-parented + skinned). */
   detachAllGear(): void {
@@ -1158,12 +1289,13 @@ export class CharacterEntity {
     // Modular mesh show/hide — hair only (0 = bald, 1+ = M_hair_1 … M_hair_N).
     // If a head gear (bone-attached or skinned) is equipped, suppress hair so it
     // doesn't poke through the helmet on refresh / appearance update.
-    const headGearEquipped =
-      this.gearAttachments.has('head') || this.skinnedArmorMeshes.has('head');
+    const headItemId = this.getGearItemId('head');
+    const headGearEquipped = headItemId !== -1;
+    const suppressHair = headGearEquipped && !HAIR_VISIBLE_HEAD_ITEMS.has(headItemId);
     if (this.modularMeshes.size > 0) {
       for (let i = 1; i <= HAIR_STYLE_COUNT; i++) {
         this.modularMeshes.get(`M_hair_${i}`)?.setEnabled(
-          !headGearEquipped && appearance.hairStyle === i,
+          !suppressHair && appearance.hairStyle === i,
         );
       }
     }
@@ -1259,7 +1391,7 @@ export async function loadGearTemplate(
   try {
     const lastSlash = def.file.lastIndexOf('/');
     const dir = def.file.substring(0, lastSlash + 1);
-    const file = def.file.substring(lastSlash + 1);
+    const file = devCacheBust(def.file.substring(lastSlash + 1));
 
     const result = await SceneLoader.ImportMeshAsync('', dir, file, scene);
 

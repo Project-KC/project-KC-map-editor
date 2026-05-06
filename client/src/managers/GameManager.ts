@@ -516,21 +516,22 @@ export class GameManager {
 
   /**
    * Choose the correct attack animation name based on stance and weapon.
-   * - Weapon equipped (slot 0) → 'sword'
-   * - Aggressive stance (no weapon) → 'kick'
-   * - Accurate/Defensive/Controlled (no weapon) → 'punch'
-   * For remote players, always use 'punch' (we don't know their stance/equip).
+   * - Weapon + aggressive stance → 'attack_slash_aggressive' (hand-authored slash)
+   * - Weapon + any other stance  → 'attack_slash' (default downward)
+   * - No weapon + aggressive     → 'kick'
+   * - No weapon + other stance   → 'attack_punch'
+   * For remote players, always use 'attack_punch' (we don't know their stance/equip).
    */
   private getPlayerAttackAnimName(attackerId: number): string {
     if (attackerId === this.localPlayerId && this.sidePanel) {
       const weaponId = this.sidePanel.getEquipItem(0);
+      const stance = this.sidePanel.getStance();
       if (weaponId > 0) {
         const weaponDef = this.itemDefsCache.get(weaponId);
         const style = weaponDef?.weaponStyle;
         if (style === 'bow' || style === 'crossbow') return 'bow_attack';
-        return 'attack_slash';
+        return stance === 'aggressive' ? 'attack_slash_aggressive' : 'attack_slash';
       }
-      const stance = this.sidePanel.getStance();
       if (stance === 'aggressive') return 'kick';
       return 'attack_punch';
     }
@@ -921,15 +922,19 @@ export class GameManager {
       targetHeight: 1.53,
       label: this.username,
       labelColor: '#00ff00',
+      // Each GLB should hold a single action; the runtime picks it automatically
+      // so re-exports don't require renaming the action in Blender first.
       additionalAnimations: [
-        { name: 'idle',         path: '/Character models/new animations/idle.glb',                          animName: 'idle' },
-        { name: 'walk',         path: '/Character models/new animations/standard_walk_new.glb' },
-        // Armed attack — getPlayerAttackAnimName returns 'attack_slash' when a weapon is equipped
-        { name: 'attack_slash', path: '/Character models/new animations/standing_melee_attack_downward.glb' },
+        { name: 'idle',                    path: '/Character models/new animations/idle.glb' },
+        { name: 'walk',                    path: '/Character models/new animations/standard_walk_new.glb' },
+        // Armed attack — non-aggressive stances use the default downward slash;
+        // aggressive stance uses the hand-authored OSRS-style slash.
+        { name: 'attack_slash',            path: '/Character models/new animations/standing_melee_attack_downward.glb' },
+        { name: 'attack_slash_aggressive', path: '/Character models/new animations/attack_slash.glb' },
         // Unarmed attack — getPlayerAttackAnimName returns 'attack_punch' when no weapon
-        { name: 'attack_punch', path: '/Character models/new animations/attack_punch.glb',                  animName: 'attack_punch' },
-        { name: 'chop',         path: '/Character models/new animations/attack_slash.glb',                  animName: 'attack_slash' },
-        { name: 'mine',         path: '/Character models/new animations/great_sword_slash.glb' },
+        { name: 'attack_punch',            path: '/Character models/new animations/attack_punch.glb' },
+        { name: 'chop',                    path: '/Character models/new animations/woodcutting.glb' },
+        { name: 'mine',                    path: '/Character models/new animations/great_sword_slash.glb' },
       ],
     });
   }
