@@ -19,3 +19,6 @@ pickaxeminingset_sourcefiles/
 
 # Backup glbs kept locally
 client/public/Character models/*backup*.glb
+
+# Editor assets served via proxy to server (symlink removed for Windows compat)
+editor/public/assets

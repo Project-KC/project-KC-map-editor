@@ -1,6 +1,7 @@
 import {
   GAME_WS_PATH,
   CHAT_WS_PATH,
+  SERVER_PORT,
   ServerOpcode,
   ClientOpcode,
   encodePacket,
@@ -37,10 +38,13 @@ export class NetworkManager {
 
   connect(token: string): void {
     const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = location.host;
+    // Vite's WS proxy doesn't reliably upgrade on Windows — connect directly to the server in dev.
+    const wsOrigin = import.meta.env.DEV
+      ? `${wsProtocol}//localhost:${SERVER_PORT}`
+      : `${wsProtocol}//${location.host}`;
 
     // Game socket (binary) — pass auth token as query param
-    this.gameSocket = new WebSocket(`${wsProtocol}//${wsHost}${GAME_WS_PATH}?token=${encodeURIComponent(token)}`);
+    this.gameSocket = new WebSocket(`${wsOrigin}${GAME_WS_PATH}?token=${encodeURIComponent(token)}`);
     this.gameSocket.binaryType = 'arraybuffer';
 
     this.gameSocket.onopen = () => {
@@ -66,7 +70,7 @@ export class NetworkManager {
     };
 
     // Chat socket (JSON) — pass auth token
-    this.chatSocket = new WebSocket(`${wsProtocol}//${wsHost}${CHAT_WS_PATH}?token=${encodeURIComponent(token)}`);
+    this.chatSocket = new WebSocket(`${wsOrigin}${CHAT_WS_PATH}?token=${encodeURIComponent(token)}`);
 
     this.chatSocket.onopen = () => {
       console.log('[net] Chat socket connected');
