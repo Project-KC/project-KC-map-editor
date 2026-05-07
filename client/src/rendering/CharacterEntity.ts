@@ -471,7 +471,16 @@ export class CharacterEntity {
             };
             loadedFiles.set(anim.path, result);
             for (const g of result.animationGroups) g.stop();
-            console.log(`[CharacterEntity] Animation '${anim.name}' loaded from ${anim.path}`);
+            // Fingerprint: duration + total keyframes — changes on every re-export
+            // so you can verify at a glance whether the latest GLB is loaded.
+            const fpGroup = result.animationGroups[0];
+            let fpDur = 0, fpKeys = 0;
+            if (fpGroup) {
+              const fps = fpGroup.targetedAnimations[0]?.animation?.framePerSecond ?? 60;
+              fpDur = fps > 0 ? (fpGroup.to - fpGroup.from) / fps : 0;
+              for (const ta of fpGroup.targetedAnimations) fpKeys += ta.animation.getKeys().length;
+            }
+            console.log(`[CharacterEntity] Animation '${anim.name}' loaded from ${anim.path} | dur=${fpDur.toFixed(3)}s keys=${fpKeys}`);
           } catch {
             console.warn(`[CharacterEntity] Failed to load animation '${anim.name}' from ${anim.path}`);
             continue;
@@ -684,7 +693,17 @@ export class CharacterEntity {
     if (!group) return;
 
     if (oldGroup) oldGroup.stop();
+    const _firstAnim = group.targetedAnimations[0]?.animation;
+    const _fps = _firstAnim?.framePerSecond ?? 0;
+    const _frames = group.to - group.from;
+    console.log(`[Anim] '${name}' from=${group.from} to=${group.to} frames=${_frames.toFixed(2)} fps=${_fps} expected_duration=${(_frames / (_fps || 1)).toFixed(3)}s`);
+    const _t0 = performance.now();
     group.start(loop, 1.0, group.from, group.to, false);
+    if (!loop) {
+      group.onAnimationGroupEndObservable.addOnce(() => {
+        console.log(`[Anim] '${name}' actual_wallclock=${((performance.now() - _t0) / 1000).toFixed(3)}s`);
+      });
+    }
 
     this.currentAnimName = name;
     this.oneShotCallback = onEnd ?? null;
@@ -764,6 +783,15 @@ export class CharacterEntity {
   /** Whether any one-shot animation is playing (attack/death). */
   isAnimating(): boolean {
     return this.currentState >= AnimState.Attack;
+  }
+
+  /** Wall-clock duration of a loaded animation in milliseconds (0 if unknown). */
+  getAnimationDurationMs(name: string): number {
+    const g = this.animGroups.get(name);
+    if (!g) return 0;
+    const fps = g.targetedAnimations[0]?.animation?.framePerSecond ?? 60;
+    if (fps <= 0) return 0;
+    return ((g.to - g.from) / fps) * 1000;
   }
 
   /** List all available animation names (as loaded from GLB). */

@@ -97,6 +97,11 @@ export class GameManager {
   private combatTargetId: number = -1;
   private _combatPathTimer: number = 0;
 
+  // While a COMBAT_HIT splat is delayed to its impact moment, hold off any
+  // health-bar updates for the same entity so the bar drops in sync with the
+  // splat instead of leading it. Maps entityId → pending timeout handle.
+  private pendingHealthApply: Map<number, ReturnType<typeof setTimeout>> = new Map();
+
   // Character creator
   private characterCreator: CharacterCreator | null = null;
   private localAppearance: PlayerAppearance | null = null;
@@ -514,6 +519,18 @@ export class GameManager {
     }
   }
 
+  // Fraction (0–1) of the attack animation duration where the hit visually lands.
+  // Tune per anim by watching the GLB and noting when the weapon reaches its
+  // forward extreme. Auto-scales with anim duration on re-export.
+  private static readonly ATTACK_IMPACT_FRACTION: Record<string, number> = {
+    attack_slash:            0.5,
+    attack_slash_aggressive: 0.5,
+    attack_2h_slash:         0.5,
+    attack_punch:            0.4,
+    kick:                    0.5,
+    bow_attack:              0.6,
+  };
+
   /**
    * Choose the correct attack animation name based on stance and weapon.
    * - Weapon + aggressive stance → 'attack_slash_aggressive' (hand-authored slash)
@@ -530,6 +547,7 @@ export class GameManager {
         const weaponDef = this.itemDefsCache.get(weaponId);
         const style = weaponDef?.weaponStyle;
         if (style === 'bow' || style === 'crossbow') return 'bow_attack';
+        if (weaponDef?.twoHanded) return 'attack_2h_slash';
         return stance === 'aggressive' ? 'attack_slash_aggressive' : 'attack_slash';
       }
       if (stance === 'aggressive') return 'kick';
@@ -695,8 +713,22 @@ export class GameManager {
       if (!promise) {
         promise = (async () => {
           const override = this.gearOverrides.get(itemId);
-          const gearFile = override?.file
-            || `/assets/equipment/${slotName}/${itemId}.glb`;
+          const itemDef = this.itemDefsCache.get(itemId);
+          // Resolution order:
+          //  1. gear-overrides.json `file` (legacy/per-instance override)
+          //  2. items.json `model` field — absolute path if it starts with '/',
+          //     else resolved relative to /assets/equipment/{slot}/
+          //  3. Fallback: /assets/equipment/{slot}/{itemId}.glb
+          let gearFile: string;
+          if (override?.file) {
+            gearFile = override.file;
+          } else if (itemDef?.model) {
+            gearFile = itemDef.model.startsWith('/')
+              ? itemDef.model
+              : `/assets/equipment/${slotName}/${itemDef.model}`;
+          } else {
+            gearFile = `/assets/equipment/${slotName}/${itemId}.glb`;
+          }
           const gearDef: GearDef = {
             itemId,
             file: gearFile,
@@ -926,11 +958,12 @@ export class GameManager {
       // so re-exports don't require renaming the action in Blender first.
       additionalAnimations: [
         { name: 'idle',                    path: '/Character models/new animations/idle.glb' },
-        { name: 'walk',                    path: '/Character models/new animations/standard_walk_new.glb' },
+        { name: 'walk',                    path: '/Character models/new animations/walk.glb' },
         // Armed attack — non-aggressive stances use the default downward slash;
         // aggressive stance uses the hand-authored OSRS-style slash.
         { name: 'attack_slash',            path: '/Character models/new animations/standing_melee_attack_downward.glb' },
         { name: 'attack_slash_aggressive', path: '/Character models/new animations/attack_slash.glb' },
+        { name: 'attack_2h_slash',         path: '/Character models/new animations/2h slash.glb' },
         // Unarmed attack — getPlayerAttackAnimName returns 'attack_punch' when no weapon
         { name: 'attack_punch',            path: '/Character models/new animations/attack_punch.glb' },
         { name: 'chop',                    path: '/Character models/new animations/woodcutting.glb' },
@@ -992,14 +1025,18 @@ export class GameManager {
       } : null;
 
       if (entityId === this.localPlayerId) {
-        this.playerHealth = health;
-        this.playerMaxHealth = maxHealth;
-        this.updateHUD();
-        if (this.localPlayer) {
-          if (health < maxHealth) {
-            this.localPlayer.showHealthBar(health, maxHealth);
-          } else {
-            this.localPlayer.hideHealthBar();
+        // While a COMBAT_HIT splat is pending for the local player, defer
+        // applying the new HP so the bar/HUD drop in sync with the splat.
+        if (!this.pendingHealthApply.has(entityId)) {
+          this.playerHealth = health;
+          this.playerMaxHealth = maxHealth;
+          this.updateHUD();
+          if (this.localPlayer) {
+            if (health < maxHealth) {
+              this.localPlayer.showHealthBar(health, maxHealth);
+            } else {
+              this.localPlayer.hideHealthBar();
+            }
           }
         }
         if (syncAppearance && !this.localAppearance) {
@@ -1018,10 +1055,14 @@ export class GameManager {
       }
       this.entities.remoteTargets.set(entityId, { x, z });
       const sprite = this.entities.remotePlayers.get(entityId)!;
-      if (health < maxHealth) {
-        sprite.showHealthBar(health, maxHealth);
-      } else {
-        sprite.hideHealthBar();
+      // Skip bar update if a COMBAT_HIT splat is pending — splat closure
+      // applies the bar at impact time so they stay in sync.
+      if (!this.pendingHealthApply.has(entityId)) {
+        if (health < maxHealth) {
+          sprite.showHealthBar(health, maxHealth);
+        } else {
+          sprite.hideHealthBar();
+        }
       }
     });
 
@@ -1045,10 +1086,12 @@ export class GameManager {
       });
 
       const sprite = this.entities.npcSprites.get(entityId)!;
-      if (health < maxHealth) {
-        sprite.showHealthBar(health, maxHealth);
-      } else {
-        sprite.hideHealthBar();
+      if (!this.pendingHealthApply.has(entityId)) {
+        if (health < maxHealth) {
+          sprite.showHealthBar(health, maxHealth);
+        } else {
+          sprite.hideHealthBar();
+        }
       }
     });
 
@@ -1085,9 +1128,6 @@ export class GameManager {
     this.network.on(ServerOpcode.COMBAT_HIT, (_op, v) => {
       const [attackerId, targetId, damage, targetHp, targetMaxHp] = v;
       const targetSprite = this.entities.npcSprites.get(targetId) || this.entities.remotePlayers.get(targetId);
-      if (targetSprite) {
-        this.showHitSplat(targetSprite.position, damage);
-      }
 
       if (this.entities.npcSprites.has(attackerId)) {
         this.entities.npcCombatTargets.set(attackerId, targetId);
@@ -1095,31 +1135,65 @@ export class GameManager {
         this.entities.remoteCombatTargets.set(attackerId, targetId);
       }
 
-      if (attackerId === this.localPlayerId && this.localPlayer) {
-        this.localPlayer.playAttackAnimation(this.getPlayerAttackAnimName(attackerId));
-      } else {
-        const attackerSprite = this.entities.npcSprites.get(attackerId)
-          || this.entities.remotePlayers.get(attackerId);
-        if (attackerSprite) {
-          const isPlayer = this.entities.remotePlayers.has(attackerId);
-          if (isPlayer) {
-            attackerSprite.playAttackAnimation(this.getPlayerAttackAnimName(attackerId));
-          } else {
-            attackerSprite.playAttackAnimation();
-          }
+      // Resolve attacker entity + animation so we can sync the splat to impact
+      const isLocalAttacker = attackerId === this.localPlayerId;
+      const isPlayerAttacker = isLocalAttacker || this.entities.remotePlayers.has(attackerId);
+      const attackerEntity = isLocalAttacker
+        ? this.localPlayer
+        : (this.entities.remotePlayers.get(attackerId) ?? this.entities.npcSprites.get(attackerId));
+      const animName = isPlayerAttacker
+        ? this.getPlayerAttackAnimName(attackerId)
+        : 'attack_punch';
+
+      // Trigger the attack animation (must happen before duration lookup so the
+      // anim group exists; CharacterEntity.getAnimationDurationMs reads loaded groups)
+      if (isLocalAttacker && this.localPlayer) {
+        this.localPlayer.playAttackAnimation(animName);
+      } else if (attackerEntity) {
+        if (isPlayerAttacker) {
+          (attackerEntity as any).playAttackAnimation(animName);
+        } else {
+          (attackerEntity as any).playAttackAnimation();
         }
       }
 
-      if (targetId === this.localPlayerId && this.localPlayer) {
-        this.showHitSplat(this.localPlayer.position, damage);
-        this.playerHealth = targetHp;
-        this.playerMaxHealth = targetMaxHp;
-        this.updateHUD();
-        if (targetHp < targetMaxHp) {
-          this.localPlayer.showHealthBar(targetHp, targetMaxHp);
-        } else {
-          this.localPlayer.hideHealthBar();
+      // Schedule the hitsplat at the impact moment of the attacker's animation
+      const fraction = GameManager.ATTACK_IMPACT_FRACTION[animName] ?? 0.5;
+      // Prefer the actual loaded anim duration (local player has a CharacterEntity).
+      // Fall back to a fixed estimate for sprites/NPCs that don't expose durations.
+      const liveDuration = (attackerEntity && (attackerEntity as any).getAnimationDurationMs)
+        ? (attackerEntity as any).getAnimationDurationMs(animName) as number
+        : 0;
+      const impactMs = (liveDuration > 0 ? liveDuration : 800) * fraction;
+      const splatAtTarget = () => {
+        if (targetSprite) {
+          this.showHitSplat(targetSprite.position, damage);
+          if (targetHp < targetMaxHp) {
+            targetSprite.showHealthBar(targetHp, targetMaxHp);
+          } else {
+            targetSprite.hideHealthBar();
+          }
         }
+        if (targetId === this.localPlayerId && this.localPlayer) {
+          this.showHitSplat(this.localPlayer.position, damage);
+          this.playerHealth = targetHp;
+          this.playerMaxHealth = targetMaxHp;
+          this.updateHUD();
+          if (targetHp < targetMaxHp) {
+            this.localPlayer.showHealthBar(targetHp, targetMaxHp);
+          } else {
+            this.localPlayer.hideHealthBar();
+          }
+        }
+        this.pendingHealthApply.delete(targetId);
+      };
+      if (impactMs > 0) {
+        const prev = this.pendingHealthApply.get(targetId);
+        if (prev !== undefined) clearTimeout(prev);
+        const handle = setTimeout(splatAtTarget, impactMs);
+        this.pendingHealthApply.set(targetId, handle);
+      } else {
+        splatAtTarget();
       }
     });
 

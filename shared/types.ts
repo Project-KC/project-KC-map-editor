@@ -60,6 +60,14 @@ export interface ItemDef {
   // Visual
   sprite?: string;
   icon?: string;
+  /**
+   * Equipment GLB filename or path. Resolved by the gear loader as:
+   *   - starts with '/' → used as-is (absolute path under client/public)
+   *   - otherwise → resolved relative to /assets/equipment/{equipSlot}/
+   * If unset, the loader falls back to `/assets/equipment/{slot}/{id}.glb`.
+   * gear-overrides.json `file` still wins if present (legacy/per-instance).
+   */
+  model?: string;
   value: number;
 }
 

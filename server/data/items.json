@@ -351,7 +351,8 @@
     "toolType": "axe",
     "toolLevel": 1,
     "toolBonus": 0,
-    "sprite": "axe base.png"
+    "sprite": "axe base.png",
+    "model": "/assets/equipment/Tools/Axe.glb"
   },
   {
     "id": 32,
@@ -368,7 +369,8 @@
     "toolType": "axe",
     "toolLevel": 6,
     "toolBonus": 1,
-    "sprite": "axe base.png"
+    "sprite": "axe base.png",
+    "model": "/assets/equipment/Tools/Axe.glb"
   },
   {
     "id": 33,
@@ -386,7 +388,8 @@
     "toolLevel": 1,
     "toolBonus": 0,
     "sprite": "pickaxe base.png",
-    "icon": "Bronze_Pickaxe_156.png"
+    "icon": "Bronze_Pickaxe_156.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 34,
@@ -421,7 +424,8 @@
     "toolType": "axe",
     "toolLevel": 21,
     "toolBonus": 2,
-    "sprite": "axe base.png"
+    "sprite": "axe base.png",
+    "model": "/assets/equipment/Tools/Axe.glb"
   },
   {
     "id": 37,
@@ -438,7 +442,8 @@
     "toolType": "axe",
     "toolLevel": 31,
     "toolBonus": 3,
-    "sprite": "axe base.png"
+    "sprite": "axe base.png",
+    "model": "/assets/equipment/Tools/Axe.glb"
   },
   {
     "id": 38,
@@ -455,7 +460,8 @@
     "toolType": "axe",
     "toolLevel": 41,
     "toolBonus": 4,
-    "sprite": "axe base.png"
+    "sprite": "axe base.png",
+    "model": "/assets/equipment/Tools/Axe.glb"
   },
   {
     "id": 39,
@@ -585,7 +591,8 @@
     "toolType": "pickaxe",
     "toolLevel": 15,
     "toolBonus": 1,
-    "icon": "Iron_Pickaxe_1258.png"
+    "icon": "Iron_Pickaxe_1258.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 54,
@@ -602,7 +609,8 @@
     "toolType": "pickaxe",
     "toolLevel": 30,
     "toolBonus": 2,
-    "icon": "Steel_Pickaxe_1259.png"
+    "icon": "Steel_Pickaxe_1259.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 55,
@@ -619,7 +627,8 @@
     "toolType": "pickaxe",
     "toolLevel": 55,
     "toolBonus": 3,
-    "icon": "Mithril_Pickaxe_1260.png"
+    "icon": "Mithril_Pickaxe_1260.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 56,
@@ -636,7 +645,8 @@
     "toolType": "pickaxe",
     "toolLevel": 70,
     "toolBonus": 4,
-    "icon": "Black Bronze_Pickaxe_1261.png"
+    "icon": "Black Bronze_Pickaxe_1261.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 57,
@@ -653,7 +663,8 @@
     "toolType": "pickaxe",
     "toolLevel": 85,
     "toolBonus": 5,
-    "icon": "Rune_Pickaxe_1262.png"
+    "icon": "Rune_Pickaxe_1262.png",
+    "model": "/assets/equipment/Tools/Pickaxe.glb"
   },
   {
     "id": 58,
@@ -756,7 +767,8 @@
     "attackSpeed": 7,
     "twoHanded": true,
     "slashAttack": 14,
-    "meleeStrength": 16
+    "meleeStrength": 16,
+    "model": "bronze_2h.glb"
   },
   {
     "id": 65,
@@ -1666,28 +1678,340 @@
     "equippable": false,
     "value": 50
   },
-  { "id": 200, "name": "Armet Helmet",        "description": "Full plate helmet with a visor.",     "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 9,  "slashDefence": 11, "crushDefence": 7,  "rangedDefence": 9,  "magicDefence": -3, "value": 140 },
-  { "id": 201, "name": "Great Helm",          "description": "A heavy enclosed knight's helm.",     "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 8,  "slashDefence": 10, "crushDefence": 6,  "rangedDefence": 8,  "magicDefence": -3, "value": 120 },
-  { "id": 202, "name": "Kettle Hat",          "description": "A wide-brimmed iron hat.",            "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 5,  "slashDefence": 7,  "crushDefence": 5,  "rangedDefence": 7,  "magicDefence": -2, "value": 70  },
-  { "id": 203, "name": "Leather Coif",        "description": "A simple leather skullcap.",          "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 2,  "slashDefence": 3,  "crushDefence": 2,  "rangedDefence": 4,  "magicDefence": 0,  "value": 25  },
-  { "id": 204, "name": "Skullcap",            "description": "A close-fitting iron skullcap.",      "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 4,  "slashDefence": 5,  "crushDefence": 3,  "rangedDefence": 5,  "magicDefence": -1, "value": 50  },
-  { "id": 205, "name": "Hood",                "description": "A traveller's hood.",                 "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 1,  "slashDefence": 1,  "crushDefence": 1,  "rangedDefence": 2,  "magicDefence": 1,  "value": 20  },
-  { "id": 206, "name": "Pointed Mage Hat",    "description": "A tall pointed wizard hat.",          "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 6,  "value": 90  },
-  { "id": 207, "name": "Wide Mage Hat",       "description": "A wide-brimmed wizard hat.",          "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 6,  "value": 90  },
-  { "id": 208, "name": "Witch Hat",           "description": "A pointed witch's hat.",              "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 7,  "value": 110 },
-  { "id": 209, "name": "Bishop Hat",          "description": "A bishop's mitre.",                   "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 5,  "value": 80  },
-  { "id": 210, "name": "Bycocket Hat",        "description": "A pointed felt hunter's hat.",        "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 1,  "slashDefence": 1,  "crushDefence": 1,  "rangedDefence": 3,  "magicDefence": 0,  "value": 40  },
-  { "id": 211, "name": "Felted Hat",          "description": "A simple felt hat.",                  "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 1,  "magicDefence": 0,  "value": 15  },
-  { "id": 212, "name": "Tyrolean Hat",        "description": "A small alpine hat.",                 "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 1,  "magicDefence": 0,  "value": 15  },
-  { "id": 213, "name": "Beret",               "description": "A soft round cloth cap.",             "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 1,  "value": 10  },
-  { "id": 214, "name": "Headband",            "description": "A simple cloth headband.",            "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 0,  "value": 5   },
-  { "id": 215, "name": "Circlet",             "description": "A jewelled circlet.",                 "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 3,  "value": 200 },
-  { "id": 216, "name": "Face Mask",           "description": "A cloth face mask.",                  "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 1,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 0,  "value": 12  },
-  { "id": 217, "name": "Eyepatch (Right)",    "description": "A leather eyepatch over the right eye.","stackable":false,"equippable":true,"equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 0,  "value": 8   },
-  { "id": 218, "name": "Eyepatch (Left)",     "description": "A leather eyepatch over the left eye.", "stackable":false,"equippable":true,"equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 0,  "value": 8   },
-  { "id": 219, "name": "Armet Helmet (F)",    "description": "Female-sized full plate helmet.",     "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 9,  "slashDefence": 11, "crushDefence": 7,  "rangedDefence": 9,  "magicDefence": -3, "value": 140 },
-  { "id": 220, "name": "Kettle Hat (F)",      "description": "Female-sized kettle hat.",            "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 5,  "slashDefence": 7,  "crushDefence": 5,  "rangedDefence": 7,  "magicDefence": -2, "value": 70  },
-  { "id": 221, "name": "Leather Coif (F)",    "description": "Female-sized leather coif.",          "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 2,  "slashDefence": 3,  "crushDefence": 2,  "rangedDefence": 4,  "magicDefence": 0,  "value": 25  },
-  { "id": 222, "name": "Circlet (F)",         "description": "Female-sized jewelled circlet.",      "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 0,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 3,  "value": 200 },
-  { "id": 223, "name": "Face Mask (F)",       "description": "Female-sized cloth face mask.",       "stackable": false, "equippable": true, "equipSlot": "head", "stabDefence": 1,  "slashDefence": 0,  "crushDefence": 0,  "rangedDefence": 0,  "magicDefence": 0,  "value": 12  }
+  {
+    "id": 200,
+    "name": "Armet Helmet",
+    "description": "Full plate helmet with a visor.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 9,
+    "slashDefence": 11,
+    "crushDefence": 7,
+    "rangedDefence": 9,
+    "magicDefence": -3,
+    "value": 140
+  },
+  {
+    "id": 201,
+    "name": "Great Helm",
+    "description": "A heavy enclosed knight's helm.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 8,
+    "slashDefence": 10,
+    "crushDefence": 6,
+    "rangedDefence": 8,
+    "magicDefence": -3,
+    "value": 120
+  },
+  {
+    "id": 202,
+    "name": "Kettle Hat",
+    "description": "A wide-brimmed iron hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 5,
+    "slashDefence": 7,
+    "crushDefence": 5,
+    "rangedDefence": 7,
+    "magicDefence": -2,
+    "value": 70
+  },
+  {
+    "id": 203,
+    "name": "Leather Coif",
+    "description": "A simple leather skullcap.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 2,
+    "slashDefence": 3,
+    "crushDefence": 2,
+    "rangedDefence": 4,
+    "magicDefence": 0,
+    "value": 25
+  },
+  {
+    "id": 204,
+    "name": "Skullcap",
+    "description": "A close-fitting iron skullcap.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 4,
+    "slashDefence": 5,
+    "crushDefence": 3,
+    "rangedDefence": 5,
+    "magicDefence": -1,
+    "value": 50
+  },
+  {
+    "id": 205,
+    "name": "Hood",
+    "description": "A traveller's hood.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 1,
+    "slashDefence": 1,
+    "crushDefence": 1,
+    "rangedDefence": 2,
+    "magicDefence": 1,
+    "value": 20
+  },
+  {
+    "id": 206,
+    "name": "Pointed Mage Hat",
+    "description": "A tall pointed wizard hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 6,
+    "value": 90
+  },
+  {
+    "id": 207,
+    "name": "Wide Mage Hat",
+    "description": "A wide-brimmed wizard hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 6,
+    "value": 90
+  },
+  {
+    "id": 208,
+    "name": "Witch Hat",
+    "description": "A pointed witch's hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 7,
+    "value": 110
+  },
+  {
+    "id": 209,
+    "name": "Bishop Hat",
+    "description": "A bishop's mitre.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 5,
+    "value": 80
+  },
+  {
+    "id": 210,
+    "name": "Bycocket Hat",
+    "description": "A pointed felt hunter's hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 1,
+    "slashDefence": 1,
+    "crushDefence": 1,
+    "rangedDefence": 3,
+    "magicDefence": 0,
+    "value": 40
+  },
+  {
+    "id": 211,
+    "name": "Felted Hat",
+    "description": "A simple felt hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 1,
+    "magicDefence": 0,
+    "value": 15
+  },
+  {
+    "id": 212,
+    "name": "Tyrolean Hat",
+    "description": "A small alpine hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 1,
+    "magicDefence": 0,
+    "value": 15
+  },
+  {
+    "id": 213,
+    "name": "Beret",
+    "description": "A soft round cloth cap.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 1,
+    "value": 10
+  },
+  {
+    "id": 214,
+    "name": "Headband",
+    "description": "A simple cloth headband.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 0,
+    "value": 5
+  },
+  {
+    "id": 215,
+    "name": "Circlet",
+    "description": "A jewelled circlet.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 3,
+    "value": 200
+  },
+  {
+    "id": 216,
+    "name": "Face Mask",
+    "description": "A cloth face mask.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 1,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 0,
+    "value": 12
+  },
+  {
+    "id": 217,
+    "name": "Eyepatch (Right)",
+    "description": "A leather eyepatch over the right eye.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 0,
+    "value": 8
+  },
+  {
+    "id": 218,
+    "name": "Eyepatch (Left)",
+    "description": "A leather eyepatch over the left eye.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 0,
+    "value": 8
+  },
+  {
+    "id": 219,
+    "name": "Armet Helmet (F)",
+    "description": "Female-sized full plate helmet.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 9,
+    "slashDefence": 11,
+    "crushDefence": 7,
+    "rangedDefence": 9,
+    "magicDefence": -3,
+    "value": 140
+  },
+  {
+    "id": 220,
+    "name": "Kettle Hat (F)",
+    "description": "Female-sized kettle hat.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 5,
+    "slashDefence": 7,
+    "crushDefence": 5,
+    "rangedDefence": 7,
+    "magicDefence": -2,
+    "value": 70
+  },
+  {
+    "id": 221,
+    "name": "Leather Coif (F)",
+    "description": "Female-sized leather coif.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 2,
+    "slashDefence": 3,
+    "crushDefence": 2,
+    "rangedDefence": 4,
+    "magicDefence": 0,
+    "value": 25
+  },
+  {
+    "id": 222,
+    "name": "Circlet (F)",
+    "description": "Female-sized jewelled circlet.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 0,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 3,
+    "value": 200
+  },
+  {
+    "id": 223,
+    "name": "Face Mask (F)",
+    "description": "Female-sized cloth face mask.",
+    "stackable": false,
+    "equippable": true,
+    "equipSlot": "head",
+    "stabDefence": 1,
+    "slashDefence": 0,
+    "crushDefence": 0,
+    "rangedDefence": 0,
+    "magicDefence": 0,
+    "value": 12
+  }
 ]
