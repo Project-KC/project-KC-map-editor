@@ -50,6 +50,16 @@ function devCacheBust(file: string): string {
 
 
 /**
+ * Per-animation playback speed multiplier. 1.0 = play at authored rate.
+ * Use to compensate for cycle lengths that don't match in-game movement
+ * (e.g. a 1.0s walk cycle at 3 tiles/sec stride = skating; 1.5x makes
+ * it ~1 tile per step). Tune in code, no GLB re-export needed.
+ */
+const ANIM_SPEED_RATIO: Record<string, number> = {
+  walk: 1.5,
+};
+
+/**
  * Animation state priority (higher = takes precedence).
  * The state machine always plays the highest-priority active state.
  */
@@ -698,7 +708,8 @@ export class CharacterEntity {
     const _frames = group.to - group.from;
     console.log(`[Anim] '${name}' from=${group.from} to=${group.to} frames=${_frames.toFixed(2)} fps=${_fps} expected_duration=${(_frames / (_fps || 1)).toFixed(3)}s`);
     const _t0 = performance.now();
-    group.start(loop, 1.0, group.from, group.to, false);
+    const speed = ANIM_SPEED_RATIO[name] ?? 1.0;
+    group.start(loop, speed, group.from, group.to, false);
     if (!loop) {
       group.onAnimationGroupEndObservable.addOnce(() => {
         console.log(`[Anim] '${name}' actual_wallclock=${((performance.now() - _t0) / 1000).toFixed(3)}s`);
