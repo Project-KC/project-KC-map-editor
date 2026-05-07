@@ -66,10 +66,10 @@ export class Npc3DEntity {
       for (const mesh of result.meshes) {
         const mat = mesh.material;
         if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
-          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
         if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
-          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
       }
 

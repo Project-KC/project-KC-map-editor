@@ -283,7 +283,7 @@ export class ChunkManager {
       this.waterMat.alpha = 0.88;
       this.waterMat.diffuseColor = new Color3(0.83, 0.91, 1.0); // 0xd4e8ff tint
       // Load water texture
-      this.waterTexture = new Texture('/assets/textures/1.png', this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
+      this.waterTexture = new Texture('/assets/textures/1.png', this.scene, true, true, Texture.NEAREST_SAMPLINGMODE);
       this.waterTexture.uScale = 1;
       this.waterTexture.vScale = 1;
       this.waterTexture.wrapU = Texture.WRAP_ADDRESSMODE;
@@ -2320,10 +2320,10 @@ export class ChunkManager {
       for (const mesh of result.meshes) {
         const mat = mesh.material;
         if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
-          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
         if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
-          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
       }
 
@@ -3022,7 +3022,7 @@ export class ChunkManager {
       console.warn(`[ChunkManager] Unknown texture: ${textureId}`);
       return null;
     }
-    const tex = new Texture(texDef.path, this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
+    const tex = new Texture(texDef.path, this.scene, true, true, Texture.NEAREST_SAMPLINGMODE);
     tex.hasAlpha = true;
     this.textureCache.set(textureId, tex);
     return tex;
@@ -3038,7 +3038,7 @@ export class ChunkManager {
 
     const tex = this.getOrLoadTexture(plane.textureId);
     if (!tex) return this.texPlaneMaterialCache.values().next().value!;
-    const planeTex = new Texture(tex.url, this.scene, false, true, Texture.NEAREST_NEAREST_MIPLINEAR);
+    const planeTex = new Texture(tex.url, this.scene, false, true, Texture.NEAREST_SAMPLINGMODE);
     planeTex.hasAlpha = true;
     const uvScale = plane.uvRepeat ? 1 / plane.uvRepeat : 1;
     planeTex.uScale = uvScale;

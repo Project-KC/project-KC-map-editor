@@ -171,10 +171,14 @@ export class GameManager {
     this.token = token;
     this.username = username;
 
-    this.engine = new Engine(canvas, true, { antialias: true, adaptToDeviceRatio: true });
+    this.engine = new Engine(canvas, false, { antialias: false, adaptToDeviceRatio: false });
+    // RS-style chunky pixels: render at half resolution and let the browser
+    // upscale the framebuffer with nearest-neighbor (set on canvas via CSS).
+    this.engine.setHardwareScalingLevel(1.0);
+    canvas.style.imageRendering = 'pixelated';
     this.scene = new Scene(this.engine);
     this.scene.useRightHandedSystem = true; // Match Three.js coordinate system (KC editor)
-    this.scene.clearColor = new Color4(0.4, 0.6, 0.9, 1.0);
+    this.scene.clearColor = new Color4(0, 0, 0, 1);
     // Groups 1 (water) and 2 (texture planes) must NOT clear depth — they need terrain depth from group 0
     this.scene.setRenderingAutoClearDepthStencil(1, false, false, false);
     this.scene.setRenderingAutoClearDepthStencil(2, false, false, false);
@@ -389,10 +393,13 @@ export class GameManager {
 
     const c = new Color3(meta.fogColor[0], meta.fogColor[1], meta.fogColor[2]);
     this.scene.fogMode = Scene.FOGMODE_LINEAR;
-    this.scene.fogColor = c.clone();
+    // Apply darkening to BOTH fog and void so the fog→void transition is
+    // seamless (same hue, same brightness).
+    const voidDarken = 0.5;
+    this.scene.fogColor = new Color3(c.r * voidDarken, c.g * voidDarken, c.b * voidDarken);
     this.scene.fogStart = meta.fogStart;
     this.scene.fogEnd = meta.fogEnd;
-    this.scene.clearColor = new Color4(c.r, c.g, c.b, 1.0);
+    this.scene.clearColor = new Color4(c.r * voidDarken, c.g * voidDarken, c.b * voidDarken, 1.0);
     // Seed fog state so updateFog has a starting point that matches the map default.
     this.fogTargetColor = c.clone();
     this.fogCurrentColor = c.clone();
@@ -459,10 +466,16 @@ export class GameManager {
     this.fogCurrentStart += (this.fogTargetStart - this.fogCurrentStart) * t;
     this.fogCurrentEnd += (this.fogTargetEnd - this.fogCurrentEnd) * t;
 
-    this.scene.fogColor.copyFrom(this.fogCurrentColor);
     this.scene.fogStart = this.fogCurrentStart;
     this.scene.fogEnd = this.fogCurrentEnd;
-    this.scene.clearColor.set(this.fogCurrentColor.r, this.fogCurrentColor.g, this.fogCurrentColor.b, 1.0);
+    // Both fog and void use the same darkened biome color so the transition
+    // is seamless and the world reads as twilight rather than two distinct zones.
+    const voidDarken = 0.5;
+    const r = this.fogCurrentColor.r * voidDarken;
+    const g = this.fogCurrentColor.g * voidDarken;
+    const b = this.fogCurrentColor.b * voidDarken;
+    this.scene.fogColor.set(r, g, b);
+    this.scene.clearColor.set(r, g, b, 1.0);
   }
 
   private async loadObjectDefs(): Promise<void> {
@@ -865,7 +878,7 @@ export class GameManager {
       const isPolysplitGear = pbr.name && pbr.name.startsWith('genericRGBMat_Objects');
       if (hasTexture) {
         flat.diffuseTexture = pbr.albedoTexture;
-        pbr.albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        pbr.albedoTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
       }
       if (pbr.albedoColor && !hasTexture) {
         const b = 1.3;
@@ -2780,7 +2793,16 @@ export class GameManager {
     const dx = target.x - this.tileFrom.x;
     const dz = target.z - this.tileFrom.z;
     const tileDist = Math.hypot(dx, dz);
-    const stepRate = tileDist > 0 ? (this.moveSpeed * dt) / tileDist : 1;
+
+    // RS2-style catch-up scaffolding: when the path queue exceeds the
+    // default cadence, accelerate to drain it. Authentic ratios (1.5×, 2×)
+    // require swapping to a run animation at the higher speeds — the body
+    // moves faster, the legs cycle faster. Re-enable once run is wired up.
+    const remaining = this.path.length - this.pathIndex;
+    const speedMult = remaining > 3 ? 1.0 : remaining > 2 ? 1.0 : 1.0;
+    const effectiveSpeed = this.moveSpeed * speedMult;
+
+    const stepRate = tileDist > 0 ? (effectiveSpeed * dt) / tileDist : 1;
     this.tileProgress += stepRate;
 
     if (this.tileProgress >= 1.0) {

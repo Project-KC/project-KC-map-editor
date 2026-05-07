@@ -21,6 +21,54 @@ import { quantizeAnimationGroup, rs2Rotation, ANIM_DURATIONS, DEFAULT_QUANTIZE_F
 
 const HAIR_MATERIAL_NAMES = new Set(['hair_1']);
 
+/**
+ * Smooth a mesh's vertex normals by averaging across vertices that share a
+ * world-space position. Unlike `forceSharedVertices()`, this preserves the
+ * original vertex layout — UVs, bone weights, and morph indices stay intact —
+ * which is critical for skinned characters.
+ *
+ * Source character GLB has many meshes authored with split (per-face) normals,
+ * making facet edges visible on arms and clothing. This averages them so
+ * adjacent triangles share a smooth normal, fixing the blocky look without
+ * touching geometry.
+ */
+function smoothNormalsByPosition(mesh: AbstractMesh): void {
+  const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+  const normals = mesh.getVerticesData(VertexBuffer.NormalKind);
+  if (!positions || !normals) return;
+
+  const vCount = positions.length / 3;
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < vCount; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    // Quantize to 4 decimals so float jitter doesn't fragment groups
+    const key = `${Math.round(x * 10000)},${Math.round(y * 10000)},${Math.round(z * 10000)}`;
+    let arr = groups.get(key);
+    if (!arr) groups.set(key, arr = []);
+    arr.push(i);
+  }
+
+  const newNormals = new Float32Array(normals);
+  for (const indices of groups.values()) {
+    if (indices.length < 2) continue;
+    let nx = 0, ny = 0, nz = 0;
+    for (const idx of indices) {
+      nx += normals[idx * 3];
+      ny += normals[idx * 3 + 1];
+      nz += normals[idx * 3 + 2];
+    }
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    for (const idx of indices) {
+      newNormals[idx * 3] = nx;
+      newNormals[idx * 3 + 1] = ny;
+      newNormals[idx * 3 + 2] = nz;
+    }
+  }
+
+  mesh.setVerticesData(VertexBuffer.NormalKind, newNormals);
+}
+
 // Head items that show hair around/below the brim — wide-brimmed/open hats don't
 // fully enclose the skull, so suppressing hair under them looks bald, not helmeted.
 const HAIR_VISIBLE_HEAD_ITEMS = new Set<number>([202, 220]); // Kettle Hat, Kettle Hat (F)
@@ -56,8 +104,9 @@ function devCacheBust(file: string): string {
  * it ~1 tile per step). Tune in code, no GLB re-export needed.
  */
 const ANIM_SPEED_RATIO: Record<string, number> = {
-  walk: 1.5,
+  walk: 1.1,
 };
+
 
 /**
  * Animation state priority (higher = takes precedence).
@@ -239,10 +288,10 @@ export class CharacterEntity {
       for (const mesh of result.meshes) {
         const mat = mesh.material;
         if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
-          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
         if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
-          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+          (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
         }
       }
 
@@ -349,6 +398,12 @@ export class CharacterEntity {
         flat.alpha = 1;
 
         mesh.material = flat;
+
+        // Soften visible facet edges on arms/clothing — many meshes ship with
+        // split normals from the source DCC, which makes the low-poly silhouette
+        // look blocky. Averaging across shared positions gives smooth shading
+        // without altering geometry, UVs, or skin weights.
+        smoothNormalsByPosition(mesh);
 
         // Track object materials for gear color texture swapping
         if (pbrMat.name.startsWith('genericRGBMat_Objects')) {
@@ -538,6 +593,7 @@ export class CharacterEntity {
           const isRotation = prop === 'rotationQuaternion' || prop.startsWith('rotationQuaternion');
           const isTranslation = prop === 'position' || prop.startsWith('position');
           const TRANSLATION_BONE_WHITELIST = new Set([
+            'mixamorig:Hips',
             'mixamorig:Spine',
             'mixamorig:Spine1',
             'mixamorig:Spine2',
@@ -1463,10 +1519,10 @@ export async function loadGearTemplate(
     for (const mesh of result.meshes) {
       const mat = mesh.material;
       if (mat && 'diffuseTexture' in mat && (mat as any).diffuseTexture) {
-        (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        (mat as any).diffuseTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
       }
       if (mat && 'albedoTexture' in mat && (mat as any).albedoTexture) {
-        (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_NEAREST_MIPLINEAR);
+        (mat as any).albedoTexture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
       }
     }
 

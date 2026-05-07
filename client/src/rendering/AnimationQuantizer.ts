@@ -3,6 +3,16 @@ import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 export const DEFAULT_QUANTIZE_FRAMES = 8;
 
+/**
+ * Per-animation frame count override. Defaults to DEFAULT_QUANTIZE_FRAMES.
+ * Use a smaller count for animations whose canonical pose count is fewer
+ * than the default — otherwise step-interpolation snaps between off-pose
+ * samples and looks jittery.
+ */
+export const ANIM_QUANTIZE_FRAMES: Record<string, number> = {
+  walk: 5, // 5 canonical poses at frames 0, 6, 13, 19, 26
+};
+
 export const ANIM_DURATIONS: Record<string, number> = {
   idle: 3.6,
   walk: 1.2,
@@ -23,7 +33,7 @@ export const ANIM_DURATIONS: Record<string, number> = {
 
 const ANIM_SAMPLE_CURVES: Record<string, number[]> = {
   idle:         [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
-  walk:         [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
+  walk:         [0, 0.231, 0.500, 0.731, 1.0], // exact ratios for our 5 canonical poses
   run:          [0, 0.14, 0.28, 0.43, 0.57, 0.71, 0.86, 1.0],
   attack:       [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
   attack_slash: [0, 0.10, 0.25, 0.45, 0.60, 0.75, 0.88, 1.0],
@@ -82,7 +92,7 @@ export function quantizeAnimationGroup(
   animName: string,
   frameCount?: number,
 ): void {
-  const frames = frameCount ?? DEFAULT_QUANTIZE_FRAMES;
+  const frames = frameCount ?? ANIM_QUANTIZE_FRAMES[animName] ?? DEFAULT_QUANTIZE_FRAMES;
   const targetDuration = ANIM_DURATIONS[animName] ?? 1.2;
   const targetFps = frames / targetDuration;
   const sampleCurve = ANIM_SAMPLE_CURVES[animName];
